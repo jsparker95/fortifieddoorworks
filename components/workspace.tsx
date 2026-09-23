@@ -141,13 +141,17 @@ function Login({ onReady }: { onReady: () => void }) {
           try {
             const r =
               mode === "signup"
-                ? await supabase.auth.signUp({ email, password })
+                ? await supabase.auth.signUp({
+                    email,
+                    password,
+                    options: { emailRedirectTo: window.location.origin },
+                  })
                 : await supabase.auth.signInWithPassword({ email, password });
             if (r.error) throw r.error;
             if (r.data.session) onReady();
             else
               setMessage(
-                "Check your email to confirm your account, then sign in here.",
+                "Check your email and click the confirmation link, then return here to sign in. If the confirmation opens an unavailable page, return here and try signing in; your email may already be confirmed.",
               );
           } catch (e) {
             setMessage(e instanceof Error ? e.message : "Sign-in failed.");
