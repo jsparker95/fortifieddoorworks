@@ -699,6 +699,8 @@ export default function Workspace() {
     }
     if (pathname === "/") setView("Dashboard");
     if (pathname === "/projects") setView("Projects");
+    if (pathname === "/settings") setView("Settings");
+    if (pathname === "/contractors") setView("Contractors");
     if (!ready || !projects.length || !routeParams?.projectId) return;
     const project = projects.find((item) => item.id === routeParams.projectId);
     if (!project) return;
