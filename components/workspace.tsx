@@ -123,8 +123,8 @@ function Brand() {
         className="brand-logo"
         src="/fortified-doorworks-logo.png"
         alt="Fortified Doorworks"
-        width={799}
-        height={100}
+        width={1820}
+        height={1255}
         priority
       />
     </div>
