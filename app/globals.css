@@ -1792,3 +1792,20 @@ th,
 .elevation-notes { grid-column: 1 / -1; }
 .elevation-notes textarea { min-height: 72px; resize: vertical; }
 @media (max-width: 720px) { .elevation-add { align-items: stretch; flex-direction: column; } }
+.document-spinner {
+  animation: document-spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+.document-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.85rem 0;
+  color: var(--muted, #64748b);
+  font-size: 0.9rem;
+}
+
+@keyframes document-spin {
+  to { transform: rotate(360deg); }
+}

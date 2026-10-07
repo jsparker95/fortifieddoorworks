@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Upload, Sparkles, ExternalLink, Check, RefreshCw } from "lucide-react";
+import { FileText, Upload, Sparkles, ExternalLink, Check, RefreshCw, LoaderCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Kind, ProjectDocument, Row } from "@/lib/types";
 
@@ -24,11 +24,12 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
 }) {
   const [docs, setDocs] = useState<ProjectDocument[]>([]), [file, setFile] = useState<File | null>(null),
     [docType, setDocType] = useState("plan_set"), [revision, setRevision] = useState(""),
-    [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState(""),
+    [busyAction, setBusyAction] = useState<"upload" | "analysis" | null>(null), [error, setError] = useState(""), [notice, setNotice] = useState(""),
     [selectedDoc, setSelectedDoc] = useState(""), [selected, setSelected] = useState<Set<string>>(new Set()),
     [manualPageInput, setManualPageInput] = useState("");
   const current = docs.find((doc) => doc.id === selectedDoc);
   const analysis = current?.analysis as Analysis | null;
+  const busy = busyAction !== null;
 
   const refresh = useCallback(async () => {
     if (demo) return;
@@ -42,7 +43,7 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
 
   async function upload() {
     if (!file) return;
-    setBusy(true); setError(""); setNotice("");
+    setBusyAction("upload"); setError(""); setNotice("");
     try {
       if (file.type !== "application/pdf" || file.size > 100 * 1024 * 1024) throw new Error("Choose a PDF under 100 MB.");
       const id = crypto.randomUUID();
@@ -57,11 +58,11 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
       }
       setFile(null); setRevision(""); setNotice("PDF uploaded to this phase."); setSelectedDoc(id); await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Upload failed."); }
-    finally { setBusy(false); }
+    finally { setBusyAction(null); }
   }
   async function analyze() {
     if (!current) return;
-    setBusy(true); setError(""); setNotice("");
+    setBusyAction("analysis"); setError(""); setNotice("");
     try {
       const manualPages = new Set<number>();
       for (const token of manualPageInput.split(",").map((part) => part.trim()).filter(Boolean)) {
@@ -80,7 +81,7 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
       if (!response.ok) throw new Error(result.error || "Analysis failed.");
       setNotice("Extraction finished. Review every item and page citation before adding anything to the phase."); await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Analysis failed."); }
-    finally { setBusy(false); }
+    finally { setBusyAction(null); }
   }
   async function openPage(page: number) {
     if (!current) return;
@@ -114,10 +115,12 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
         <label className="doc-file">PDF file<input type="file" accept="application/pdf,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)}/></label>
         <label>Document kind<select value={docType} onChange={(event) => setDocType(event.target.value)}><option value="plan_set">Plan set</option><option value="specification">Specifications</option><option value="addendum">Addendum</option><option value="construction_set">Construction set</option><option value="other">Other</option></select></label>
         <label>Revision / issue<input value={revision} onChange={(event) => setRevision(event.target.value)} placeholder="e.g. Rev 2 · 2026-10-06"/></label>
-        <button className="button" disabled={!file || busy} onClick={() => void upload()}><Upload size={16}/> Upload PDF</button>
+        <button className="button" disabled={!file || busy} onClick={() => void upload()}>{busyAction === "upload" ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Upload size={16}/>} {busyAction === "upload" ? "Uploading PDF…" : "Upload PDF"}</button>
       </div>
+      {busyAction === "upload" && <p className="document-progress" role="status" aria-live="polite"><LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> Uploading the PDF and saving it to this phase…</p>}
       <div className="doc-list">{docs.map((doc) => <button key={doc.id} className={`doc-list-item ${doc.id === selectedDoc ? "selected" : ""}`} onClick={() => { setSelectedDoc(doc.id); setSelected(new Set()); }}><FileText size={18}/><span><strong>{doc.file_name}</strong><small>{doc.document_type.replaceAll("_", " ")} · {doc.revision_label || "No revision"} · {doc.page_count ? `${doc.page_count} pages · ` : ""}{doc.status.replaceAll("_", " ")}</small></span></button>)}{!docs.length && <p className="empty-inline">No PDFs uploaded to {phaseName} yet.</p>}</div>
-      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy} onClick={() => void analyze()}><Sparkles size={16}/>{analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
+      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" disabled={busy} onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy} onClick={() => void analyze()}>{busyAction === "analysis" ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busyAction === "analysis" ? "Finding pages & extracting…" : analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
+        {busyAction === "analysis" && <p className="document-progress" role="status" aria-live="polite"><LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> Checking the PDF pages and extracting schedule candidates. Larger plan sets can take up to about two minutes.</p>}
         <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you already know where a schedule is. Up to 36 manually selected pages are sent alongside the highest-ranked text matches.</small></label>
         {analysis && <>
           <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>
