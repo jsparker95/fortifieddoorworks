@@ -2051,3 +2051,19 @@ th,
 @keyframes document-spin {
   to { transform: rotate(360deg); }
 }
+
+.project-file-dialog { width: min(1120px, calc(100vw - 32px)); max-width: 1120px; max-height: calc(100dvh - 48px); padding: 24px; overflow-y: auto; }
+.project-file-dialog::backdrop { background: rgb(15 23 42 / 45%); }
+.project-file-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.project-file-dialog-heading h2 { margin: 0; }
+.project-file-dialog-heading p { margin: 6px 0 0; color: var(--muted); }
+.project-file-rename { display: flex; align-items: end; gap: 12px; margin-bottom: 18px; }
+.project-file-rename label { flex: 1; display: grid; gap: 6px; }
+.project-file-rename input, .project-file-phase select { width: 100%; border: 1px solid #d8dfe8; border-radius: 6px; padding: 10px; background: white; color: #172333; }
+.project-file-preview { height: min(55dvh, 600px); overflow: auto; border: 1px solid #d8dfe8; border-radius: 8px; background: #f4f6f8; }
+.project-file-preview iframe { width: 100%; height: 100%; border: 0; }
+.project-file-preview p { padding: 20px; }
+.project-file-phase { display: grid; gap: 8px; margin: 24px 0 16px; }
+.project-file-dialog .doc-intake { margin: 0; }
+.project-file-dialog .analysis-panel { border-top: 0; }
+@media (max-width: 700px) { .project-file-rename { flex-wrap: wrap; } .project-file-rename label { flex-basis: 100%; } .project-file-dialog { padding: 16px; } .project-file-dialog .panel-heading { flex-wrap: wrap; } }
