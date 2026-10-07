@@ -118,8 +118,8 @@ small {
 }
 .brand-logo {
   display: block;
-  width: 100%;
-  max-width: 300px;
+  width: min(100%, 150px);
+  max-width: 150px;
   height: auto;
 }
 .workspace-tag {
