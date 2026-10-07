@@ -29,6 +29,8 @@ import {
   Menu,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import SettingCell from "./setting-cell";
+import { applyCatalogField, catalogFieldValue, type CatalogField } from "@/lib/catalog-settings";
 import {
   Project,
   ProjectData,
@@ -1259,6 +1261,21 @@ export default function Workspace() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  async function saveCatalogField(id: string, field: CatalogField, draft: string) {
+    let value = catalogFieldValue(field, draft);
+    if (!demo) {
+      const result = await supabase
+        .from("catalogs")
+        .update({ [field]: value })
+        .eq("id", id)
+        .select("value, description")
+        .single();
+      if (result.error) throw new Error(result.error.message);
+      value = result.data[field] ?? "";
+    }
+    setCatalogs((rows) => applyCatalogField(rows, id, field, value));
+    return value;
+  }
   function settingsEditor(
     type: "contractors" | "catalogs",
     row?: Contractor | Catalog,
@@ -2098,7 +2115,10 @@ export default function Workspace() {
                 </nav>
                 <section className="panel">
                   <div className="panel-heading">
-                    <h2>{cat}</h2>
+                    <div>
+                      <h2>{cat}</h2>
+                      <p>Edit any value or description. Changes save when you leave the field.</p>
+                    </div>
                   </div>
                   <div className="table-scroll">
                     <table>
@@ -2114,8 +2134,22 @@ export default function Workspace() {
                           .filter((c) => c.category === cat)
                           .map((c) => (
                             <tr key={c.id}>
-                              <td className="strong">{c.value}</td>
-                              <td>{c.description || "—"}</td>
+                              <td className="strong">
+                                <SettingCell
+                                  value={c.value}
+                                  label={cat + " value " + c.value}
+                                  required
+                                  onSave={(value) => saveCatalogField(c.id, "value", value)}
+                                />
+                              </td>
+                              <td>
+                                <SettingCell
+                                  value={c.description || ""}
+                                  label={cat + " description " + c.value}
+                                  multiline
+                                  onSave={(value) => saveCatalogField(c.id, "description", value)}
+                                />
+                              </td>
                               <td>
                                 <button
                                   className="icon-button"
