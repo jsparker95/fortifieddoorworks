@@ -1,6 +1,8 @@
 import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
 import { derive, str, same } from "./production";
+import { activePhase } from "./phases";
 import { Project, stages } from "./types";
+import QRCode from "qrcode";
 const clean = (s: unknown) =>
   str(s)
     .replace(/[\u2010-\u2015]/g, "-")
@@ -50,6 +52,7 @@ export async function makeDocument(
   const font = await pdf.embedFont(StandardFonts.Helvetica),
     bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const d = derive(project.data);
+  const phase = activePhase(project.data);
   if (type === "labels") {
     const w = (opts.labelWidth || 4) * 72,
       h = (opts.labelHeight || 2) * 72;
@@ -68,10 +71,31 @@ export async function makeDocument(
         details = d.hardware
           .filter((x) => same(x.group, item.group))
           .map((x) => `${x.qty} x ${x.selectedBrand} ${x.selectedComponent}`);
-      } else
-        details = [str(item.partName), `Hardware group: ${str(item.group)}`];
+      } else if (opts.labelKind === "Frames") {
+        details = [
+          `Contractor: ${opts.contractor || "-"}`,
+          `Jobsite: ${project.jobsite || "-"}`,
+          `${str(item.width)} x ${str(item.height)} | Jamb: ${str(item.depth) || "-"}`,
+          `Handing: ${str(item.handing) || "Non-handed"}`,
+          `Frame: ${str(item.frameType) || "-"}`,
+          `Accessories: ${str(item.accessories) || "None"}`,
+        ];
+      } else {
+        details = [
+          `Contractor: ${opts.contractor || "-"}`,
+          `Jobsite: ${project.jobsite || "-"}`,
+          `${str(item.width)} x ${str(item.height)} | ${str(item.handing) || "Non-handed"}`,
+          `${str(item.material) || "Door"} | ${str(item.brand) || "Brand TBD"}`,
+          `Window / louver: ${str(item.window) || "None"}`,
+          `Fire rating: ${str(item.fire) || "Not specified"}`,
+          `Hardware group: ${str(item.group) || "-"}`,
+          `Prep: ${str(item.prep) || "-"}`,
+        ];
+      }
+      const qrSide = Math.min(54, h - 18, w * 0.32);
+      const textWidth = Math.max(72, w - qrSide - 26);
       const title = clean(`${opts.labelKind || "Doors"} | ${str(item.name)}`);
-      const titleLines = wrap(title, bold, 12, w - 24);
+      const titleLines = wrap(title, bold, 12, textWidth);
       const contentTop = h - 25 - titleLines.length * 15;
       if (contentTop < 26)
         throw new Error(
@@ -81,8 +105,9 @@ export async function makeDocument(
       let lines: string[] = [];
       while (size >= 7) {
         lines = [
-          ...wrap(project.name, font, size, w - 24),
-          ...details.flatMap((t) => wrap(t, font, size, w - 24)),
+          ...wrap(project.name, font, size, textWidth),
+          ...wrap(`Phase: ${phase.name}`, font, size, textWidth),
+          ...details.flatMap((t) => wrap(t, font, size, textWidth)),
         ];
         if (lines.length * (size + 3) <= contentTop - 12 || size === 7) break;
         size -= 0.5;
@@ -106,6 +131,30 @@ export async function makeDocument(
         chunk.forEach((l, n) =>
           p.drawText(l, { x: 12, y: contentTop - n * (size + 3), size, font }),
         );
+        const appUrl =
+          typeof window === "undefined" ? "https://fortifieddoorworks.app" : window.location.origin;
+        const scanUrl = new URL(appUrl);
+        scanUrl.searchParams.set("project", project.id);
+        scanUrl.searchParams.set("phase", phase.id);
+        scanUrl.searchParams.set("item", item.id);
+        scanUrl.searchParams.set("kind", opts.labelKind || "Doors");
+        const dataUrl = await QRCode.toDataURL(scanUrl.toString(), {
+          width: 180,
+          margin: 1,
+          errorCorrectionLevel: "M",
+        });
+        const qrBytes = Uint8Array.from(
+          atob(dataUrl.split(",")[1]),
+          (character) => character.charCodeAt(0),
+        );
+        const qr = await pdf.embedPng(qrBytes);
+        const actualQrSide = Math.min(qrSide, h - 16);
+        p.drawImage(qr, {
+          x: w - actualQrSide - 8,
+          y: (h - actualQrSide) / 2,
+          width: actualQrSide,
+          height: actualQrSide,
+        });
       }
     }
     if (!pdf.getPageCount())
@@ -136,6 +185,7 @@ export async function makeDocument(
     write("FORTIFIED DOORWORKS", 12, true);
     write(type, 23, true);
     write(project.name, 15, true);
+    write(`Phase: ${phase.name}`, 12, true);
     write(
       `Jobsite: ${project.jobsite || "-"} | Contractor: ${opts.contractor || "-"}`,
     );

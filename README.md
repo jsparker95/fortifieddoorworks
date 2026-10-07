@@ -25,7 +25,9 @@ A local-only preview at `/?preview=1` uses `local-data/seed.json` when running t
 
 ## Workflow
 
-Each workbook is a separate manufacturing project, grouped under its building. Create an empty job, copy project schedules into a new job, or duplicate an entire existing project. Add walls and door types, hardware group components, and openings. The application derives frame depths, door attributes, modifications, part names, grouped takeoffs and hardware quantities. Existing dropdown options live under Settings. Reference acronyms and material descriptions are editable there too.
+Each project starts with one default phase. Phases are peers without a parent/child hierarchy: split the whole project or any existing phase into multiple phases, by floor or any other opening selection, and repeat as needed. Splitting preserves stable opening IDs and assigns openings and their production milestones to the selected phase. Walls, door types and hardware definitions are copied into each result so phases can evolve independently. Phase changes are project edits and must be saved.
+
+Add walls and door types, hardware group components, and openings. The application derives frame depths, door attributes, modifications, part names, grouped takeoffs and hardware quantities. Existing dropdown options live under Settings. Reference acronyms and material descriptions are editable there too.
 
 All project edits are explicit: click **Save changes**. An optimistic version check prevents silently overwriting another user's changes. Use **Export JSON backup** before resolving a save conflict. Project status can be changed to Archived instead of deleting the project. Excluded openings retain their original records and milestones but are excluded from all production quantities.
 
@@ -33,11 +35,13 @@ Bulk paste accepts CSV or tab-separated data with a header row. Export the secti
 
 Production tracks dated milestones for frames, doors and hardware. Reordering or editing opening marks cannot transfer history to another opening because records use stable IDs. Takeoff selection checkboxes are saved and can drive a selected-only takeoff PDF.
 
-Documents include submittal summaries, takeoffs, opening schedules, build sheets, and size-configurable door/frame/hardware labels. Print labels at actual size. Long hardware packages continue onto additional numbered labels rather than being clipped.
+Documents include submittal summaries, takeoffs, opening schedules, build sheets, and phase-aware door/frame/hardware labels with QR links back to the opening's project phase. PDFs can be uploaded per phase (plans, specifications, addenda, and construction sets), indexed for up to 2,500 pages, and analyzed on demand. Page finding prioritizes Division 08, wall, door and hardware schedules, floor plans and window/sidelight schedules. AI results include page citations, extracted evidence and confidence, remain provisional, and require deliberate human selection before they are added to a phase. A scanned PDF without selectable text is identified and can be re-uploaded after OCR. Uploads are private in Supabase Storage and capped at 100 MB. Configure `AI_GATEWAY_API_KEY` locally if Vercel AI Gateway OIDC is unavailable; `DOCUMENT_EXTRACTION_MODEL` selects the model.
+
+Print labels at actual size. Long hardware packages continue onto additional numbered labels rather than being clipped. The existing Apps Script source and original printed label samples were not available during implementation, so precise 20-up sheet geometry and matching of every original typography/field layout still require comparison against those references.
 
 ## Deployment
 
-The Vercel project is `fortifieddoors`; the GitHub repository is `fortifieddoorworks`. Configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for production and previews. `vercel.json` selects Next.js. Git pushes to the connected production branch deploy through Vercel.
+The Vercel project is `fortifieddoors`; the GitHub repository is `fortifieddoorworks`. Configure `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and (for local extraction) `AI_GATEWAY_API_KEY` for production and previews. Apply additive database migrations in `database/migrations/` to the existing production Supabase project; do not rerun `database/schema.sql`. `vercel.json` selects Next.js. Git pushes to the connected production branch deploy through Vercel.
 
 Set the Supabase Auth site URL and allowed redirect URLs to the production application URL before sending users through email confirmation or password recovery. The browser application supports account creation and password sign-in; users must confirm their email and be in the workspace allowlist.
 

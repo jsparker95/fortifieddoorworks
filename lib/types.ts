@@ -15,7 +15,7 @@ export const stages = [
   "Hardware delivered",
   "Hardware installed",
 ];
-export type ProjectData = {
+export type PhaseContent = {
   walls: Row[];
   doorTypes: Row[];
   hardware: Row[];
@@ -24,6 +24,38 @@ export type ProjectData = {
   references: Row[];
   links: string[];
   takeoffSelection?: Record<string, boolean>;
+};
+export type ProjectPhase = {
+  id: string;
+  name: string;
+  createdAt: string;
+  data: PhaseContent;
+};
+export type PhaseSplitEvent = {
+  id: string;
+  at: string;
+  sourcePhase: ProjectPhase;
+  resultingPhaseIds: string[];
+  openingIdsByPhase: Record<string, string[]>;
+};
+export type ProjectDocument = {
+  id: string;
+  project_id: string;
+  phase_id: string;
+  file_name: string;
+  storage_path: string;
+  document_type: string;
+  revision_label: string;
+  page_count: number | null;
+  status: "uploaded" | "indexed" | "analyzed" | "needs_review" | "failed";
+  analysis: Record<string, unknown> | null;
+  created_at: string;
+};
+export type ProjectData = PhaseContent & {
+  /** Peer phases. Each phase is independently splittable; no parent/child tree. */
+  phases?: ProjectPhase[];
+  activePhaseId?: string;
+  phaseHistory?: PhaseSplitEvent[];
 };
 export type Project = {
   id: string;
@@ -64,7 +96,7 @@ export const statuses = [
   "On hold",
   "Archived",
 ];
-export const emptyData = (): ProjectData => ({
+export const emptyPhaseContent = (): PhaseContent => ({
   walls: [],
   doorTypes: [],
   hardware: [],
@@ -73,6 +105,17 @@ export const emptyData = (): ProjectData => ({
   references: [],
   links: [],
 });
+export const emptyData = (): ProjectData => {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const data = emptyPhaseContent();
+  return {
+    ...data,
+    activePhaseId: id,
+    phases: [{ id, name: "Phase 1", createdAt, data: structuredClone(data) }],
+    phaseHistory: [],
+  };
+};
 export const newProject = (): Project => ({
   id: crypto.randomUUID(),
   name: "",

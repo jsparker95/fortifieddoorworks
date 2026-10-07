@@ -35,10 +35,19 @@ import {
   stages,
   statuses,
   newProject,
+  ProjectPhase,
 } from "@/lib/types";
+import {
+  activePhase,
+  makeSplit,
+  normalizeProject,
+  persistActivePhase,
+  selectPhase,
+} from "@/lib/phases";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
+import { DocumentManager } from "./document-manager";
 import { parseTable, csvCell } from "@/lib/tabular";
 const sections = [
   "Overview",
@@ -248,7 +257,14 @@ export default function Workspace() {
     [labelHeight, setLabelHeight] = useState(2),
     [selected, setSelected] = useState<string[]>([]),
     [labelMode, setLabelMode] = useState("all");
+  const [splitOpen, setSplitOpen] = useState(false),
+    [splitFirstName, setSplitFirstName] = useState(""),
+    [splitSecondName, setSplitSecondName] = useState(""),
+    [splitSecondIds, setSplitSecondIds] = useState<string[]>([]);
+  const [scannedItem, setScannedItem] = useState("");
+  const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
+  const scanOpened = useRef("");
   async function load() {
     setLoading(true);
     setError("");
@@ -294,9 +310,9 @@ export default function Workspace() {
       ]);
       for (const r of all) if (r.error) throw r.error;
       setProjects(
-        ((all[0].data as Project[]) || []).sort((a, b) =>
-          b.updated_at.localeCompare(a.updated_at),
-        ),
+        ((all[0].data as Project[]) || [])
+          .map(normalizeProject)
+          .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
       );
       setContractors(
         ((all[1].data as Contractor[]) || []).sort((a, b) =>
@@ -338,7 +354,45 @@ export default function Workspace() {
     [active],
   );
   const summaries = useMemo(
-    () => projects.map((p) => ({ ...p, computed: derive(p.data) })),
+    () =>
+      projects.map((p) => {
+        const phases = p.data.phases?.length
+          ? p.data.phases
+          : [{ id: p.data.activePhaseId || "legacy", name: "Phase 1", createdAt: p.updated_at, data: p.data }];
+        const phaseData = phases.map((phase) => ({
+          content: phase.data,
+          computed: derive(phase.data),
+        }));
+        const totalStages = phaseData.reduce(
+          (sum, phase) =>
+            sum +
+            phase.computed.frames.length * stages.length,
+          0,
+        );
+        const completedStages = phaseData.reduce(
+          (sum, phase) =>
+            sum +
+            phase.computed.frames.reduce(
+              (count, opening) =>
+                count +
+                stages.filter(
+                  (stage) => phase.content.milestones[opening.id]?.[stage],
+                ).length,
+              0,
+            ),
+          0,
+        );
+        return {
+          ...p,
+          computed: {
+            frames: phaseData.flatMap((phase) => phase.computed.frames),
+            progress: totalStages
+              ? Math.round((completedStages / totalStages) * 100)
+              : 0,
+            phaseCount: phases.length,
+          },
+        };
+      }),
     [projects],
   );
   const visible = summaries.filter(
@@ -369,7 +423,7 @@ export default function Workspace() {
     setNotice("");
   }
   function updateData(data: ProjectData) {
-    if (active) update({ ...active, data });
+    if (active) update({ ...active, data: persistActivePhase(data) });
   }
   function navigate(v: string) {
     if (dirty && !confirm("Discard your unsaved project changes?")) return;
@@ -380,7 +434,7 @@ export default function Workspace() {
     setError("");
   }
   function open(p: Project) {
-    setActive(structuredClone(p));
+    setActive(structuredClone(normalizeProject(p)));
     setDirty(false);
     setSection("Overview");
     setTableQuery("");
@@ -389,21 +443,118 @@ export default function Workspace() {
     setError("");
     setMobile(false);
   }
+  useEffect(() => {
+    if (!ready || !projects.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get("project");
+    const phaseId = params.get("phase");
+    const itemId = params.get("item");
+    const kind = params.get("kind") || "Doors";
+    if (!projectId || !phaseId || !itemId) return;
+    const token = `${projectId}:${phaseId}:${itemId}`;
+    if (scanOpened.current === token) return;
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const normalized = normalizeProject(project);
+    if (!normalized.data.phases?.some((phase) => phase.id === phaseId)) return;
+    scanOpened.current = token;
+    setActive(selectPhase(normalized, phaseId));
+    setDirty(false);
+    setSection("Production");
+    setScannedItem(itemId);
+    setScannedKind(kind);
+    setSelected([]);
+    setNotice(`QR label opened for ${itemId}. Choose the production or fulfillment action below.`);
+    setError("");
+  }, [ready, projects]);
+  function switchPhase(id: string) {
+    if (!active || id === active.data.activePhaseId) return;
+    setActive(selectPhase(active, id));
+    setDirty(true);
+    setNotice("");
+    setSection("Overview");
+    setSelected([]);
+  }
+  function completeScannedStep() {
+    if (!active || !scannedItem || !derived) return;
+    const opening = derived.frames.find((row) => row.id === scannedItem);
+    if (!opening) {
+      setNotice("This QR code points to an item that is not in the selected phase. Check that you scanned the label for this phase.");
+      return;
+    }
+    const kindStages =
+      scannedKind === "Frames"
+        ? stages.slice(0, 3)
+        : scannedKind === "Doors"
+          ? stages.slice(3, 6)
+          : stages.slice(6);
+    const next = kindStages.find(
+      (stage) => !active.data.milestones[opening.id]?.[stage],
+    );
+    if (!next) {
+      setNotice(`${opening.name} has all production and fulfillment milestones recorded.`);
+      return;
+    }
+    updateData({
+      ...active.data,
+      milestones: {
+        ...active.data.milestones,
+        [opening.id]: {
+          ...active.data.milestones[opening.id],
+          [next]: new Date().toLocaleDateString("en-CA"),
+        },
+      },
+    });
+    setNotice(`${opening.name}: recorded “${next}” for ${email || "this team member"}. Save the project to sync the update.`);
+  }
+  function beginPhaseSplit() {
+    if (!active) return;
+    const current = activePhase(active.data);
+    setSplitFirstName(current.name + " A");
+    setSplitSecondName(current.name + " B");
+    setSplitSecondIds([]);
+    setSplitOpen(true);
+    setError("");
+  }
+  function confirmPhaseSplit() {
+    if (!active) return;
+    try {
+      const next = makeSplit(
+        active,
+        splitFirstName,
+        splitSecondName,
+        splitSecondIds,
+      );
+      setActive(next);
+      setDirty(true);
+      setSplitOpen(false);
+      setSection("Overview");
+      setSelected([]);
+      setNotice("Phase split created. Save changes to keep the new phases.");
+      setError("");
+    } catch (e) {
+      setError(message(e));
+    }
+  }
   async function saveProject() {
     if (!active || operation.current) return;
     operation.current = true;
     setBusy(true);
     setError("");
     try {
+      const draft = {
+        ...active,
+        data: persistActivePhase(active.data),
+      };
       let saved: Project;
       if (demo)
         saved = {
-          ...active,
-          version: active.version + 1,
+          ...draft,
+          version: draft.version + 1,
           updated_at: new Date().toISOString(),
         };
       else {
-        const { id, version, updated_at, ...payload } = active;
+        const { id, version, updated_at, ...payload } = draft;
         const r = await supabase
           .from("projects")
           .update(payload)
@@ -487,18 +638,24 @@ export default function Workspace() {
             setError("Choose an existing project template.");
             return;
           }
+          const templateData = structuredClone(activePhase(source.data).data);
+          const fresh = newProject().data;
           next.data = {
-            ...structuredClone(source.data),
+            ...templateData,
             openings: [],
             milestones: {},
             takeoffSelection: {},
             links: [],
-            references: source.data.references.map((r) => ({
+            references: templateData.references.map((r) => ({
               ...r,
               page: "",
               selection: "",
             })),
+            phases: fresh.phases,
+            activePhaseId: fresh.activePhaseId,
+            phaseHistory: [],
           };
+          next.data = persistActivePhase(next.data);
         }
         if (!create) {
           update(next);
@@ -1250,7 +1407,10 @@ export default function Workspace() {
                       </span>
                       <div className="opening-count">
                         <strong>{p.computed.frames.length}</strong>
-                        <small>openings</small>
+                        <small>
+                          openings · {p.computed.phaseCount} phase
+                          {p.computed.phaseCount === 1 ? "" : "s"}
+                        </small>
                       </div>
                       <div className="progress-cell">
                         <div>
@@ -1442,6 +1602,34 @@ export default function Workspace() {
                   >
                     <Save size={16} />
                     {busy ? "Saving…" : dirty ? "Save changes" : "Saved"}
+                  </button>
+                </div>
+              </div>
+              <div className="phase-bar">
+                <div>
+                  <span className="eyebrow">WORK PACKAGE</span>
+                  <strong>{activePhase(active.data).name}</strong>
+                  <span className="phase-count">
+                    {activePhase(active.data).data.openings.length} openings
+                  </span>
+                </div>
+                <div className="phase-actions">
+                  <label>
+                    <span className="sr-only">Switch project phase</span>
+                    <select
+                      value={active.data.activePhaseId || ""}
+                      onChange={(e) => switchPhase(e.target.value)}
+                      aria-label="Switch project phase"
+                    >
+                      {(active.data.phases || []).map((phase) => (
+                        <option key={phase.id} value={phase.id}>
+                          {phase.name} ({phase.data.openings.length})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="button secondary" onClick={beginPhaseSplit}>
+                    <Layers size={16} /> Split phase
                   </button>
                 </div>
               </div>
@@ -1792,6 +1980,29 @@ export default function Workspace() {
                       <Download size={16} /> Build sheet
                     </button>
                   </div>
+                  {scannedItem && (
+                    <div className="scan-action-card" role="status">
+                      <div>
+                        <strong>{scannedKind} label scanned</strong>
+                        <p>
+                          {derived.frames.find((row) => row.id === scannedItem)
+                            ?.name || scannedItem} — verify this is the right item, then record its next stage.
+                        </p>
+                      </div>
+                      <button className="button" onClick={completeScannedStep}>
+                        Record next stage
+                      </button>
+                      <button
+                        className="button secondary"
+                        onClick={() => {
+                          setScannedItem("");
+                          setScannedKind("");
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                   <div className="table-toolbar">
                     <div className="search">
                       <Search size={16} />
@@ -1882,6 +2093,27 @@ export default function Workspace() {
               )}
               {section === "Documents" && (
                 <>
+                  <DocumentManager
+                    key={`${active.id}:${activePhase(active.data).id}`}
+                    projectId={active.id}
+                    phaseId={activePhase(active.data).id}
+                    phaseName={activePhase(active.data).name}
+                    demo={demo}
+                    onApply={(rows) =>
+                      updateData({
+                        ...active.data,
+                        ...Object.fromEntries(
+                          Object.entries(rows).map(([kind, additions]) => [
+                            kind,
+                            [
+                              ...(activePhase(active.data).data[kind as Kind] || []),
+                              ...(additions || []),
+                            ],
+                          ]),
+                        ),
+                      })
+                    }
+                  />
                   <div className="document-grid">
                     {[
                       "Submittal",
@@ -2148,7 +2380,129 @@ export default function Workspace() {
           onClose={() => setEdit(null)}
         />
       )}
+      {splitOpen && active && (
+        <PhaseSplitDialog
+          phase={activePhase(active.data)}
+          firstName={splitFirstName}
+          secondName={splitSecondName}
+          secondOpeningIds={splitSecondIds}
+          error={error}
+          onFirstName={setSplitFirstName}
+          onSecondName={setSplitSecondName}
+          onToggle={(id, checked) =>
+            setSplitSecondIds((ids) =>
+              checked ? [...ids, id] : ids.filter((value) => value !== id),
+            )
+          }
+          onClose={() => setSplitOpen(false)}
+          onConfirm={confirmPhaseSplit}
+        />
+      )}
     </div>
+  );
+}
+function PhaseSplitDialog({
+  phase,
+  firstName,
+  secondName,
+  secondOpeningIds,
+  error,
+  onFirstName,
+  onSecondName,
+  onToggle,
+  onClose,
+  onConfirm,
+}: {
+  phase: ProjectPhase;
+  firstName: string;
+  secondName: string;
+  secondOpeningIds: string[];
+  error: string;
+  onFirstName: (value: string) => void;
+  onSecondName: (value: string) => void;
+  onToggle: (id: string, checked: boolean) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+    return () => dialog.current?.close();
+  }, []);
+  return (
+    <dialog ref={dialog} className="editor split-editor" onCancel={onClose}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onConfirm();
+        }}
+      >
+        <header>
+          <div>
+            <span className="eyebrow">SPLIT WORK PACKAGE</span>
+            <h2>Split {phase.name}</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close dialog"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <div className="form-grid split-name-fields">
+          <label>
+            First phase
+            <input
+              required
+              value={firstName}
+              onChange={(event) => onFirstName(event.target.value)}
+            />
+          </label>
+          <label>
+            Second phase
+            <input
+              required
+              value={secondName}
+              onChange={(event) => onSecondName(event.target.value)}
+            />
+          </label>
+        </div>
+        <section className="split-allocation">
+          <div>
+            <h3>Assign openings</h3>
+            <p>Selected openings move to the second phase. The rest stay in the first.</p>
+          </div>
+          {phase.data.openings.length ? (
+            <div className="split-opening-list">
+              {phase.data.openings.map((opening) => (
+                <label key={opening.id}>
+                  <input
+                    type="checkbox"
+                    checked={secondOpeningIds.includes(opening.id)}
+                    onChange={(event) => onToggle(opening.id, event.target.checked)}
+                  />
+                  <span>{str(opening.name) || "Unnamed opening"}</span>
+                  <small>
+                    {str(opening.room) || str(opening.doorType) || "Opening"}
+                  </small>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-phase-note">This phase has no openings yet. Both new phases will start empty.</p>
+          )}
+        </section>
+        {error && <p role="alert" className="error split-error">{error}</p>}
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="button">Create phases</button>
+        </footer>
+      </form>
+    </dialog>
   );
 }
 function Metric({
