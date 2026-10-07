@@ -65,6 +65,12 @@ import { DoorProductionForms } from "./door-production-forms";
 import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
 import { getProfileDisplayName, isValidAvatarFile } from "@/lib/profile";
+import {
+  compareProjects,
+  projectSortColumns,
+  type ProjectSortColumnKey,
+  type ProjectSortKey,
+} from "@/lib/project-sorting";
 const sections = [
   "Overview",
   "Openings",
@@ -272,7 +278,7 @@ export default function Workspace() {
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All statuses"),
     [building, setBuilding] = useState("All buildings");
-  const [projectSort, setProjectSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "updated_at", direction: "desc" });
+  const [projectSort, setProjectSort] = useState<{ key: ProjectSortKey; direction: "asc" | "desc" }>({ key: "updated_at", direction: "desc" });
   const [dirty, setDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
@@ -475,6 +481,10 @@ export default function Workspace() {
       }),
     [projects],
   );
+  const contractorNames = useMemo(
+    () => new Map(contractors.map((contractor) => [contractor.id, contractor.name])),
+    [contractors],
+  );
   const visible = summaries.filter(
     (p) =>
       (filter === "All statuses"
@@ -491,24 +501,13 @@ export default function Workspace() {
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
-  ).sort((a, b) => {
-    const contractorA = contractors.find((c) => c.id === a.contractor_id)?.name || "";
-    const contractorB = contractors.find((c) => c.id === b.contractor_id)?.name || "";
-    const values: Record<string, [string | number, string | number]> = {
-      name: [a.name, b.name], building: [a.building || "", b.building || ""],
-      contractor: [contractorA, contractorB], pm: [a.pm || "", b.pm || ""],
-      status: [a.status, b.status], openings: [a.computed.frames.length, b.computed.frames.length],
-      progress: [a.computed.progress, b.computed.progress], start_date: [a.start_date || "", b.start_date || ""],
-    };
-    const [left, right] = values[projectSort.key] || [a.updated_at, b.updated_at];
-    const compared = typeof left === "number" && typeof right === "number"
-      ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
-    return projectSort.direction === "asc" ? compared : -compared;
-  });
-  function sortProjects(key: string) {
+  ).sort((a, b) =>
+    compareProjects(a, b, projectSort.key, projectSort.direction, contractorNames),
+  );
+  function sortProjects(key: ProjectSortColumnKey) {
     setProjectSort((current) => ({ key, direction: current.key === key && current.direction === "asc" ? "desc" : "asc" }));
   }
-  function projectColumn(label: string, key: string) {
+  function projectColumn(label: string, key: ProjectSortColumnKey) {
     return <button type="button" className="project-sort" onClick={() => sortProjects(key)} aria-label={`Sort by ${label}`}>
       {label}<span aria-hidden="true">{projectSort.key === key ? (projectSort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
     </button>;
@@ -1867,13 +1866,9 @@ export default function Workspace() {
                 </div>
                 <div className="project-table-head" aria-label="Project columns">
                   <span aria-hidden="true" />
-                  <span>{projectColumn("Project", "name")}</span>
-                  <span>{projectColumn("Building", "building")}</span>
-                  <span>{projectColumn("Contractor", "contractor")}</span>
-                  <span>{projectColumn("Project manager", "pm")}</span>
-                  <span>{projectColumn("Status", "status")}</span>
-                  <span>{projectColumn("Openings", "openings")}</span>
-                  <span>{projectColumn("Production", "progress")}</span>
+                  {projectSortColumns.map(({ label, key }) => (
+                    <span key={key}>{projectColumn(label, key)}</span>
+                  ))}
                   <span aria-hidden="true" />
                 </div>
                 <div className="project-list">
