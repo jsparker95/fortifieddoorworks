@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -237,6 +238,9 @@ function Login({ onReady }: { onReady: () => void }) {
   );
 }
 export default function Workspace() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const routeParams = useParams<{ projectId?: string; phaseId?: string }>();
   const [ready, setReady] = useState(false),
     [loading, setLoading] = useState(true),
     [demo, setDemo] = useState(false),
@@ -474,8 +478,10 @@ export default function Workspace() {
     setView(v);
     setMobile(false);
     setError("");
+    router.push(v === "Dashboard" ? "/" : `/${v.toLowerCase()}`);
   }
   function open(p: Project) {
+    router.push(`/projects/${p.id}`);
     setActive(structuredClone(normalizeProject(p)));
     setPhaseDetail(false);
     setDirty(false);
@@ -486,6 +492,25 @@ export default function Workspace() {
     setError("");
     setMobile(false);
   }
+  useEffect(() => {
+    if (pathname === "/projects") setView("Projects");
+    if (!ready || !projects.length || !routeParams?.projectId) return;
+    const project = projects.find((item) => item.id === routeParams.projectId);
+    if (!project) return;
+    const normalized = normalizeProject(project);
+    setActive((current) => current?.id === project.id ? current : structuredClone(normalized));
+    setView("Projects");
+    setDirty(false);
+    setSection("Overview");
+    const routePhase = normalized.data.phases?.find((item) => item.id === routeParams.phaseId);
+    setPhaseDetail(Boolean(routePhase));
+    if (routeParams.phaseId) {
+      if (routePhase) setActive((current) => {
+        const source = current?.id === project.id ? current : normalized;
+        return source.data.activePhaseId === routePhase.id ? source : selectPhase(source, routePhase.id);
+      });
+    }
+  }, [ready, projects, pathname, routeParams?.projectId, routeParams?.phaseId]);
   useEffect(() => {
     if (!ready || !projects.length) return;
     const params = new URLSearchParams(window.location.search);
@@ -526,6 +551,7 @@ export default function Workspace() {
     setNotice("");
     setSection("Overview");
     setSelected([]);
+    router.push(`/projects/${active.id}/phases/${id}`);
   }
   function createPhase() {
     if (!active) return;
@@ -1781,7 +1807,7 @@ export default function Workspace() {
             <>
               <button
                 className="back-link"
-                onClick={() => { if (dirty && !confirm("Keep unsaved changes while returning to phases?")) return; setPhaseDetail(false); setNotice(""); setError(""); }}
+                onClick={() => { if (dirty && !confirm("Keep unsaved changes while returning to phases?")) return; setPhaseDetail(false); setNotice(""); setError(""); if (active) router.push(`/projects/${active.id}`); }}
               >
                 <ArrowLeft size={16} /> All phases
               </button>
