@@ -17,6 +17,29 @@ export type ElevationDrawing = {
   glassStopFeet: number;
   notes: string;
 };
+export type WoodDoorOrder = {
+  openingId: string;
+  manufacturer: string;
+  species: string;
+  grade: string;
+  cut: string;
+  finish: string;
+  core: string;
+  thickness: string;
+  glazing: string;
+  notes: string;
+};
+export type DoorMachiningSpec = {
+  openingId: string;
+  hingeCount: string;
+  hingeLocations: string;
+  lockBackset: string;
+  lockHeight: string;
+  closerPrep: string;
+  exitDevicePrep: string;
+  otherPrep: string;
+  notes: string;
+};
 export const stages = [
   "Frames produced",
   "Frames delivered",
@@ -42,6 +65,8 @@ export type PhaseContent = {
   installRates?: Record<string, { hours: number; price: number }>;
   anchorMilestones?: Partial<Record<"staged" | "delivered", string>>;
   elevations?: ElevationDrawing[];
+  woodDoorOrders?: WoodDoorOrder[];
+  machiningSpecs?: DoorMachiningSpec[];
 };
 export type ProjectPhase = {
   id: string;
@@ -153,6 +178,8 @@ export const emptyPhaseContent = (): PhaseContent => ({
   references: [],
   links: [],
   elevations: [],
+  woodDoorOrders: [],
+  machiningSpecs: [],
 });
 export const emptyData = (): ProjectData => {
   const id = crypto.randomUUID();

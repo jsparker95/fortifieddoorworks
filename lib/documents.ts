@@ -335,6 +335,38 @@ export async function makeDocument(
         );
       }
     }
+    if (type === "Wood door order form") {
+      const orders = phase.data.woodDoorOrders || [];
+      if (!orders.length) throw new Error("Add at least one wood door order first.");
+      for (const order of orders) {
+        const opening = project.data.openings.find((item) => item.id === order.openingId);
+        if (!opening) continue;
+        write(`${opening.name} | Wood door order`, 17, true);
+        write(`Project: ${project.name} | Phase: ${phase.name} | Quantity: ${opening.qty || 1}`);
+        write(`Opening size: ${feetInches(opening.width)} x ${feetInches(opening.height)} | Handing: ${str(opening.handing) || "TBD"}`);
+        write(`Manufacturer: ${order.manufacturer || "TBD"} | Species: ${order.species || "TBD"} | Grade: ${order.grade || "TBD"}`);
+        write(`Cut: ${order.cut || "TBD"} | Finish: ${order.finish || "TBD"} | Core: ${order.core || "TBD"}`);
+        write(`Thickness: ${order.thickness || "TBD"} | Glazing: ${order.glazing || "None specified"}`);
+        if (order.notes) write(`Notes: ${order.notes}`);
+        y -= 12;
+      }
+    }
+    if (type === "Door machining specifications") {
+      const specs = phase.data.machiningSpecs || [];
+      if (!specs.length) throw new Error("Add at least one machining specification first.");
+      for (const spec of specs) {
+        const opening = project.data.openings.find((item) => item.id === spec.openingId);
+        if (!opening) continue;
+        write(`${opening.name} | Door machining`, 17, true);
+        write(`Project: ${project.name} | Phase: ${phase.name} | Size: ${feetInches(opening.width)} x ${feetInches(opening.height)} | Handing: ${str(opening.handing) || "TBD"}`);
+        write(`Hinges: ${spec.hingeCount || "TBD"} | Hinge locations: ${spec.hingeLocations || "Per standard"}`);
+        write(`Lock backset: ${spec.lockBackset || "TBD"} | Lock height: ${spec.lockHeight || "TBD"}`);
+        write(`Closer preparation: ${spec.closerPrep || "None specified"} | Exit device: ${spec.exitDevicePrep || "None specified"}`);
+        write(`Other preparation: ${spec.otherPrep || "None specified"}`);
+        if (spec.notes) write(`Notes: ${spec.notes}`);
+        y -= 12;
+      }
+    }
     if (type === "Opening schedule")
       for (const o of d.doors)
         write(

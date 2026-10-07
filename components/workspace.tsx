@@ -56,6 +56,7 @@ import { VendorDirectory } from "./vendor-directory";
 import { InstallationEstimator } from "./installation-estimator";
 import { AnchorPackage } from "./anchor-package";
 import { ElevationBuilder } from "./elevation-builder";
+import { DoorProductionForms } from "./door-production-forms";
 import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
 const sections = [
@@ -2224,6 +2225,13 @@ export default function Workspace() {
                     drawings={activePhase(active.data).data.elevations || []}
                     onChange={(elevations) => updateData({ ...active.data, elevations })}
                   />
+                  <DoorProductionForms
+                    openings={activePhase(active.data).data.openings}
+                    woodOrders={activePhase(active.data).data.woodDoorOrders || []}
+                    machiningSpecs={activePhase(active.data).data.machiningSpecs || []}
+                    onWoodOrders={(woodDoorOrders) => updateData({ ...active.data, woodDoorOrders })}
+                    onMachiningSpecs={(machiningSpecs) => updateData({ ...active.data, machiningSpecs })}
+                  />
                   <div className="document-grid">
                     {[
                       "Submittal",
@@ -2231,6 +2239,8 @@ export default function Workspace() {
                       "Opening schedule",
                       "Build sheet",
                       "Elevation drawings",
+                      "Wood door order form",
+                      "Door machining specifications",
                     ].map((t) => (
                       <button
                         className="document-card"

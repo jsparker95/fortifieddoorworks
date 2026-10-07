@@ -19,6 +19,8 @@ const contentFrom = (data: Partial<ProjectData>): PhaseContent => ({
   installRates: data.installRates || {},
   anchorMilestones: data.anchorMilestones || {},
   elevations: Array.isArray(data.elevations) ? data.elevations : [],
+  woodDoorOrders: Array.isArray(data.woodDoorOrders) ? data.woodDoorOrders : [],
+  machiningSpecs: Array.isArray(data.machiningSpecs) ? data.machiningSpecs : [],
 });
 
 /** Upgrade the old one-workbook-per-project JSON shape without losing its contents. */
@@ -163,6 +165,8 @@ export function makeSplit(
       ...structuredClone(source.data),
       openings,
       elevations: source.data.elevations?.filter((drawing) => ids.has(drawing.openingId)) || [],
+      woodDoorOrders: source.data.woodDoorOrders?.filter((record) => ids.has(record.openingId)) || [],
+      machiningSpecs: source.data.machiningSpecs?.filter((record) => ids.has(record.openingId)) || [],
       milestones: Object.fromEntries(
         Object.entries(source.data.milestones).filter(([id]) => ids.has(id)),
       ),
