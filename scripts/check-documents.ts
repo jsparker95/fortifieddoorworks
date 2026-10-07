@@ -17,8 +17,6 @@ async function main() {
   ]) {
     const bytes = await makeDocument(p, type, {
       labelKind: "Hardware",
-      labelWidth: 4,
-      labelHeight: 2,
     });
     writeFileSync(`local-data/pdf-checks/${type}.pdf`, bytes);
     const doc = await PDFDocument.load(bytes);
