@@ -114,29 +114,13 @@ small {
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  font-family: Manrope, sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 1.2px;
-  color: #fff;
+  width: 100%;
 }
-.brand > div > span {
+.brand-logo {
   display: block;
-  font-size: 10px;
-  letter-spacing: 4.1px;
-  font-weight: 500;
-  margin-top: 3px;
-}
-.brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 37px;
-  height: 41px;
-  border: 1px solid #e46c35;
-  color: #f38046;
-  border-radius: 5px;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
 }
 .workspace-tag {
   display: flex;
@@ -1624,9 +1608,6 @@ tbody tr:hover {
   }
   .main {
     margin-left: 190px;
-  }
-  .sidebar .brand {
-    font-size: 13px;
   }
   .workspace-tag {
     font-size: 11px;

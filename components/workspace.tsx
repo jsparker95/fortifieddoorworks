@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
+import Image from "next/image";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -117,13 +118,15 @@ const initials = (s: string) =>
     .toUpperCase();
 function Brand() {
   return (
-    <div className="brand">
-      <span className="brand-mark">
-        <DoorOpen size={24} />
-      </span>
-      <div>
-        FORTIFIED<span>DOORWORKS</span>
-      </div>
+    <div className="brand" aria-label="Fortified Doorworks">
+      <Image
+        className="brand-logo"
+        src="/fortified-doorworks-logo.png"
+        alt="Fortified Doorworks"
+        width={799}
+        height={100}
+        priority
+      />
     </div>
   );
 }
