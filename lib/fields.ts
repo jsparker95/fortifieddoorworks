@@ -67,7 +67,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     {
       key: "brand",
       label: "Frame manufacturer",
-      options: options("Frame brands"),
+      options: [...new Set([...options("Frame brands"), ...supplierOptions])],
     },
     { key: "frameSupplier", label: "Frame supplier / vendor", options: supplierOptions },
     { key: "width", label: "Width (e.g. 3/0)", required: true },

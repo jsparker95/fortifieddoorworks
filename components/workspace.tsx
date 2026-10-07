@@ -54,6 +54,8 @@ import { DocumentManager } from "./document-manager";
 import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
 import { InstallationEstimator } from "./installation-estimator";
+import { AnchorPackage } from "./anchor-package";
+import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
 const sections = [
   "Overview",
@@ -743,9 +745,10 @@ export default function Workspace() {
   }
   function rowEditor(kind: Kind, row?: Row) {
     if (!active) return;
+    const defaultVendor = kind === "hardware" ? vendors.find((vendor) => vendor.name.toLowerCase() === "iml") : undefined;
     const initial = row || {
       id: crypto.randomUUID(),
-      ...(kind === "hardware" ? { qty: 1 } : {}),
+      ...(kind === "hardware" ? { qty: 1, supplier: defaultVendor?.name || "" } : {}),
     };
     setEdit({
       title: row
@@ -760,6 +763,12 @@ export default function Workspace() {
       fields: fields(kind, active.data, catalogs, vendors),
       initial,
       save: (r) => {
+        if (!r.supplier && kind === "hardware") r.supplier = defaultVendor?.name || "";
+        if (kind === "openings") {
+          const frameVendor = supplierFor("openings", r, active.data, vendors);
+          if (!r.frameSupplier) r.frameSupplier = frameVendor?.name || "";
+          if (!r.brand) r.brand = frameVendor?.name || "";
+        }
         const opts = fields(kind, active.data, catalogs, vendors);
         for (const f of opts) {
           if (
@@ -1156,17 +1165,15 @@ export default function Workspace() {
                         ? r[c.key]
                           ? "Yes"
                           : "No"
-                        : str(r[c.key]) || <span className="faint">—</span>}
+                        : (c.key === supplierKey && kind && active
+                          ? supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.name
+                          : str(r[c.key])) || <span className="faint">—</span>}
                     </td>
                   ))}
                   {showLeadTime && (
                     <td>
-                      {vendors.find(
-                        (vendor) =>
-                          vendor.name.toLowerCase() ===
-                          str(r[supplierKey]).toLowerCase(),
-                      )?.lead_time_days !== undefined
-                        ? `${vendors.find((vendor) => vendor.name.toLowerCase() === str(r[supplierKey]).toLowerCase())?.lead_time_days} days`
+                      {kind && active && supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days !== undefined
+                        ? `${supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days} days`
                         : <span className="faint">Supplier not selected</span>}
                     </td>
                   )}
@@ -2050,6 +2057,10 @@ export default function Workspace() {
                   scannedKind={scannedKind}
                   onMilestone={recordWorkMilestone}
                 />
+                <AnchorPackage
+                  data={activePhase(active.data).data}
+                  onChange={(phaseData) => updateData({ ...active.data, ...phaseData })}
+                />
                 <InstallationEstimator
                   data={activePhase(active.data).data}
                   onChange={(phaseData) => updateData({ ...active.data, ...phaseData })}
@@ -2235,17 +2246,16 @@ export default function Workspace() {
                     <div className="panel-heading">
                       <div>
                         <h2>Print labels</h2>
-                        <p>
-                          One label per opening. Long hardware lists continue
-                          onto additional labels.
-                        </p>
+                        <p>{labelKind === "Anchors"
+                          ? "One consolidated anchor package label for this phase."
+                          : "One label per opening. Long hardware lists continue onto additional labels."}</p>
                       </div>
                       <button
                         className="button"
                         disabled={
                           busy ||
                           derived.frames.length === 0 ||
-                          (labelMode === "selected" && !selected.length)
+                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
                         }
                         onClick={() => exportPDF("labels")}
                       >

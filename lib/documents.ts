@@ -9,6 +9,16 @@ const clean = (s: unknown) =>
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/[^\x20-\x7E\n]/g, "?");
+const feetInches = (value: unknown) => {
+  const parts = str(value).split("/");
+  return parts.length === 2 ? `${parts[0]}'-${parts[1]}\"` : str(value);
+};
+const jambInches = (value: unknown) => {
+  const encoded = Number.parseFloat(str(value));
+  return Number.isFinite(encoded) && encoded >= 100
+    ? (encoded / 100).toFixed(2).replace(/0+$/, "").replace(/\.$/, "")
+    : str(value);
+};
 function wrap(text: string, font: PDFFont, size: number, width: number) {
   const lines: string[] = [];
   for (const para of clean(text).split("\n")) {
@@ -70,9 +80,12 @@ export async function makeDocument(
     )) {
       let details: string[];
       if (opts.labelKind === "Hardware") {
-        details = d.hardware
-          .filter((x) => same(x.group, item.group))
-          .map((x) => `${x.qty} x ${x.selectedBrand} ${x.selectedComponent}`);
+        details = [
+          `Door Type ${str(item.doorType) || "-"} - ${project.name}`,
+          ...d.hardware
+            .filter((x) => same(x.group, item.group))
+            .map((x) => `${x.qty} x ${x.selectedBrand} ${x.selectedComponent}`),
+        ];
       } else if (opts.labelKind === "Anchors") {
         details = [
           `Contractor: ${opts.contractor || "-"}`,
@@ -85,6 +98,7 @@ export async function makeDocument(
           `Jobsite: ${project.jobsite || "-"}`,
           `${str(item.width)} x ${str(item.height)} | Jamb: ${str(item.depth) || "-"}`,
           `Handing: ${str(item.handing) || "Non-handed"}`,
+          same(item.brand, "NA") ? "Frame provided by others" : `Frame manufacturer: ${str(item.brand) || "Not specified"}`,
           `Frame: ${str(item.frameType) || "-"}`,
           `Anchor: ${str(item.anchor) || (/\bkd\b|knockdown/i.test(str(item.frameType)) ? "Short lag" : "Wood stud anchor")} · ${str(item.anchorQty) || (Number.parseInt(str(item.height).match(/^\s*(\d+)/)?.[1] || "7", 10) >= 8 ? "8" : "6")}`,
           `Accessories: ${str(item.accessories) || "None"}`,
@@ -94,7 +108,7 @@ export async function makeDocument(
           `Contractor: ${opts.contractor || "-"}`,
           `Jobsite: ${project.jobsite || "-"}`,
           `${str(item.width)} x ${str(item.height)} | ${str(item.handing) || "Non-handed"}`,
-          `${str(item.material) || "Door"} | ${str(item.brand) || "Brand TBD"}`,
+          same(item.brand, "NA") ? "Door provided by others" : `${str(item.material) || "Door"} | ${str(item.brand) || "Brand TBD"}`,
           `Window / louver: ${str(item.window) || "None"}`,
           `Fire rating: ${str(item.fire) || "Not specified"}`,
           `Hardware group: ${str(item.group) || "-"}`,
@@ -113,11 +127,13 @@ export async function makeDocument(
       let size = 10;
       let lines: string[] = [];
       while (size >= 7) {
-        lines = [
-          ...wrap(project.name, font, size, textWidth),
-          ...wrap(`Phase: ${phase.name}`, font, size, textWidth),
-          ...details.flatMap((t) => wrap(t, font, size, textWidth)),
-        ];
+        lines = opts.labelKind === "Hardware"
+          ? details.flatMap((t) => wrap(t, font, size, textWidth))
+          : [
+              ...wrap(project.name, font, size, textWidth),
+              ...wrap(`Phase: ${phase.name}`, font, size, textWidth),
+              ...details.flatMap((t) => wrap(t, font, size, textWidth)),
+            ];
         if (lines.length * (size + 3) <= contentTop - 12 || size === 7) break;
         size -= 0.5;
       }
@@ -216,6 +232,20 @@ export async function makeDocument(
           `${t.name}: ${t.brand} | ${t.material} | ${t.window || "No window"} | ${t.fire || "No rating entered"} | ${t.pr || ""}`,
         ),
       );
+      write("Doorways", 14, true);
+      const doorsById = new Map(d.doors.map((door) => [door.id, door]));
+      for (const frame of d.frames) {
+        const door = doorsById.get(frame.id);
+        write(`${str(frame.name)}:`, 12, true);
+        if (same(frame.brand, "NA")) write("Frame provided by others");
+        else write(`1ea. ${str(frame.brand) || "Frame manufacturer TBD"} ${feetInches(frame.width)} x ${feetInches(frame.height)} x ${jambInches(frame.depth)}\" HM Frame${frame.fire ? ` (${str(frame.fire)}H)` : ""}`);
+        if (!door || same(door.brand, "NA")) write("Door provided by others");
+        else write(`1ea. ${str(door.brand)} ${feetInches(door.width)} x ${feetInches(door.height)} ${str(door.material)}${door.fire ? ` (${str(door.fire)}H)` : ""}`);
+        d.hardware.filter((hardware) => same(hardware.group, frame.group)).forEach((hardware) =>
+          write(`${str(hardware.qty) || "1"}ea. ${str(hardware.selectedBrand)} ${str(hardware.selectedComponent)}`),
+        );
+        y -= 6;
+      }
     }
     if (type === "Takeoff" || type === "Submittal") {
       write("Frame takeoff", 14, true);

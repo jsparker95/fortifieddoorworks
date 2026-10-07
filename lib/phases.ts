@@ -17,6 +17,7 @@ const contentFrom = (data: Partial<ProjectData>): PhaseContent => ({
   links: Array.isArray(data.links) ? data.links : [],
   takeoffSelection: data.takeoffSelection || {},
   installRates: data.installRates || {},
+  anchorMilestones: data.anchorMilestones || {},
 });
 
 /** Upgrade the old one-workbook-per-project JSON shape without losing its contents. */

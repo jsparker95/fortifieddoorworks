@@ -26,6 +26,7 @@ export type PhaseContent = {
   takeoffSelection?: Record<string, boolean>;
   /** Phase-specific installation labor assumptions (hours/unit and sell price/unit). */
   installRates?: Record<string, { hours: number; price: number }>;
+  anchorMilestones?: Partial<Record<"staged" | "delivered", string>>;
 };
 export type ProjectPhase = {
   id: string;
