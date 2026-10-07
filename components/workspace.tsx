@@ -51,6 +51,7 @@ import {
   phaseAncestors,
   resolvePhaseForOpening,
 } from "@/lib/phases";
+import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
@@ -1133,19 +1134,107 @@ export default function Workspace() {
     });
   }
   async function duplicate() {
-    if (!active) return;
-    const p = newProject();
-    p.name = active.name + " — copy";
-    p.building = active.building;
-    p.contractor_id = active.contractor_id;
-    p.data = structuredClone(active.data);
-    p.data.milestones = {};
-    p.data.takeoffSelection = {};
-    p.data.openings = p.data.openings.map((o) => ({
-      ...o,
-      id: crypto.randomUUID(),
-    }));
-    projectEditor(p, true);
+    if (!active || operation.current) return;
+    const source = structuredClone({
+      ...active,
+      data: persistActivePhase(active.data),
+    });
+    const { project: copy, phaseIds } = duplicateProject(source);
+    const copiedPaths: string[] = [];
+    let projectCreated = false;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("Duplicating project and files…");
+    try {
+      if (!demo) {
+        const { data: inserted, error: projectError } = await supabase
+          .from("projects")
+          .insert({
+            id: copy.id,
+            name: copy.name,
+            building: copy.building,
+            contractor_id: copy.contractor_id,
+            start_date: copy.start_date,
+            pm: copy.pm,
+            jobsite: copy.jobsite,
+            scope: copy.scope,
+            cuts: copy.cuts,
+            status: copy.status,
+            source_id: copy.source_id,
+            data: copy.data,
+            version: copy.version,
+            updated_at: copy.updated_at,
+          })
+          .select()
+          .single();
+        if (projectError) throw projectError;
+        projectCreated = true;
+        Object.assign(copy, inserted);
+
+        const { data: documents, error: documentError } = await supabase
+          .from("project_documents")
+          .select("*")
+          .eq("project_id", source.id);
+        if (documentError) throw documentError;
+
+        for (const document of documents || []) {
+          const id = crypto.randomUUID();
+          const phaseId = document.phase_id
+            ? phaseIds.get(document.phase_id)
+            : null;
+          if (document.phase_id && !phaseId) {
+            throw new Error(`Could not match the phase for ${document.file_name}.`);
+          }
+          const safeName = document.file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `${copy.id}/${phaseId || "project"}/${id}/${safeName}`;
+          const { data: file, error: downloadError } = await supabase.storage
+            .from("project-documents")
+            .download(document.storage_path);
+          if (downloadError || !file) {
+            throw new Error(downloadError?.message || `Could not read ${document.file_name}.`);
+          }
+          const { error: uploadError } = await supabase.storage
+            .from("project-documents")
+            .upload(path, file, {
+              contentType: file.type || "application/pdf",
+              upsert: false,
+            });
+          if (uploadError) throw uploadError;
+          copiedPaths.push(path);
+
+          const { error: copyError } = await supabase.from("project_documents").insert({
+            id,
+            project_id: copy.id,
+            phase_id: phaseId,
+            file_name: document.file_name,
+            storage_path: path,
+            document_type: document.document_type,
+            revision_label: document.revision_label,
+            page_count: document.page_count,
+            status: document.status,
+            analysis: document.analysis,
+          });
+          if (copyError) throw copyError;
+        }
+      }
+      setProjects((current) => [copy, ...current]);
+      open(copy);
+      setNotice("Project duplicated with all phases and attached documents. Production milestones were reset.");
+    } catch (e) {
+      if (copiedPaths.length) {
+        await supabase.storage.from("project-documents").remove(copiedPaths);
+      }
+      if (projectCreated) {
+        await supabase.from("project_documents").delete().eq("project_id", copy.id);
+        await supabase.from("projects").delete().eq("id", copy.id);
+      }
+      setNotice("");
+      setError(`Could not duplicate project: ${message(e)}`);
+    } finally {
+      setBusy(false);
+      operation.current = false;
+    }
   }
   async function exportPDF(type: string, selectedTakeoffOnly = false) {
     if (!active) return;
@@ -2078,6 +2167,9 @@ export default function Workspace() {
                   </div>
                 </div>
                 <div className="actions">
+                  <button className="button secondary" disabled={busy} onClick={duplicate}>
+                    <Copy size={16} /> Duplicate project
+                  </button>
                   <button className="button" disabled={!dirty || busy} onClick={() => saveProject()}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
                 </div>
               </div>
@@ -2139,9 +2231,6 @@ export default function Workspace() {
                   </p>
                 </div>
                 <div className="actions">
-                  <button className="button secondary" onClick={duplicate}>
-                    <Copy size={16} /> Duplicate
-                  </button>
                   <button className="button secondary" onClick={beginPhaseSplit}>
                     <Layers size={16} /> Split phase
                   </button>
