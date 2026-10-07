@@ -2051,3 +2051,50 @@ th,
 @keyframes document-spin {
   to { transform: rotate(360deg); }
 }
+
+.setting-cell {
+  min-width: 150px;
+  position: relative;
+}
+.setting-cell .setting-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+}
+.setting-cell textarea.setting-input {
+  display: block;
+  min-width: 200px;
+  resize: vertical;
+}
+.setting-cell .setting-input:hover {
+  border-color: #d8dfe6;
+  background: #f8fafc;
+}
+.setting-cell .setting-input:focus {
+  outline: 2px solid #ba5427;
+  outline-offset: 1px;
+  background: #fff;
+}
+.setting-cell .setting-input[aria-invalid="true"] {
+  border-color: #b42318;
+}
+.setting-save-status, .setting-save-error {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 0 9px;
+}
+.setting-save-status { color: #526477; }
+.setting-save-error { color: #b42318; }
+.setting-retry {
+  margin: 4px 9px;
+  color: #a63f16;
+  text-decoration: underline;
+  font-size: 13px;
+}
