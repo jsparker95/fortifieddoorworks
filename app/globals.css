@@ -1530,8 +1530,8 @@ tbody tr:hover {
   display: grid;
   place-content: center;
   gap: 25px;
-  background: #17212c;
-  color: #a6b4c1;
+  background: var(--bg);
+  color: var(--muted);
 }
 .mobile-toggle {
   display: none;
