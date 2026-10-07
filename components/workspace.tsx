@@ -927,7 +927,7 @@ export default function Workspace() {
     }
   }
   const projectFields: Field[] = [
-    { key: "name", label: "Job / PO name", required: true },
+    { key: "name", label: "Project Name", required: true },
     { key: "building", label: "Building / master project" },
     {
       key: "contractor_id",

@@ -41,7 +41,6 @@ export function Editor({
       >
         <header>
           <div>
-            <span className="eyebrow">WORKSPACE RECORD</span>
             <h2>{title}</h2>
           </div>
           <button
