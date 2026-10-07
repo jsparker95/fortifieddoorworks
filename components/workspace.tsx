@@ -1406,11 +1406,6 @@ export default function Workspace() {
           <Settings size={19} /> Settings
         </button>
         <div className="sidebar-bottom">
-          <div className="shop-note">
-            <Package size={22} />
-            <strong>Built for the shop floor.</strong>
-            <p>One source of truth, from takeoff through delivery.</p>
-          </div>
           <button
             className="nav"
             onClick={async () => {

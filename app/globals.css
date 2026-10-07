@@ -199,26 +199,6 @@ small {
 .sidebar-bottom {
   margin-top: auto;
 }
-.shop-note {
-  margin: 30px 8px;
-  border-top: 1px solid #33404c;
-  padding-top: 23px;
-}
-.shop-note svg {
-  color: #da8a61;
-  margin-bottom: 10px;
-}
-.shop-note strong {
-  display: block;
-  color: #d8e0e7;
-  font-size: 13px;
-}
-.shop-note p {
-  font-size: 12px;
-  line-height: 1.7;
-  color: #8898a7;
-  margin-top: 7px;
-}
 .sidebar-bottom > small {
   display: block;
   padding-left: 13px;
