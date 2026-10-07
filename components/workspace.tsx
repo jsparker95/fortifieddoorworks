@@ -649,7 +649,22 @@ export default function Workspace() {
           updated_at: new Date().toISOString(),
         };
       else {
-        const { id, version, updated_at, ...payload } = draft;
+        const { id, version, updated_at } = draft;
+        // `active` can come from a project-list summary, which adds a derived
+        // `computed` field. Send only columns that exist on public.projects.
+        const payload = {
+          name: draft.name,
+          building: draft.building,
+          contractor_id: draft.contractor_id,
+          start_date: draft.start_date,
+          pm: draft.pm,
+          jobsite: draft.jobsite,
+          scope: draft.scope,
+          cuts: draft.cuts,
+          status: draft.status,
+          source_id: draft.source_id,
+          data: draft.data,
+        };
         const r = await supabase
           .from("projects")
           .update(payload)
