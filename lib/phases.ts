@@ -18,6 +18,7 @@ const contentFrom = (data: Partial<ProjectData>): PhaseContent => ({
   takeoffSelection: data.takeoffSelection || {},
   installRates: data.installRates || {},
   anchorMilestones: data.anchorMilestones || {},
+  elevations: Array.isArray(data.elevations) ? data.elevations : [],
 });
 
 /** Upgrade the old one-workbook-per-project JSON shape without losing its contents. */
@@ -161,6 +162,7 @@ export function makeSplit(
     return {
       ...structuredClone(source.data),
       openings,
+      elevations: source.data.elevations?.filter((drawing) => ids.has(drawing.openingId)) || [],
       milestones: Object.fromEntries(
         Object.entries(source.data.milestones).filter(([id]) => ids.has(id)),
       ),

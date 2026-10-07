@@ -55,6 +55,7 @@ import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
 import { InstallationEstimator } from "./installation-estimator";
 import { AnchorPackage } from "./anchor-package";
+import { ElevationBuilder } from "./elevation-builder";
 import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
 const sections = [
@@ -2218,12 +2219,18 @@ export default function Workspace() {
                       })
                     }
                   />
+                  <ElevationBuilder
+                    openings={activePhase(active.data).data.openings}
+                    drawings={activePhase(active.data).data.elevations || []}
+                    onChange={(elevations) => updateData({ ...active.data, elevations })}
+                  />
                   <div className="document-grid">
                     {[
                       "Submittal",
                       "Takeoff",
                       "Opening schedule",
                       "Build sheet",
+                      "Elevation drawings",
                     ].map((t) => (
                       <button
                         className="document-card"

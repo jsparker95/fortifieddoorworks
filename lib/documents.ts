@@ -279,6 +279,50 @@ export async function makeDocument(
         )
         .forEach((r) => write(`${r.count} x ${r.brand} | ${r.name}`));
     }
+    if (type === "Elevation drawings") {
+      const drawings = phase.data.elevations || [];
+      if (!drawings.length) throw new Error("Add at least one sidelight or borrowed-light elevation first.");
+      const openingById = new Map(project.data.openings.map((opening) => [opening.id, opening]));
+      const wallByName = new Map(project.data.walls.map((wall) => [str(wall.name).toLowerCase(), wall]));
+      for (const [index, drawing] of drawings.entries()) {
+        if (index) addPage();
+        const opening = openingById.get(drawing.openingId);
+        if (!opening) continue;
+        write(`${opening.name} | ${drawing.kind}`, 17, true);
+        write(`Overall: ${drawing.widthIn} x ${drawing.heightIn} in | Wall: ${str(opening.wall) || "-"} | Jamb: ${str(wallByName.get(str(opening.wall).toLowerCase())?.size) || "-"}`);
+        write(`Welds: ${drawing.weldCount} | Glass stop: ${drawing.glassStopFeet} linear ft | Chair rail: ${drawing.chairRailIn} in`);
+        if (drawing.notes) write(`Production notes: ${drawing.notes}`);
+        const scale = Math.min(430 / Math.max(1, drawing.widthIn), 270 / Math.max(1, drawing.heightIn));
+        const frameW = drawing.widthIn * scale, frameH = drawing.heightIn * scale;
+        const x = 90, baseY = 155;
+        page.drawRectangle({ x, y: baseY, width: frameW, height: frameH, borderColor: rgb(0.12, 0.16, 0.2), borderWidth: 5 });
+        const mullions = Math.max(0, Math.min(8, Math.floor(drawing.verticalMullions)));
+        const rails = Math.max(0, Math.min(8, Math.floor(drawing.horizontalRails)));
+        if (drawing.kind === "Door + sidelight") {
+          const doorW = Math.min(drawing.widthIn - 1, Math.max(1, drawing.doorWidthIn)) * scale;
+          const doorH = Math.min(drawing.heightIn, Math.max(1, drawing.doorHeightIn)) * scale;
+          page.drawRectangle({ x, y: baseY, width: doorW, height: doorH, borderColor: rgb(0.16, 0.35, 0.55), borderWidth: 2 });
+          page.drawText("DOOR", { x: x + doorW / 2 - 13, y: baseY + doorH / 2, size: 9, font });
+          const sideX = x + doorW;
+          page.drawRectangle({ x: sideX, y: baseY + 4, width: frameW - doorW, height: frameH - 8, color: rgb(0.91, 0.95, 0.98), borderColor: rgb(0.16, 0.35, 0.55), borderWidth: 2 });
+          for (let m = 1; m <= mullions; m++) page.drawLine({ start: { x: sideX + (frameW - doorW) * m / (mullions + 1), y: baseY }, end: { x: sideX + (frameW - doorW) * m / (mullions + 1), y: baseY + frameH }, thickness: 3, color: rgb(0.16, 0.35, 0.55) });
+        } else {
+          page.drawRectangle({ x: x + 4, y: baseY + 4, width: frameW - 8, height: frameH - 8, color: rgb(0.91, 0.95, 0.98), borderColor: rgb(0.16, 0.35, 0.55), borderWidth: 2 });
+          for (let m = 1; m <= mullions; m++) page.drawLine({ start: { x: x + frameW * m / (mullions + 1), y: baseY }, end: { x: x + frameW * m / (mullions + 1), y: baseY + frameH }, thickness: 3, color: rgb(0.16, 0.35, 0.55) });
+        }
+        for (let rail = 1; rail <= rails; rail++) {
+          const ry = baseY + frameH * rail / (rails + 1);
+          page.drawLine({ start: { x, y: ry }, end: { x: x + frameW, y: ry }, thickness: 3, color: rgb(0.16, 0.35, 0.55) });
+        }
+        if (drawing.chairRailIn > 0 && drawing.chairRailIn < drawing.heightIn) {
+          const cy = baseY + drawing.chairRailIn * scale;
+          page.drawLine({ start: { x, y: cy }, end: { x: x + frameW, y: cy }, thickness: 2, color: rgb(0.55, 0.28, 0.12) });
+        }
+        page.drawLine({ start: { x, y: baseY + frameH + 18 }, end: { x: x + frameW, y: baseY + frameH + 18 }, thickness: 0.75, color: rgb(0.2, 0.25, 0.3) });
+        page.drawText(`${drawing.widthIn} in`, { x: x + frameW / 2 - 20, y: baseY + frameH + 24, size: 9, font });
+        page.drawText(`${drawing.heightIn} in`, { x: x - 50, y: baseY + frameH / 2, size: 9, font });
+      }
+    }
     if (type === "Build sheet") {
       for (const o of d.frames) {
         write(`${o.name} | ${o.partName}`, 12, true);

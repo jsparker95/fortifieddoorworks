@@ -3,6 +3,20 @@ export type Row = {
   [key: string]: string | number | boolean | undefined;
 };
 export type Kind = "walls" | "doorTypes" | "hardware" | "openings";
+export type ElevationDrawing = {
+  openingId: string;
+  kind: "Window / borrowed light" | "Door + sidelight";
+  widthIn: number;
+  heightIn: number;
+  doorWidthIn: number;
+  doorHeightIn: number;
+  chairRailIn: number;
+  verticalMullions: number;
+  horizontalRails: number;
+  weldCount: number;
+  glassStopFeet: number;
+  notes: string;
+};
 export const stages = [
   "Frames produced",
   "Frames delivered",
@@ -27,6 +41,7 @@ export type PhaseContent = {
   /** Phase-specific installation labor assumptions (hours/unit and sell price/unit). */
   installRates?: Record<string, { hours: number; price: number }>;
   anchorMilestones?: Partial<Record<"staged" | "delivered", string>>;
+  elevations?: ElevationDrawing[];
 };
 export type ProjectPhase = {
   id: string;
@@ -137,6 +152,7 @@ export const emptyPhaseContent = (): PhaseContent => ({
   milestones: {},
   references: [],
   links: [],
+  elevations: [],
 });
 export const emptyData = (): ProjectData => {
   const id = crypto.randomUUID();
