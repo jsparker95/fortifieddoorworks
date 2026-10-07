@@ -1352,12 +1352,7 @@ export default function Workspace() {
     );
   }
   if (loading)
-    return (
-      <main className="loading">
-        <Brand />
-        <p>Loading your workspace…</p>
-      </main>
-    );
+    return null;
   if (!ready)
     return (
       <>

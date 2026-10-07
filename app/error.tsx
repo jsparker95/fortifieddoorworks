@@ -6,7 +6,7 @@ export default function ErrorPage({
   retry: () => void;
 }) {
   return (
-    <main className="loading">
+    <main className="error-screen">
       <h1>The workspace could not load.</h1>
       <p>Your saved projects are still in the database.</p>
       <button className="button" onClick={retry}>

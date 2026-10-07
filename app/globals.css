@@ -1505,7 +1505,7 @@ tbody tr:hover {
   width: 100%;
   justify-content: center;
 }
-.loading {
+.error-screen {
   min-height: 100vh;
   display: grid;
   place-content: center;
