@@ -50,14 +50,12 @@ import {
   normalizeProject,
   persistActivePhase,
   selectPhase,
-  phaseAncestors,
   resolvePhaseForOpening,
 } from "@/lib/phases";
 import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
-import { DocumentManager } from "./document-manager";
 import { ProjectFiles } from "./project-files";
 import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
@@ -436,10 +434,6 @@ export default function Workspace() {
   }, [ready, demo]);
   const derived = useMemo(
     () => (active ? derive(active.data) : null),
-    [active],
-  );
-  const documentPhaseIds = useMemo(
-    () => (active ? phaseAncestors(active.data, active.data.activePhaseId || "") : []),
     [active],
   );
   const summaries = useMemo(
@@ -2241,7 +2235,18 @@ export default function Workspace() {
                     {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
                   </div>
                 </section>
-                <ProjectFiles projectId={active.id} demo={demo} />
+                <ProjectFiles key={active.id} projectId={active.id} demo={demo}
+                  phases={active.data.phases || [activePhase(active.data)]}
+                  activePhaseId={activePhase(active.data).id}
+                  onApply={(phaseId, rows) => {
+                    const data = persistActivePhase(active.data);
+                    const phases = (data.phases || []).map((phase) => phase.id === phaseId ? {
+                      ...phase, data: { ...phase.data, ...Object.fromEntries(Object.entries(rows).map(([kind, additions]) =>
+                        [kind, [...(phase.data[kind as Kind] || []), ...(additions || [])]])) },
+                    } : phase);
+                    const current = phases.find((phase) => phase.id === data.activePhaseId);
+                    update({ ...active, data: { ...data, ...(current?.data || {}), phases } });
+                  }} />
               </div>
             </>
           )}
@@ -2760,28 +2765,6 @@ export default function Workspace() {
               )}
               {section === "Documents" && (
                 <>
-                  <DocumentManager
-                    key={`${active.id}:${activePhase(active.data).id}`}
-                    projectId={active.id}
-                    phaseId={activePhase(active.data).id}
-                    phaseAliases={documentPhaseIds}
-                    phaseName={activePhase(active.data).name}
-                    demo={demo}
-                    onApply={(rows) =>
-                      updateData({
-                        ...active.data,
-                        ...Object.fromEntries(
-                          Object.entries(rows).map(([kind, additions]) => [
-                            kind,
-                            [
-                              ...(activePhase(active.data).data[kind as Kind] || []),
-                              ...(additions || []),
-                            ],
-                          ]),
-                        ),
-                      })
-                    }
-                  />
                   <ElevationBuilder
                     openings={activePhase(active.data).data.openings}
                     drawings={activePhase(active.data).data.elevations || []}

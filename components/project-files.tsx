@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, FileText, LoaderCircle, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import type { ProjectDocument } from "@/lib/types";
+import { ProjectFileDialog } from "./project-file-dialog";
+import type { Kind, Row, ProjectPhase, ProjectDocument } from "@/lib/types";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -19,7 +20,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 };
 const ALLOWED_MIME_TYPES = new Set(Object.values(MIME_BY_EXTENSION));
 
-export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boolean }) {
+export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }: {
+  projectId: string; demo: boolean; phases: ProjectPhase[]; activePhaseId: string;
+  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void;
+}) {
+  const [selectedDocument, setSelectedDocument] = useState<ProjectDocument | null>(null);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -31,7 +36,6 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
       .from("project_documents")
       .select("*")
       .eq("project_id", projectId)
-      .is("phase_id", null)
       .order("created_at", { ascending: false });
     if (queryError) setError(queryError.message);
     else setDocuments((data || []) as ProjectDocument[]);
@@ -84,17 +88,6 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
     }
   }
 
-  async function open(document: ProjectDocument) {
-    const { data, error: linkError } = await supabase.storage
-      .from("project-documents")
-      .createSignedUrl(document.storage_path, 300);
-    if (linkError || !data?.signedUrl) {
-      setError(linkError?.message || "Could not open this file.");
-      return;
-    }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  }
-
   return (
     <section className="panel project-files-panel">
       <div className="project-files-heading">
@@ -115,7 +108,7 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
             <ul className="project-file-list">
               {documents.map((document) => (
                 <li key={document.id}>
-                  <button type="button" onClick={() => void open(document)}>
+                  <button type="button" onClick={() => setSelectedDocument(document)}>
                     <FileText size={17} />
                     <span><strong>{document.file_name}</strong><small>{new Date(document.created_at).toLocaleDateString()} · {document.status}</small></span>
                     <ExternalLink size={15} />
@@ -126,6 +119,9 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
           ) : !busy && <p className="project-files-empty">No files yet. Upload plans, contracts, or other shared project files.</p>}
         </>
       )}
+      {selectedDocument && <ProjectFileDialog document={selectedDocument} phases={phases} activePhaseId={activePhaseId}
+        onClose={() => { setSelectedDocument(null); void refresh(); }} onApply={onApply}
+        onUpdated={(document) => { setSelectedDocument(document); setDocuments((rows) => rows.map((row) => row.id === document.id ? document : row)); }} />}
       {error && <p className="project-files-message is-error" role="alert">{error}</p>}
       {notice && <p className="project-files-message" role="status">{notice}</p>}
     </section>
