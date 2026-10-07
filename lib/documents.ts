@@ -3,6 +3,7 @@ import { derive, str, same } from "./production";
 import { activePhase } from "./phases";
 import { Project, stages } from "./types";
 import QRCode from "qrcode";
+import { productionLabels } from "./labels";
 const clean = (s: unknown) =>
   str(s)
     .replace(/[\u2010-\u2015]/g, "-")
@@ -67,24 +68,29 @@ export async function makeDocument(
     const w = (opts.labelWidth || 4) * 72,
       h = (opts.labelHeight || 2) * 72;
     const selected = opts.selected;
+    const legacyKind = opts.labelKind === "Frames" || opts.labelKind === "Doors" || opts.labelKind === "Hardware"
+      ? opts.labelKind
+      : null;
+    const legacyLabels = legacyKind ? productionLabels(phase.data, legacyKind, selected) : [];
     const items =
       opts.labelKind === "Anchors"
         ? [{ id: "anchor-package", name: "Anchor package" }]
-        : opts.labelKind === "Hardware"
-        ? d.frames
+        : legacyKind
+        ? legacyLabels.map((label) => label.item)
         : opts.labelKind === "Frames"
           ? d.frames
           : d.doors;
     for (const item of items.filter(
-      (x) => opts.labelKind === "Anchors" || !selected || selected.includes(x.id),
+      (x) => opts.labelKind === "Anchors" || legacyKind || !selected || selected.includes(x.id),
     )) {
       let details: string[];
-      if (opts.labelKind === "Hardware") {
+      const legacyLabel = legacyLabels.find((label) => label.item.id === item.id);
+      if (legacyLabel) {
         details = [
-          `Door Type ${str(item.doorType) || "-"} - ${project.name}`,
-          ...d.hardware
-            .filter((x) => same(x.group, item.group))
-            .map((x) => `${x.qty} x ${x.selectedBrand} ${x.selectedComponent}`),
+          project.name,
+          `Contractor: ${opts.contractor || "-"}`,
+          `Phase: ${phase.name}`,
+          ...legacyLabel.lines.map((line) => line.text),
         ];
       } else if (opts.labelKind === "Anchors") {
         details = [
@@ -127,7 +133,9 @@ export async function makeDocument(
       let size = 10;
       let lines: string[] = [];
       while (size >= 7) {
-        lines = opts.labelKind === "Hardware"
+        lines = legacyKind
+          ? details.flatMap((t) => wrap(t, font, size, textWidth))
+          : opts.labelKind === "Hardware"
           ? details.flatMap((t) => wrap(t, font, size, textWidth))
           : [
               ...wrap(project.name, font, size, textWidth),
@@ -156,6 +164,17 @@ export async function makeDocument(
         chunk.forEach((l, n) =>
           p.drawText(l, { x: 12, y: contentTop - n * (size + 3), size, font }),
         );
+        if (legacyKind) {
+          const originalLines = legacyLabel?.lines || [];
+          chunk.forEach((line, n) => {
+            const source = originalLines.find((entry) => clean(entry.text) === line && entry.color);
+            if (!source?.color) return;
+            const hex = source.color.slice(1);
+            const color = rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255);
+            p.drawRectangle({ x: 8, y: contentTop - n * (size + 3) - 2, width: Math.min(textWidth, font.widthOfTextAtSize(line, size) + 8), height: size + 3, color, opacity: 0.8 });
+            p.drawText(line, { x: 12, y: contentTop - n * (size + 3), size, font });
+          });
+        }
         const appUrl =
           typeof window === "undefined" ? "https://fortifieddoorworks.app" : window.location.origin;
         const scanUrl = new URL(appUrl);

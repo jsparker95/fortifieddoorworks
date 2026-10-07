@@ -257,6 +257,7 @@ export default function Workspace() {
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All statuses"),
     [building, setBuilding] = useState("All buildings");
+  const [projectSort, setProjectSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "updated_at", direction: "desc" });
   const [dirty, setDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
@@ -457,7 +458,28 @@ export default function Workspace() {
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
-  );
+  ).sort((a, b) => {
+    const contractorA = contractors.find((c) => c.id === a.contractor_id)?.name || "";
+    const contractorB = contractors.find((c) => c.id === b.contractor_id)?.name || "";
+    const values: Record<string, [string | number, string | number]> = {
+      name: [a.name, b.name], building: [a.building || "", b.building || ""],
+      contractor: [contractorA, contractorB], pm: [a.pm || "", b.pm || ""],
+      status: [a.status, b.status], openings: [a.computed.frames.length, b.computed.frames.length],
+      progress: [a.computed.progress, b.computed.progress], start_date: [a.start_date || "", b.start_date || ""],
+    };
+    const [left, right] = values[projectSort.key] || [a.updated_at, b.updated_at];
+    const compared = typeof left === "number" && typeof right === "number"
+      ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+    return projectSort.direction === "asc" ? compared : -compared;
+  });
+  function sortProjects(key: string) {
+    setProjectSort((current) => ({ key, direction: current.key === key && current.direction === "asc" ? "desc" : "asc" }));
+  }
+  function projectColumn(label: string, key: string) {
+    return <button type="button" className="project-sort" onClick={() => sortProjects(key)} aria-label={`Sort by ${label}`}>
+      {label}<span aria-hidden="true">{projectSort.key === key ? (projectSort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+    </button>;
+  }
   function message(e: unknown) {
     return e instanceof Error
       ? e.message
@@ -636,7 +658,7 @@ export default function Workspace() {
     setSplitOpen(true);
     setError("");
   }
-  function confirmPhaseSplit() {
+  async function confirmPhaseSplit() {
     if (!active) return;
     try {
       const next = makeSplit(
@@ -651,21 +673,23 @@ export default function Workspace() {
       setSplitOpen(false);
       setSection("Overview");
       setSelected([]);
-      setNotice("Phase split created. Save changes to keep the new phases.");
+      setNotice("Saving phase split…");
       setError("");
+      if (await saveProject(next)) setNotice("Phase split created and saved.");
+      else setNotice("Phase split could not be saved. Fix the issue and save changes.");
     } catch (e) {
       setError(message(e));
     }
   }
-  async function saveProject() {
-    if (!active || operation.current) return;
+  async function saveProject(projectToSave = active): Promise<boolean> {
+    if (!projectToSave || operation.current) return false;
     operation.current = true;
     setBusy(true);
     setError("");
     try {
       const draft = {
-        ...active,
-        data: persistActivePhase(active.data),
+        ...projectToSave,
+        data: persistActivePhase(projectToSave.data),
       };
       let saved: Project;
       if (demo)
@@ -675,7 +699,7 @@ export default function Workspace() {
           updated_at: new Date().toISOString(),
         };
       else {
-        const { id, version, updated_at } = draft;
+        const { id, version } = draft;
         // `active` can come from a project-list summary, which adds a derived
         // `computed` field. Send only columns that exist on public.projects.
         const payload = {
@@ -709,8 +733,10 @@ export default function Workspace() {
       setActive(saved);
       setDirty(false);
       setNotice("Project saved.");
+      return true;
     } catch (e) {
       setError(message(e));
+      return false;
     } finally {
       setBusy(false);
       operation.current = false;
@@ -1489,11 +1515,9 @@ export default function Workspace() {
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">FROM TAKEOFF TO DELIVERY</span>
                   <h1>
                     Projects<span className="count">{projects.length}</span>
                   </h1>
-                  <p>Your jobs, their details, and what moves next.</p>
                 </div>
                 <button
                   className="button"
@@ -1503,16 +1527,6 @@ export default function Workspace() {
                 </button>
               </div>
               <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2>Project pipeline</h2>
-                    <p>
-                      Grouped by building. Managed one manufacturing job at a
-                      time.
-                    </p>
-                  </div>
-                  <span className="label">{visible.length} projects</span>
-                </div>
                 <div className="filters">
                   <div className="search">
                     <Search size={18} />
@@ -1547,6 +1561,17 @@ export default function Workspace() {
                     ))}
                   </select>
                 </div>
+                <div className="project-table-head" aria-label="Project columns">
+                  <span aria-hidden="true" />
+                  <span>{projectColumn("Project", "name")}</span>
+                  <span>{projectColumn("Building", "building")}</span>
+                  <span>{projectColumn("Contractor", "contractor")}</span>
+                  <span>{projectColumn("Project manager", "pm")}</span>
+                  <span>{projectColumn("Status", "status")}</span>
+                  <span>{projectColumn("Openings", "openings")}</span>
+                  <span>{projectColumn("Production", "progress")}</span>
+                  <span aria-hidden="true" />
+                </div>
                 <div className="project-list">
                   {visible.map((p) => (
                     <button
@@ -1558,17 +1583,12 @@ export default function Workspace() {
                         <Building2 size={22} />
                       </span>
                       <div className="project-name">
-                        <small>{p.building || "Independent project"}</small>
                         <h3>{p.name}</h3>
-                        <p>
-                          {contractors.find((c) => c.id === p.contractor_id)
-                            ?.name || "Contractor not assigned"}
-                          <span>·</span>
-                          {p.pm || "PM not assigned"}
-                          <span>·</span>
-                          {p.start_date || "Start date not set"}
-                        </p>
+                        <small>{p.start_date || "Start date not set"}</small>
                       </div>
+                      <span className="project-meta-cell">{p.building || "Independent project"}</span>
+                      <span className="project-meta-cell">{contractors.find((c) => c.id === p.contractor_id)?.name || "Not assigned"}</span>
+                      <span className="project-meta-cell">{p.pm || "Not assigned"}</span>
                       <span
                         className={
                           "badge status-" +
@@ -1579,10 +1599,7 @@ export default function Workspace() {
                       </span>
                       <div className="opening-count">
                         <strong>{p.computed.frames.length}</strong>
-                        <small>
-                          openings · {p.computed.phaseCount} phase
-                          {p.computed.phaseCount === 1 ? "" : "s"}
-                        </small>
+                        <small>{p.computed.phaseCount} phase{p.computed.phaseCount === 1 ? "" : "s"}</small>
                       </div>
                       <div className="progress-cell">
                         <div>
@@ -1752,17 +1769,15 @@ export default function Workspace() {
           )}
           {active && !phaseDetail && (
             <>
-              <button className="back-link" onClick={() => navigate("Projects")}>
-                <ArrowLeft size={16} /> All projects
-              </button>
               <div className="page-heading detail-heading phase-list-heading">
                 <div>
-                  <span className="eyebrow">{active.building || "MANUFACTURING PROJECT"}</span>
-                  <h1>{active.name}</h1>
-                  <p><span className="badge">{active.status}</span> Choose a phase to open its project workspace.</p>
+                  <div className="phase-title">
+                    <h1>{active.name}</h1>
+                    <span className="badge">{active.status}</span>
+                  </div>
                 </div>
                 <div className="actions">
-                  <button className="button" disabled={!dirty || busy} onClick={saveProject}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
+                  <button className="button" disabled={!dirty || busy} onClick={() => saveProject()}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
                 </div>
               </div>
               <div className="project-overview-grid">
@@ -1780,27 +1795,27 @@ export default function Workspace() {
                     {active.scope && <div className="project-detail-wide"><small>Scope of work</small><strong className="project-scope-text">{active.scope}</strong></div>}
                   </div>
                 </section>
+                <section className="panel phase-list-panel">
+                  <div className="panel-heading">
+                    <div><h2>Phases</h2><p>Choose a work package to view openings, takeoff, and production.</p></div>
+                    <button className="button" onClick={createPhase}><Plus size={17} /> New phase</button>
+                  </div>
+                  <div className="phase-list">
+                    {(active.data.phases || []).map((phase, index) => (
+                      <div className="phase-list-row" key={phase.id}>
+                        <button className="phase-list-open" onClick={() => switchPhase(phase.id)}>
+                          <span className="phase-list-number">{String(index + 1).padStart(2, "0")}</span>
+                          <span className="phase-list-copy"><strong>{phase.name}</strong><small>{phase.data.openings.length} openings</small></span>
+                          <ArrowUpRight size={18} />
+                        </button>
+                        <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
+                      </div>
+                    ))}
+                    {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
+                  </div>
+                </section>
                 <ProjectFiles projectId={active.id} demo={demo} />
               </div>
-              <section className="panel phase-list-panel">
-                <div className="panel-heading">
-                  <div><h2>Phases</h2><p>Choose a work package to view openings, takeoff, and production.</p></div>
-                  <button className="button" onClick={createPhase}><Plus size={17} /> New phase</button>
-                </div>
-                <div className="phase-list">
-                  {(active.data.phases || []).map((phase, index) => (
-                    <div className="phase-list-row" key={phase.id}>
-                      <button className="phase-list-open" onClick={() => switchPhase(phase.id)}>
-                        <span className="phase-list-number">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="phase-list-copy"><strong>{phase.name}</strong><small>{phase.data.openings.length} openings</small></span>
-                        <ArrowUpRight size={18} />
-                      </button>
-                      <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
-                    </div>
-                  ))}
-                  {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
-                </div>
-              </section>
             </>
           )}
           {active && derived && phaseDetail && (
@@ -1829,7 +1844,7 @@ export default function Workspace() {
                   <button
                     className="button"
                     disabled={!dirty || busy}
-                    onClick={saveProject}
+                    onClick={() => saveProject()}
                   >
                     <Save size={16} />
                     {busy ? "Saving…" : dirty ? "Save changes" : "Saved"}

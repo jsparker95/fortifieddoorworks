@@ -99,17 +99,18 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
     <section className="panel project-files-panel">
       <div className="project-files-heading">
         <span className="project-files-icon"><FileText size={19} /></span>
-        <div><h2>Project files</h2><p>Plans, contracts, and other shared files.</p></div>
+        <div><h2>Files</h2><p>Plans, contracts, and other shared files.</p></div>
+        {!demo && <label className={`project-files-add ${busy ? "is-busy" : ""}`}>
+          {busy ? <LoaderCircle size={15} className="document-spinner" /> : <Upload size={15} />}
+          <span>{busy ? "Uploading…" : "Upload File"}</span>
+          <input type="file" disabled={busy} aria-label="Add a project file" onChange={(event) => { void upload(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+        </label>}
       </div>
       {demo ? (
         <p className="project-files-empty">Sign in to upload and manage project files.</p>
       ) : (
         <>
-          <label className={`project-file-upload ${busy ? "is-busy" : ""}`}>
-            {busy ? <LoaderCircle size={18} className="document-spinner" /> : <Upload size={18} />}
-            <span><strong>{busy ? "Uploading file…" : "Add a file"}</strong><small>PDF, Word, Excel, JPG/PNG, or text · up to 100 MB</small></span>
-            <input type="file" disabled={busy} onChange={(event) => { void upload(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-          </label>
+          {busy && <p className="project-file-uploading" role="status" aria-live="polite"><LoaderCircle size={14} className="document-spinner" /> Uploading file…</p>}
           {documents.length ? (
             <ul className="project-file-list">
               {documents.map((document) => (
@@ -122,7 +123,7 @@ export function ProjectFiles({ projectId, demo }: { projectId: string; demo: boo
                 </li>
               ))}
             </ul>
-          ) : <p className="project-files-empty">Your shared project files will appear here.</p>}
+          ) : !busy && <p className="project-files-empty">No files yet. Upload plans, contracts, or other shared project files.</p>}
         </>
       )}
       {error && <p className="project-files-message is-error" role="alert">{error}</p>}

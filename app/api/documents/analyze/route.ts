@@ -46,6 +46,13 @@ export async function POST(request: Request) {
     if (file.size > 100 * 1024 * 1024) throw new Error("PDF exceeds the 100 MB upload limit.");
 
     const pdfBytes = new Uint8Array(await file.arrayBuffer());
+    // Storage metadata can say application/pdf even when the stored bytes are an
+    // HTML error page, an empty object, or another file type. Catch that before
+    // pdf.js returns its low-level "No PDF header found" error.
+    const pdfHeader = new TextDecoder().decode(pdfBytes.subarray(0, Math.min(pdfBytes.length, 1024)));
+    if (!pdfHeader.includes("%PDF-")) {
+      throw new Error("This stored file does not contain a PDF header. Re-upload the original PDF and try again.");
+    }
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const pdf = await pdfjs.getDocument({ data: pdfBytes, useSystemFonts: true, disableFontFace: true }).promise;
     if (pdf.numPages > 2500) throw new Error("This PDF has more than 2,500 pages. Split it into smaller files before analysis.");

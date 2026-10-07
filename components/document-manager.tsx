@@ -46,6 +46,8 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
     setBusyAction("upload"); setError(""); setNotice("");
     try {
       if (file.type !== "application/pdf" || file.size > 100 * 1024 * 1024) throw new Error("Choose a PDF under 100 MB.");
+      const header = new TextDecoder().decode(await file.slice(0, 1024).arrayBuffer());
+      if (!header.includes("%PDF-")) throw new Error("This file does not contain a PDF header. Choose the original PDF and try again.");
       const id = crypto.randomUUID();
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `${projectId}/${phaseId}/${id}/${safeName}`;
