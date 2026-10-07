@@ -40,7 +40,7 @@ export function ElevationBuilder({
   return <section className="panel">
     <div className="panel-heading"><div><h2>Elevation drawings</h2><p>Create a production elevation for a borrowed light, window, or door with sidelight.</p></div></div>
     <div className="elevation-add"><label>Opening<select value={openingId} onChange={(e) => setOpeningId(e.target.value)}>{openings.map((o) => <option key={o.id} value={o.id}>{str(o.name)}</option>)}</select></label><button className="button" disabled={!openingId} onClick={add}>Add elevation</button></div>
-    {!drawings.length && <p className="muted">No elevations added. Select an opening and add one when a custom glazed frame needs a drawing.</p>}
+    {!drawings.length && <p className="muted">{openings.length ? "No elevations yet. Add one when a glazed frame or sidelight needs a production drawing." : "Add an opening in the Openings tab before creating an elevation."}</p>}
     <div className="elevation-list">{drawings.map((drawing, index) => {
       const opening = openings.find((item) => item.id === drawing.openingId);
       return <article className="elevation-card" key={`${drawing.openingId}-${index}`}>

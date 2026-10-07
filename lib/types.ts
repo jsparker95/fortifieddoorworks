@@ -84,7 +84,7 @@ export type PhaseSplitEvent = {
 export type ProjectDocument = {
   id: string;
   project_id: string;
-  phase_id: string;
+  phase_id: string | null;
   file_name: string;
   storage_path: string;
   document_type: string;

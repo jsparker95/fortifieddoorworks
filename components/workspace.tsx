@@ -7,6 +7,7 @@ import {
   Plus,
   Settings,
   LayoutGrid,
+  LayoutDashboard,
   DoorOpen,
   Package,
   Building2,
@@ -51,6 +52,7 @@ import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
 import { DocumentManager } from "./document-manager";
+import { ProjectFiles } from "./project-files";
 import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
 import { InstallationEstimator } from "./installation-estimator";
@@ -245,7 +247,8 @@ export default function Workspace() {
     [catalogs, setCatalogs] = useState<Catalog[]>([]),
     [vendors, setVendors] = useState<Vendor[]>([]);
   const [active, setActive] = useState<Project | null>(null),
-    [view, setView] = useState("Projects"),
+    [phaseDetail, setPhaseDetail] = useState(false),
+    [view, setView] = useState("Dashboard"),
     [section, setSection] = useState("Overview"),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All statuses"),
@@ -474,6 +477,7 @@ export default function Workspace() {
   }
   function open(p: Project) {
     setActive(structuredClone(normalizeProject(p)));
+    setPhaseDetail(false);
     setDirty(false);
     setSection("Overview");
     setTableQuery("");
@@ -501,6 +505,7 @@ export default function Workspace() {
     if (!resolvedPhaseId) return;
     scanOpened.current = token;
     setActive(selectPhase(normalized, resolvedPhaseId));
+    setPhaseDetail(true);
     setDirty(false);
     setSection("Production");
     setScannedItem(kind === "Anchors" ? "" : itemId || "");
@@ -513,12 +518,43 @@ export default function Workspace() {
     setError("");
   }, [ready, projects]);
   function switchPhase(id: string) {
-    if (!active || id === active.data.activePhaseId) return;
+    if (!active) return;
+    if (id === active.data.activePhaseId && phaseDetail) return;
     setActive(selectPhase(active, id));
+    setPhaseDetail(true);
     setDirty(true);
     setNotice("");
     setSection("Overview");
     setSelected([]);
+  }
+  function createPhase() {
+    if (!active) return;
+    const name = window.prompt("Name this phase", `Phase ${(active.data.phases || []).length + 1}`)?.trim();
+    if (!name) return;
+    if ((active.data.phases || []).some((phase) => phase.name.toLowerCase() === name.toLowerCase())) {
+      setError("Choose a phase name that is not already in use.");
+      return;
+    }
+    const blank = newProject().data.phases![0].data;
+    const phase: ProjectPhase = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), data: structuredClone(blank) };
+    const next = { ...active, data: { ...active.data, phases: [...(active.data.phases || []), phase] } };
+    setActive(next);
+    setDirty(true);
+    setNotice("Phase created. Save changes to keep it.");
+    setError("");
+  }
+  function renamePhase(phase: ProjectPhase) {
+    if (!active) return;
+    const name = window.prompt("Rename phase", phase.name)?.trim();
+    if (!name || name === phase.name) return;
+    if ((active.data.phases || []).some((item) => item.id !== phase.id && item.name.toLowerCase() === name.toLowerCase())) {
+      setError("Choose a phase name that is not already in use.");
+      return;
+    }
+    setActive({ ...active, data: { ...active.data, phases: (active.data.phases || []).map((item) => item.id === phase.id ? { ...item, name } : item) } });
+    setDirty(true);
+    setNotice("Phase renamed. Save changes to keep it.");
+    setError("");
   }
   function completeScannedStep() {
     if (!active || !scannedItem || !derived) return;
@@ -584,6 +620,7 @@ export default function Workspace() {
         splitSecondIds,
       );
       setActive(next);
+      setPhaseDetail(true);
       setDirty(true);
       setSplitOpen(false);
       setSection("Overview");
@@ -1274,6 +1311,12 @@ export default function Workspace() {
         </div>
         <span className="nav-label">WORKSPACE</span>
         <button
+          className={"nav " + (view === "Dashboard" ? "selected" : "")}
+          onClick={() => navigate("Dashboard")}
+        >
+          <LayoutDashboard size={19} /> Dashboard
+        </button>
+        <button
           className={"nav " + (view === "Projects" ? "selected" : "")}
           onClick={() => navigate("Projects")}
         >
@@ -1357,22 +1400,14 @@ export default function Workspace() {
               {notice}
             </div>
           )}
-          {!active && view === "Projects" && (
+          {!active && view === "Dashboard" && (
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">FROM TAKEOFF TO DELIVERY</span>
-                  <h1>
-                    Projects<span className="count">{projects.length}</span>
-                  </h1>
-                  <p>Your jobs, their details, and what moves next.</p>
+                  <span className="eyebrow">WORKSPACE AT A GLANCE</span>
+                  <h1>Dashboard</h1>
+                  <p>Key numbers from your project pipeline.</p>
                 </div>
-                <button
-                  className="button"
-                  onClick={() => projectEditor(newProject(), true)}
-                >
-                  <Plus size={18} /> New project
-                </button>
               </div>
               <div className="metrics">
                 <Metric
@@ -1406,6 +1441,25 @@ export default function Workspace() {
                   }
                   icon={<Check />}
                 />
+              </div>
+            </>
+          )}
+          {!active && view === "Projects" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">FROM TAKEOFF TO DELIVERY</span>
+                  <h1>
+                    Projects<span className="count">{projects.length}</span>
+                  </h1>
+                  <p>Your jobs, their details, and what moves next.</p>
+                </div>
+                <button
+                  className="button"
+                  onClick={() => projectEditor(newProject(), true)}
+                >
+                  <Plus size={18} /> New project
+                </button>
               </div>
               <section className="panel">
                 <div className="panel-heading">
@@ -1655,13 +1709,66 @@ export default function Workspace() {
               />
             </>
           )}
-          {active && derived && (
+          {active && !phaseDetail && (
+            <>
+              <button className="back-link" onClick={() => navigate("Projects")}>
+                <ArrowLeft size={16} /> All projects
+              </button>
+              <div className="page-heading detail-heading phase-list-heading">
+                <div>
+                  <span className="eyebrow">{active.building || "MANUFACTURING PROJECT"}</span>
+                  <h1>{active.name}</h1>
+                  <p><span className="badge">{active.status}</span> Choose a phase to open its project workspace.</p>
+                </div>
+                <div className="actions">
+                  <button className="button" disabled={!dirty || busy} onClick={saveProject}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
+                </div>
+              </div>
+              <div className="project-overview-grid">
+                <section className="panel project-details-panel">
+                  <div className="panel-heading">
+                    <div><h2>Project details</h2><p>Key information for this job.</p></div>
+                    <button className="button secondary" onClick={() => projectEditor(active)}><Pencil size={15} /> Edit details</button>
+                  </div>
+                  <div className="project-detail-grid">
+                    <div><small>Building</small><strong>{active.building || "Not specified"}</strong></div>
+                    <div><small>Contractor</small><strong>{contractors.find((item) => item.id === active.contractor_id)?.name || "Not assigned"}</strong></div>
+                    <div><small>Project manager</small><strong>{active.pm || "Not assigned"}</strong></div>
+                    <div><small>Start date</small><strong>{active.start_date || "Not scheduled"}</strong></div>
+                    <div className="project-detail-wide"><small>Jobsite</small><strong>{active.jobsite || "No jobsite entered"}</strong></div>
+                    {active.scope && <div className="project-detail-wide"><small>Scope of work</small><strong className="project-scope-text">{active.scope}</strong></div>}
+                  </div>
+                </section>
+                <ProjectFiles projectId={active.id} demo={demo} />
+              </div>
+              <section className="panel phase-list-panel">
+                <div className="panel-heading">
+                  <div><h2>Phases</h2><p>Choose a work package to view openings, takeoff, and production.</p></div>
+                  <button className="button" onClick={createPhase}><Plus size={17} /> New phase</button>
+                </div>
+                <div className="phase-list">
+                  {(active.data.phases || []).map((phase, index) => (
+                    <div className="phase-list-row" key={phase.id}>
+                      <button className="phase-list-open" onClick={() => switchPhase(phase.id)}>
+                        <span className="phase-list-number">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="phase-list-copy"><strong>{phase.name}</strong><small>{phase.data.openings.length} openings</small></span>
+                        <ArrowUpRight size={18} />
+                      </button>
+                      <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
+                    </div>
+                  ))}
+                  {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
+                </div>
+              </section>
+            </>
+          )}
+          {active && derived && phaseDetail && (
             <>
               <button
                 className="back-link"
-                onClick={() => navigate("Projects")}
+                onClick={() => { if (dirty && !confirm("Keep unsaved changes while returning to phases?")) return; setPhaseDetail(false); setNotice(""); setError(""); }}
               >
-                <ArrowLeft size={16} /> All projects
+                <ArrowLeft size={16} /> All phases
               </button>
               <div className="page-heading detail-heading">
                 <div>
@@ -2252,7 +2359,6 @@ export default function Workspace() {
                           <FileText />
                         </span>
                         <h3>{t}</h3>
-                        <p>Generate from current project details</p>
                         <span>
                           Download PDF <ArrowUpRight size={16} />
                         </span>
