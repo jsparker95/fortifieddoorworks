@@ -499,7 +499,7 @@ export default function Workspace() {
     setActive(selectPhase(normalized, resolvedPhaseId));
     setDirty(false);
     setSection("Production");
-    setScannedItem(itemId || "");
+    setScannedItem(kind === "Anchors" ? "" : itemId || "");
     setScannedKind(kind);
     setSelected([]);
     const resolvedName = normalized.data.phases?.find((phase) => phase.id === resolvedPhaseId)?.name;
