@@ -115,6 +115,20 @@ export function derive(data: ProjectData) {
       hardwareTakeoff.set(key, v);
     });
   const frameTakeoff = group(frames.filter((o) => !same(o.wall, "NA")));
+  const frameSortKey = (name: string) => {
+    const parts = name.trim().split(/\s+/);
+    const dimensions = parts[0] || "";
+    const width = Number(dimensions.slice(0, 2)) || 0;
+    const height = Number(dimensions.slice(2)) || 0;
+    const jamb = Number(parts[1]) || 0;
+    const hand = key(parts[2]);
+    const handOrder = hand.startsWith("non") || hand === "n" ? 0 : hand === "l" || hand.startsWith("left") ? 1 : hand === "r" || hand.startsWith("right") ? 2 : 3;
+    return { jamb, width, height, hand: handOrder };
+  };
+  frameTakeoff.sort((a, b) => {
+    const ka = frameSortKey(a.name), kb = frameSortKey(b.name);
+    return ka.jamb - kb.jamb || ka.width - kb.width || ka.height - kb.height || ka.hand - kb.hand || a.name.localeCompare(b.name);
+  });
   const doorTakeoff = group(doors.filter((o) => !same(o.doorType, "NA")));
   const anchors = new Map<string, { name: string; size: string; count: number }>();
   for (const frame of frames) {
