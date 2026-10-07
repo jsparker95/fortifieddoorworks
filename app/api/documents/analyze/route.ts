@@ -36,7 +36,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string };
     if (!body.documentId || !body.projectId || !body.phaseId) return Response.json({ error: "Document, project, and phase are required." }, { status: 400 });
-    const { data: document, error: readError } = await supabase.from("project_documents").select("*").eq("id", body.documentId).eq("project_id", body.projectId).eq("phase_id", body.phaseId).single();
+    const { data: project, error: projectError } = await supabase.from("projects").select("data").eq("id", body.projectId).single();
+    const phases = (project?.data as { phases?: Array<{ id: string }> } | undefined)?.phases || [];
+    if (projectError || !phases.some((phase) => phase.id === body.phaseId)) return Response.json({ error: "Project phase not found or access denied." }, { status: 404 });
+    const { data: document, error: readError } = await supabase.from("project_documents").select("*").eq("id", body.documentId).eq("project_id", body.projectId).single();
     if (readError || !document) return Response.json({ error: "Document not found or access denied." }, { status: 404 });
     const { data: file, error: downloadError } = await supabase.storage.from("project-documents").download(document.storage_path);
     if (downloadError || !file) throw new Error(downloadError?.message || "PDF could not be downloaded.");

@@ -24,6 +24,8 @@ export type PhaseContent = {
   references: Row[];
   links: string[];
   takeoffSelection?: Record<string, boolean>;
+  /** Phase-specific installation labor assumptions (hours/unit and sell price/unit). */
+  installRates?: Record<string, { hours: number; price: number }>;
 };
 export type ProjectPhase = {
   id: string;
@@ -49,6 +51,24 @@ export type ProjectDocument = {
   page_count: number | null;
   status: "uploaded" | "indexed" | "analyzed" | "needs_review" | "failed";
   analysis: Record<string, unknown> | null;
+  created_at: string;
+};
+export type ProductionWorkSession = {
+  id: string;
+  worker_email: string;
+  project_id: string | null;
+  phase_id: string | null;
+  opening_id: string | null;
+  opening_mark: string;
+  work_kind: "shift" | "frame" | "door" | "hardware" | "coded";
+  coded_category: string;
+  status: "running" | "completed" | "pending_approval" | "approved" | "rejected";
+  started_at: string;
+  ended_at: string | null;
+  piece_rate_hours: number;
+  notes: string;
+  approved_by: string | null;
+  approved_at: string | null;
   created_at: string;
 };
 export type ProjectData = PhaseContent & {
@@ -85,6 +105,18 @@ export type Catalog = {
   category: string;
   value: string;
   description: string;
+};
+export type Vendor = {
+  id: string;
+  name: string;
+  lead_time_days: number;
+  categories: string[];
+  contact: string;
+  email: string;
+  phone: string;
+  notes: string;
+  active: boolean;
+  updated_at: string;
 };
 export const statuses = [
   "Planning",

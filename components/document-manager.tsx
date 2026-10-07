@@ -18,8 +18,8 @@ const categories: Array<{ key: keyof Analysis; label: string; kind: Kind }> = [
   { key: "hardwareGroups", label: "Hardware components", kind: "hardware" },
 ];
 
-export function DocumentManager({ projectId, phaseId, phaseName, demo, onApply }: {
-  projectId: string; phaseId: string; phaseName: string; demo: boolean;
+export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, demo, onApply }: {
+  projectId: string; phaseId: string; phaseAliases: string[]; phaseName: string; demo: boolean;
   onApply: (rows: Partial<Record<Kind, Row[]>>) => void;
 }) {
   const [docs, setDocs] = useState<ProjectDocument[]>([]), [file, setFile] = useState<File | null>(null),
@@ -31,12 +31,12 @@ export function DocumentManager({ projectId, phaseId, phaseName, demo, onApply }
 
   const refresh = useCallback(async () => {
     if (demo) return;
-    const { data, error: queryError } = await supabase.from("project_documents").select("*").eq("project_id", projectId).eq("phase_id", phaseId).order("created_at", { ascending: false });
+    const { data, error: queryError } = await supabase.from("project_documents").select("*").eq("project_id", projectId).in("phase_id", phaseAliases).order("created_at", { ascending: false });
     if (queryError) setError(queryError.message); else {
       const rows = (data || []) as ProjectDocument[]; setDocs(rows);
       if (!selectedDoc && rows[0]) setSelectedDoc(rows[0].id);
     }
-  }, [demo, projectId, phaseId, selectedDoc]);
+  }, [demo, projectId, phaseAliases, selectedDoc]);
   useEffect(() => { void refresh(); }, [refresh]);
 
   async function upload() {

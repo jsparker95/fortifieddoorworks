@@ -1,4 +1,4 @@
-import { Catalog, Kind, ProjectData } from "./types";
+import { Catalog, Kind, ProjectData, Vendor } from "./types";
 export type Field = {
   key: string;
   label: string;
@@ -6,9 +6,10 @@ export type Field = {
   options?: string[];
   required?: boolean;
 };
-export function fields(kind: Kind, d: ProjectData, c: Catalog[]): Field[] {
+export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor[] = []): Field[] {
   const options = (category: string) =>
     c.filter((c) => c.category === category).map((c) => c.value);
+  const supplierOptions = vendors.map((vendor) => vendor.name);
   if (kind === "walls")
     return [
       { key: "name", label: "Wall type", required: true },
@@ -18,6 +19,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[]): Field[] {
     return [
       { key: "name", label: "Door type", required: true },
       { key: "brand", label: "Manufacturer", options: options("Door brands") },
+      { key: "supplier", label: "Supplier / vendor", options: supplierOptions },
       {
         key: "material",
         label: "Material",
@@ -30,7 +32,9 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[]): Field[] {
   if (kind === "hardware")
     return [
       { key: "group", label: "Hardware group", required: true },
+      { key: "installCategory", label: "Installation category", options: ["Lever / lock", "Closer", "Panic hardware", "Weatherstrip / sweep", "Kick plate", "Threshold / transition", "Other"] },
       { key: "brand", label: "Brand", options: options("Hardware brands") },
+      { key: "supplier", label: "Supplier / vendor", options: supplierOptions },
       {
         key: "component",
         label: "Component",
@@ -65,6 +69,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[]): Field[] {
       label: "Frame manufacturer",
       options: options("Frame brands"),
     },
+    { key: "frameSupplier", label: "Frame supplier / vendor", options: supplierOptions },
     { key: "width", label: "Width (e.g. 3/0)", required: true },
     { key: "height", label: "Height (e.g. 7/0)", required: true },
     {
@@ -76,7 +81,9 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[]): Field[] {
     { key: "handing", label: "Handing", options: options("Handing") },
     { key: "frameType", label: "Frame type", options: options("Frame types") },
     { key: "anchor", label: "Anchor", options: options("Anchors") },
+    { key: "anchorQty", label: "Anchors per frame", type: "number" },
     { key: "qty", label: "Source quantity / note" },
+    { key: "pieceRateHours", label: "Frame piece-rate credit (hours)", type: "number" },
     { key: "pr", label: "P.R. / special requirements" },
     {
       key: "doorType",

@@ -58,19 +58,27 @@ export async function makeDocument(
       h = (opts.labelHeight || 2) * 72;
     const selected = opts.selected;
     const items =
-      opts.labelKind === "Hardware"
+      opts.labelKind === "Anchors"
+        ? [{ id: "anchor-package", name: "Anchor package" }]
+        : opts.labelKind === "Hardware"
         ? d.frames
         : opts.labelKind === "Frames"
           ? d.frames
           : d.doors;
     for (const item of items.filter(
-      (x) => !selected || selected.includes(x.id),
+      (x) => opts.labelKind === "Anchors" || !selected || selected.includes(x.id),
     )) {
       let details: string[];
       if (opts.labelKind === "Hardware") {
         details = d.hardware
           .filter((x) => same(x.group, item.group))
           .map((x) => `${x.qty} x ${x.selectedBrand} ${x.selectedComponent}`);
+      } else if (opts.labelKind === "Anchors") {
+        details = [
+          `Contractor: ${opts.contractor || "-"}`,
+          `Jobsite: ${project.jobsite || "-"}`,
+          ...d.anchorTakeoff.map((anchor) => `${anchor.count} x ${anchor.size} ${anchor.name}`),
+        ];
       } else if (opts.labelKind === "Frames") {
         details = [
           `Contractor: ${opts.contractor || "-"}`,
@@ -78,6 +86,7 @@ export async function makeDocument(
           `${str(item.width)} x ${str(item.height)} | Jamb: ${str(item.depth) || "-"}`,
           `Handing: ${str(item.handing) || "Non-handed"}`,
           `Frame: ${str(item.frameType) || "-"}`,
+          `Anchor: ${str(item.anchor) || (/\bkd\b|knockdown/i.test(str(item.frameType)) ? "Short lag" : "Wood stud anchor")} · ${str(item.anchorQty) || (Number.parseInt(str(item.height).match(/^\s*(\d+)/)?.[1] || "7", 10) >= 8 ? "8" : "6")}`,
           `Accessories: ${str(item.accessories) || "None"}`,
         ];
       } else {

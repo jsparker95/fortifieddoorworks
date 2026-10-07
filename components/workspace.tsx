@@ -36,6 +36,7 @@ import {
   statuses,
   newProject,
   ProjectPhase,
+  Vendor,
 } from "@/lib/types";
 import {
   activePhase,
@@ -43,11 +44,16 @@ import {
   normalizeProject,
   persistActivePhase,
   selectPhase,
+  phaseAncestors,
+  resolvePhaseForOpening,
 } from "@/lib/phases";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
 import { DocumentManager } from "./document-manager";
+import { ProductionTracker } from "./production-tracker";
+import { VendorDirectory } from "./vendor-directory";
+import { InstallationEstimator } from "./installation-estimator";
 import { parseTable, csvCell } from "@/lib/tabular";
 const sections = [
   "Overview",
@@ -229,9 +235,11 @@ export default function Workspace() {
     [loading, setLoading] = useState(true),
     [demo, setDemo] = useState(false),
     [email, setEmail] = useState("");
+  const [role, setRole] = useState<"operator" | "manager">("operator");
   const [projects, setProjects] = useState<Project[]>([]),
     [contractors, setContractors] = useState<Contractor[]>([]),
-    [catalogs, setCatalogs] = useState<Catalog[]>([]);
+    [catalogs, setCatalogs] = useState<Catalog[]>([]),
+    [vendors, setVendors] = useState<Vendor[]>([]);
   const [active, setActive] = useState<Project | null>(null),
     [view, setView] = useState("Projects"),
     [section, setSection] = useState("Overview"),
@@ -278,6 +286,7 @@ export default function Workspace() {
         setProjects(data.projects);
         setContractors(data.contractors);
         setCatalogs(data.catalogs);
+        setVendors([]);
         setDemo(true);
         setEmail("Local preview");
         setReady(true);
@@ -294,7 +303,7 @@ export default function Workspace() {
       setEmail(user.email || "");
       const member = await supabase
         .from("workspace_members")
-        .select("email")
+        .select("email,role")
         .maybeSingle();
       if (member.error) throw member.error;
       if (!member.data) {
@@ -303,10 +312,12 @@ export default function Workspace() {
           "Your account is signed in but has not been approved for this workspace. Ask the workspace owner to add your email.",
         );
       }
+      setRole(member.data.role === "manager" ? "manager" : "operator");
       const all = await Promise.all([
         readAll("projects", "id"),
         readAll("contractors", "id"),
         readAll("catalogs", "id"),
+        readAll("vendors", "name"),
       ]);
       for (const r of all) if (r.error) throw r.error;
       setProjects(
@@ -322,6 +333,11 @@ export default function Workspace() {
       setCatalogs(
         ((all[2].data as Catalog[]) || []).sort((a, b) =>
           a.value.localeCompare(b.value),
+        ),
+      );
+      setVendors(
+        ((all[3].data as Vendor[]) || []).sort((a, b) =>
+          a.name.localeCompare(b.name),
         ),
       );
       setReady(true);
@@ -349,8 +365,27 @@ export default function Workspace() {
   useEffect(() => {
     setPage(0);
   }, [tableQuery, section, cat]);
+  useEffect(() => {
+    if (!ready || demo) return;
+    let alive = true;
+    const refreshVendors = async () => {
+      const { data } = await supabase.from("vendors").select("*").order("name");
+      if (alive && data) setVendors(data as Vendor[]);
+    };
+    const timer = window.setInterval(() => void refreshVendors(), 15_000);
+    window.addEventListener("focus", refreshVendors);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshVendors);
+    };
+  }, [ready, demo]);
   const derived = useMemo(
     () => (active ? derive(active.data) : null),
+    [active],
+  );
+  const documentPhaseIds = useMemo(
+    () => (active ? phaseAncestors(active.data, active.data.activePhaseId || "") : []),
     [active],
   );
   const summaries = useMemo(
@@ -450,21 +485,27 @@ export default function Workspace() {
     const phaseId = params.get("phase");
     const itemId = params.get("item");
     const kind = params.get("kind") || "Doors";
-    if (!projectId || !phaseId || !itemId) return;
-    const token = `${projectId}:${phaseId}:${itemId}`;
+    if (!projectId || !phaseId || (!itemId && kind !== "Anchors")) return;
+    const token = `${projectId}:${phaseId}:${itemId || kind}`;
     if (scanOpened.current === token) return;
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
     const normalized = normalizeProject(project);
-    if (!normalized.data.phases?.some((phase) => phase.id === phaseId)) return;
+    const resolvedPhaseId = kind === "Anchors"
+      ? normalized.data.phases?.some((phase) => phase.id === phaseId) ? phaseId : null
+      : resolvePhaseForOpening(normalized.data, phaseId, itemId || "");
+    if (!resolvedPhaseId) return;
     scanOpened.current = token;
-    setActive(selectPhase(normalized, phaseId));
+    setActive(selectPhase(normalized, resolvedPhaseId));
     setDirty(false);
     setSection("Production");
-    setScannedItem(itemId);
+    setScannedItem(itemId || "");
     setScannedKind(kind);
     setSelected([]);
-    setNotice(`QR label opened for ${itemId}. Choose the production or fulfillment action below.`);
+    const resolvedName = normalized.data.phases?.find((phase) => phase.id === resolvedPhaseId)?.name;
+    setNotice(kind === "Anchors"
+      ? `Anchor package label opened${resolvedName ? ` for ${resolvedName}` : ""}. Review the phase anchor takeoff and stage this package with its frames.`
+      : `${resolvedPhaseId === phaseId ? "QR label" : "Older QR label"} opened for ${itemId}${resolvedName ? ` in ${resolvedName}` : ""}. Choose the production or fulfillment action below.`);
     setError("");
   }, [ready, projects]);
   function switchPhase(id: string) {
@@ -506,6 +547,19 @@ export default function Workspace() {
       },
     });
     setNotice(`${opening.name}: recorded “${next}” for ${email || "this team member"}. Save the project to sync the update.`);
+  }
+  function recordWorkMilestone(openingId: string, stage: string) {
+    if (!active) return;
+    updateData({
+      ...active.data,
+      milestones: {
+        ...active.data.milestones,
+        [openingId]: {
+          ...active.data.milestones[openingId],
+          [stage]: new Date().toLocaleDateString("en-CA"),
+        },
+      },
+    });
   }
   function beginPhaseSplit() {
     if (!active) return;
@@ -703,10 +757,10 @@ export default function Workspace() {
             hardware: "hardware item",
             openings: "opening",
           }[kind],
-      fields: fields(kind, active.data, catalogs),
+      fields: fields(kind, active.data, catalogs, vendors),
       initial,
       save: (r) => {
-        const opts = fields(kind, active.data, catalogs);
+        const opts = fields(kind, active.data, catalogs, vendors);
         for (const f of opts) {
           if (
             f.options?.length &&
@@ -927,7 +981,7 @@ export default function Workspace() {
   }
   function bulk(kind: Kind) {
     if (!active) return;
-    const fs = fields(kind, active.data, catalogs);
+    const fs = fields(kind, active.data, catalogs, vendors);
     setError("");
     setEdit({
       title: "Paste " + kind + " rows",
@@ -1021,7 +1075,7 @@ export default function Workspace() {
   }
   function exportRows(kind: Kind) {
     if (!active) return;
-    const fs = fields(kind, active.data, catalogs);
+    const fs = fields(kind, active.data, catalogs, vendors);
     const content = [
       fs.map((f) => csvCell(f.key)).join(","),
       ...active.data[kind].map((r) =>
@@ -1042,6 +1096,8 @@ export default function Workspace() {
     columns: { key: string; label: string }[],
     kind?: Kind,
   ) {
+    const supplierKey = kind === "openings" ? "frameSupplier" : "supplier";
+    const showLeadTime = !!kind && ["openings", "doorTypes", "hardware"].includes(kind);
     const filtered = rows.filter((r) =>
       Object.values(r)
         .join(" ")
@@ -1087,6 +1143,7 @@ export default function Workspace() {
                 {columns.map((c) => (
                   <th key={c.key}>{c.label}</th>
                 ))}
+                {showLeadTime && <th>Vendor lead time</th>}
                 {kind && <th>Actions</th>}
               </tr>
             </thead>
@@ -1102,6 +1159,17 @@ export default function Workspace() {
                         : str(r[c.key]) || <span className="faint">—</span>}
                     </td>
                   ))}
+                  {showLeadTime && (
+                    <td>
+                      {vendors.find(
+                        (vendor) =>
+                          vendor.name.toLowerCase() ===
+                          str(r[supplierKey]).toLowerCase(),
+                      )?.lead_time_days !== undefined
+                        ? `${vendors.find((vendor) => vendor.name.toLowerCase() === str(r[supplierKey]).toLowerCase())?.lead_time_days} days`
+                        : <span className="faint">Supplier not selected</span>}
+                    </td>
+                  )}
                   {kind && (
                     <td>
                       <div className="row-actions">
@@ -1570,6 +1638,12 @@ export default function Workspace() {
                   </div>
                 </section>
               </div>
+              <VendorDirectory
+                vendors={vendors}
+                setVendors={setVendors}
+                manager={role === "manager"}
+                demo={demo}
+              />
             </>
           )}
           {active && derived && (
@@ -1763,7 +1837,7 @@ export default function Workspace() {
                     section === "Hardware"
                       ? (derived.hardware as Row[])
                       : active.data[kindNames[section]],
-                    fields(kindNames[section], active.data, catalogs)
+                    fields(kindNames[section], active.data, catalogs, vendors)
                       .filter(
                         (f) =>
                           ![
@@ -1963,6 +2037,23 @@ export default function Workspace() {
                 </>
               )}
               {section === "Production" && (
+                <>
+                <ProductionTracker
+                  key={`${active.id}:${activePhase(active.data).id}:${email}`}
+                  projectId={active.id}
+                  phaseId={activePhase(active.data).id}
+                  openings={derived.frames}
+                  email={email}
+                  manager={role === "manager"}
+                  demo={demo}
+                  scannedOpeningId={scannedItem}
+                  scannedKind={scannedKind}
+                  onMilestone={recordWorkMilestone}
+                />
+                <InstallationEstimator
+                  data={activePhase(active.data).data}
+                  onChange={(phaseData) => updateData({ ...active.data, ...phaseData })}
+                />
                 <section className="panel">
                   <div className="panel-heading">
                     <div>
@@ -2090,6 +2181,7 @@ export default function Workspace() {
                     </table>
                   </div>
                 </section>
+                </>
               )}
               {section === "Documents" && (
                 <>
@@ -2097,6 +2189,7 @@ export default function Workspace() {
                     key={`${active.id}:${activePhase(active.data).id}`}
                     projectId={active.id}
                     phaseId={activePhase(active.data).id}
+                    phaseAliases={documentPhaseIds}
                     phaseName={activePhase(active.data).name}
                     demo={demo}
                     onApply={(rows) =>
@@ -2166,7 +2259,7 @@ export default function Workspace() {
                           value={labelKind}
                           onChange={(e) => setLabelKind(e.target.value)}
                         >
-                          {["Doors", "Frames", "Hardware"].map((v) => (
+                          {["Doors", "Frames", "Hardware", "Anchors"].map((v) => (
                             <option key={v}>{v}</option>
                           ))}
                         </select>

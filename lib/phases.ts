@@ -16,6 +16,7 @@ const contentFrom = (data: Partial<ProjectData>): PhaseContent => ({
   references: Array.isArray(data.references) ? data.references : [],
   links: Array.isArray(data.links) ? data.links : [],
   takeoffSelection: data.takeoffSelection || {},
+  installRates: data.installRates || {},
 });
 
 /** Upgrade the old one-workbook-per-project JSON shape without losing its contents. */
@@ -64,6 +65,45 @@ export function activePhase(data: ProjectData): ProjectPhase {
       data: contentFrom(data),
     }
   );
+}
+
+/** Previous phase IDs whose plans/specifications are inherited by this phase. */
+export function phaseAncestors(data: ProjectData, phaseId: string): string[] {
+  const known = new Set([phaseId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const event of data.phaseHistory || []) {
+      if (event.resultingPhaseIds.some((id) => known.has(id)) && !known.has(event.sourcePhase.id)) {
+        known.add(event.sourcePhase.id);
+        changed = true;
+      }
+    }
+  }
+  return [...known];
+}
+
+/** Resolve old printed QR codes through any number of later phase splits. */
+export function resolvePhaseForOpening(
+  data: ProjectData,
+  requestedPhaseId: string,
+  openingId: string,
+): string | null {
+  const phases = data.phases || [];
+  const events = data.phaseHistory || [];
+  let candidate = requestedPhaseId;
+  const visited = new Set<string>();
+  while (!visited.has(candidate)) {
+    visited.add(candidate);
+    if (phases.some((phase) => phase.id === candidate)) return candidate;
+    const event = events.find((entry) => entry.sourcePhase.id === candidate);
+    const next = event?.resultingPhaseIds.find((id) =>
+      event.openingIdsByPhase[id]?.includes(openingId),
+    );
+    if (!next) return null;
+    candidate = next;
+  }
+  return null;
 }
 
 export function selectPhase(project: Project, phaseId: string): Project {

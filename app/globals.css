@@ -1083,9 +1083,9 @@ tbody tr:hover {
 .doc-upload-row { display: grid; grid-template-columns: minmax(200px, 1.4fr) minmax(150px, .8fr) minmax(190px, 1fr) auto; gap: 12px; align-items: end; margin: 20px 0; }
 .doc-upload-row label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .doc-upload-row input, .doc-upload-row select { min-width: 0; width: 100%; }
-.doc-file input { padding: 8px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); }
+.doc-file input { padding: 8px; border: 1px dashed var(--line); border-radius: 8px; background: white; }
 .doc-list { display: grid; gap: 8px; margin: 16px 0; }
-.doc-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); text-align: left; cursor: pointer; }
+.doc-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; text-align: left; cursor: pointer; }
 .doc-list-item.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, white); }
 .doc-list-item span { display: grid; gap: 3px; }
 .doc-list-item small, .candidate-row small { color: var(--muted); font-size: 12px; }
@@ -1109,6 +1109,39 @@ tbody tr:hover {
 .spec-finding { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line); }
 .spec-finding > span { display: grid; gap: 5px; }
 .spec-finding small { color: var(--muted); }
+.production-tracker { margin-bottom: 24px; }
+.shift-clock { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.shift-status { display: flex; align-items: center; gap: 10px; }
+.shift-status span { display: grid; gap: 3px; }
+.shift-status small, .piece-rate-note small { color: var(--muted); }
+.work-timer-controls { display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(170px, 1fr) minmax(150px, .8fr) auto; align-items: end; gap: 10px; }
+.work-timer-controls label, .coded-time-row label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.work-timer-controls select, .coded-time-row select { min-width: 0; width: 100%; }
+.piece-rate-note { display: grid; gap: 4px; padding: 9px 0; font-size: 12px; }
+.coded-time-row { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding: 14px 0; margin-top: 14px; }
+.coded-time-row label { min-width: 240px; }
+.efficiency-summary, .approval-queue, .session-history { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; }
+.efficiency-summary h3, .approval-queue h3, .session-history h3 { margin: 0 0 6px; }
+.efficiency-summary > p, .approval-queue > p { color: var(--muted); font-size: 13px; }
+.approval-queue h3 span { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #fff1d6; color: #855200; font-size: 12px; }
+.approval-row, .session-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); }
+.approval-row > span, .session-row > span:first-child { display: grid; gap: 4px; }
+.approval-row small, .session-row small { color: var(--muted); }
+.approval-row button { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 7px; background: white; cursor: pointer; }
+.vendor-directory { margin-top: 18px; }
+.vendor-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px; padding: 16px; margin: 16px 0; border: 1px solid var(--line); border-radius: 10px; background: #fffdf9; }
+.vendor-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.vendor-form input, .vendor-form textarea { min-width: 0; width: 100%; }
+.vendor-form small { color: var(--muted); font-weight: 400; }
+.vendor-form .vendor-notes { grid-column: span 2; }
+.vendor-form .vendor-notes textarea { min-height: 64px; }
+.vendor-form .vendor-active { display: flex; align-items: center; gap: 8px; }
+.vendor-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.vendor-toggle { min-height: 32px; padding: 5px 8px; font-size: 12px; }
+@media (max-width: 980px) { .work-timer-controls { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .work-timer-controls { grid-template-columns: 1fr; } }
+@media (max-width: 750px) { .vendor-form { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .vendor-form { grid-template-columns: 1fr; } .vendor-form .vendor-notes { grid-column: auto; } }
 @media (max-width: 850px) { .doc-upload-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .doc-upload-row { grid-template-columns: 1fr; } }
 .opening-chips {
@@ -1740,3 +1773,5 @@ th,
 .stage-summary > div {
   grid-template-columns: 155px 1fr 50px;
 }
+.install-estimator input { width: 112px; min-width: 84px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); }
+.install-total { font-weight: 700; border-top: 2px solid var(--border); }

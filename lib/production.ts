@@ -116,6 +116,18 @@ export function derive(data: ProjectData) {
     });
   const frameTakeoff = group(frames.filter((o) => !same(o.wall, "NA")));
   const doorTakeoff = group(doors.filter((o) => !same(o.doorType, "NA")));
+  const anchors = new Map<string, { name: string; size: string; count: number }>();
+  for (const frame of frames) {
+    const size = str(frame.depth) || "Size not set";
+    const frameType = str(frame.frameType);
+    const name = str(frame.anchor) || (/\bkd\b|knockdown/i.test(frameType) ? "Short lag" : "Wood stud anchor");
+    const heightFeet = Number.parseInt(str(frame.height).match(/^\s*(\d+)/)?.[1] || "7", 10);
+    const quantity = Number(frame.anchorQty || (heightFeet >= 8 ? 8 : 6));
+    const key = JSON.stringify([name.toLowerCase(), size.toLowerCase()]);
+    const item = anchors.get(key) || { name, size, count: 0 };
+    item.count += quantity;
+    anchors.set(key, item);
+  }
   const done = openings.reduce(
     (n, o) => n + stages.filter((s) => data.milestones[o.id]?.[s]).length,
     0,
@@ -149,6 +161,7 @@ export function derive(data: ProjectData) {
     hardware,
     frameTakeoff,
     doorTakeoff,
+    anchorTakeoff: [...anchors.values()].sort((a, b) => a.size.localeCompare(b.size) || a.name.localeCompare(b.name)),
     hardwareTakeoff: [...hardwareTakeoff.values()],
     progress,
     warnings,
