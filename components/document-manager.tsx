@@ -88,6 +88,7 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
     if (linkError || !data?.signedUrl) { setError(linkError?.message || "Could not open PDF."); return; }
     window.open(`${data.signedUrl}#page=${page}`, "_blank", "noopener,noreferrer");
   }
+  async function openDocument() { await openPage(1); }
   const candidates = useMemo(() => categories.flatMap((category) => ((analysis?.[category.key] as Array<Record<string, unknown>> | undefined) || []).map((row, index) => ({ category, row, id: `${category.key}:${index}` }))), [analysis]);
   function applySelected() {
     const byKind: Partial<Record<Kind, Row[]>> = {};
@@ -116,7 +117,7 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
         <button className="button" disabled={!file || busy} onClick={() => void upload()}><Upload size={16}/> Upload PDF</button>
       </div>
       <div className="doc-list">{docs.map((doc) => <button key={doc.id} className={`doc-list-item ${doc.id === selectedDoc ? "selected" : ""}`} onClick={() => { setSelectedDoc(doc.id); setSelected(new Set()); }}><FileText size={18}/><span><strong>{doc.file_name}</strong><small>{doc.document_type.replaceAll("_", " ")} · {doc.revision_label || "No revision"} · {doc.page_count ? `${doc.page_count} pages · ` : ""}{doc.status.replaceAll("_", " ")}</small></span></button>)}{!docs.length && <p className="empty-inline">No PDFs uploaded to {phaseName} yet.</p>}</div>
-      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><button className="button" disabled={busy} onClick={() => void analyze()}><Sparkles size={16}/>{analysis ? "Analyze again" : "Find pages & extract"}</button></div>
+      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy} onClick={() => void analyze()}><Sparkles size={16}/>{analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
         <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you already know where a schedule is. Up to 36 manually selected pages are sent alongside the highest-ranked text matches.</small></label>
         {analysis && <>
           <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>
