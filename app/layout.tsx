@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Workspace from "@/components/workspace";
 export const metadata: Metadata = {
   title: "Fortified Doorworks | Production workspace",
   description:
@@ -12,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Workspace />
+        {children}
+      </body>
     </html>
   );
 }

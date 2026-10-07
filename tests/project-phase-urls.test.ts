@@ -4,14 +4,18 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
-test("projects, projects by id, and project phases have routable pages", () => {
+test("the workspace stays mounted across project and phase routes", () => {
+  const layout = read("app/layout.tsx");
+  assert.match(layout, /import Workspace from "@\/components\/workspace"/);
+  assert.match(layout, /<Workspace \/>/);
+
   for (const route of [
+    "app/page.tsx",
     "app/projects/page.tsx",
     "app/projects/[projectId]/page.tsx",
     "app/projects/[projectId]/phases/[phaseId]/page.tsx",
   ]) {
-    assert.match(read(route), /import Workspace from "@\/components\/workspace"/);
-    assert.match(read(route), /return <Workspace \/>/);
+    assert.match(read(route), /return null/);
   }
 });
 
