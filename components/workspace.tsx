@@ -23,6 +23,7 @@ import {
   Check,
   Save,
   Layers,
+  Camera,
   FileText,
   X,
   Menu,
@@ -63,6 +64,7 @@ import { ElevationBuilder } from "./elevation-builder";
 import { DoorProductionForms } from "./door-production-forms";
 import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
+import { getProfileDisplayName, isValidAvatarFile } from "@/lib/profile";
 const sections = [
   "Overview",
   "Openings",
@@ -248,6 +250,15 @@ export default function Workspace() {
     [loading, setLoading] = useState(true),
     [demo, setDemo] = useState(false),
     [email, setEmail] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profileAvatar, setProfileAvatar] = useState("");
+  const [profileUserId, setProfileUserId] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [profileMessage, setProfileMessage] = useState("");
+  const [profileError, setProfileError] = useState("");
   const [role, setRole] = useState<"operator" | "manager">("operator");
   const [projects, setProjects] = useState<Project[]>([]),
     [contractors, setContractors] = useState<Contractor[]>([]),
@@ -288,6 +299,7 @@ export default function Workspace() {
   const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
   const scanOpened = useRef("");
+  const profileReturnPath = useRef("/");
   async function load() {
     setLoading(true);
     setError("");
@@ -304,6 +316,9 @@ export default function Workspace() {
         setVendors([]);
         setDemo(true);
         setEmail("Local preview");
+        setProfileName("Local preview");
+        setAccountName("Local preview");
+        setProfileEmail("");
         setReady(true);
         return;
       }
@@ -316,9 +331,16 @@ export default function Workspace() {
         return;
       }
       setEmail(user.email || "");
+      setProfileEmail(user.email || "");
+      setProfileUserId(user.id);
+      setProfileAvatar(
+        typeof user.user_metadata?.avatar_url === "string"
+          ? user.user_metadata.avatar_url
+          : "",
+      );
       const member = await supabase
         .from("workspace_members")
-        .select("email,role")
+        .select("email,role,display_name")
         .maybeSingle();
       if (member.error) throw member.error;
       if (!member.data) {
@@ -328,6 +350,13 @@ export default function Workspace() {
         );
       }
       setRole(member.data.role === "manager" ? "manager" : "operator");
+      const displayName = getProfileDisplayName(
+        user.user_metadata?.full_name || user.user_metadata?.name,
+        member.data.display_name,
+        user.email || "",
+      );
+      setProfileName(displayName);
+      setAccountName(displayName);
       const all = await Promise.all([
         readAll("projects", "id"),
         readAll("contractors", "id"),
@@ -496,6 +525,152 @@ export default function Workspace() {
   function updateData(data: ProjectData) {
     if (active) update({ ...active, data: persistActivePhase(data) });
   }
+  function openProfile() {
+    if (pathname !== "/profile") profileReturnPath.current = pathname || "/";
+    setProfileName(accountName || getProfileDisplayName(null, null, email));
+    setProfileEmail(email);
+    setView("Profile");
+    setMobile(false);
+    setProfileMessage("");
+    setProfileError("");
+    router.push("/profile");
+  }
+  function closeProfile() {
+    const returnPath = profileReturnPath.current || "/";
+    setView(
+      returnPath.startsWith("/projects")
+        ? "Projects"
+        : returnPath === "/contractors"
+          ? "Contractors"
+          : returnPath === "/settings"
+            ? "Settings"
+            : "Dashboard",
+    );
+    router.push(returnPath);
+  }
+  async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextName = profileName.trim();
+    const nextEmail = profileEmail.trim().toLowerCase();
+    if (!nextName || !nextEmail) {
+      setProfileError("Enter your name and email address.");
+      return;
+    }
+    setProfileSaving(true);
+    setProfileError("");
+    setProfileMessage("");
+    try {
+      const { data, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!data.user) throw new Error("Sign in again to update your profile.");
+      const { error: nameError } = await supabase.auth.updateUser({
+        data: { ...data.user.user_metadata, full_name: nextName },
+      });
+      if (nameError) throw nameError;
+      setProfileName(nextName);
+      setAccountName(nextName);
+
+      if (nextEmail !== (data.user.email || "").toLowerCase()) {
+        const { error: emailError } = await supabase.auth.updateUser({
+          email: nextEmail,
+        });
+        if (emailError)
+          throw new Error(
+            `Your name was saved, but the email update failed: ${emailError.message}`,
+          );
+        setProfileMessage(
+          `Your name was saved. Confirm the link sent to ${nextEmail} to finish changing your email.`,
+        );
+      } else {
+        setProfileMessage("Your profile was saved.");
+      }
+    } catch (error) {
+      setProfileError(message(error));
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+  async function uploadProfileAvatar(file: File | undefined) {
+    if (!file) return;
+    if (!isValidAvatarFile(file)) {
+      setProfileError("Choose a JPEG, PNG, or WebP image under 2 MB.");
+      return;
+    }
+    if (!profileUserId || demo) {
+      setProfileError("Profile pictures are unavailable in local preview.");
+      return;
+    }
+    setAvatarBusy(true);
+    setProfileError("");
+    setProfileMessage("");
+    try {
+      const path = `${profileUserId}/avatar`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, {
+          cacheControl: "60",
+          contentType: file.type,
+          upsert: true,
+        });
+      if (uploadError) throw uploadError;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!userData.user)
+        throw new Error("Sign in again to update your profile picture.");
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const avatarUrl = `${data.publicUrl}?v=${Date.now()}`;
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: { ...userData.user.user_metadata, avatar_url: avatarUrl },
+      });
+      if (metadataError) throw metadataError;
+      setProfileAvatar(avatarUrl);
+      setProfileMessage("Your profile picture was updated.");
+    } catch (error) {
+      setProfileError(message(error));
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+  async function removeProfileAvatar() {
+    if (!profileUserId || demo) return;
+    setAvatarBusy(true);
+    setProfileError("");
+    setProfileMessage("");
+    try {
+      const { data, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!data.user)
+        throw new Error("Sign in again to update your profile picture.");
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: { ...data.user.user_metadata, avatar_url: "" },
+      });
+      if (metadataError) throw metadataError;
+      setProfileAvatar("");
+      const { error: removeError } = await supabase.storage
+        .from("avatars")
+        .remove([`${profileUserId}/avatar`]);
+      if (removeError) throw removeError;
+      setProfileMessage("Your profile picture was removed.");
+    } catch (error) {
+      setProfileError(message(error));
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+  async function signOut() {
+    if (dirty && !confirm("Discard unsaved changes and sign out?")) return;
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      setProfileError(message(signOutError));
+      return;
+    }
+    setReady(false);
+    setActive(null);
+    setProjects([]);
+    setProfileUserId("");
+    setView("Dashboard");
+    router.push("/");
+  }
   function navigate(v: string) {
     if (dirty && !confirm("Discard your unsaved project changes?")) return;
     setActive(null);
@@ -518,6 +693,11 @@ export default function Workspace() {
     setMobile(false);
   }
   useEffect(() => {
+    if (pathname === "/profile") {
+      setView("Profile");
+      return;
+    }
+    if (pathname === "/") setView("Dashboard");
     if (pathname === "/projects") setView("Projects");
     if (!ready || !projects.length || !routeParams?.projectId) return;
     const project = projects.find((item) => item.id === routeParams.projectId);
@@ -1400,22 +1580,6 @@ export default function Workspace() {
         >
           <Settings size={19} /> Settings
         </button>
-        <div className="sidebar-bottom">
-          <button
-            className="nav"
-            onClick={async () => {
-              if (dirty && !confirm("Discard unsaved changes and sign out?"))
-                return;
-              await supabase.auth.signOut();
-              setReady(false);
-              setActive(null);
-              setProjects([]);
-            }}
-          >
-            <LogOut size={17} /> Sign out
-          </button>
-          <small>{email}</small>
-        </div>
       </aside>
       <div className="main">
         <header className="topbar">
@@ -1428,7 +1592,13 @@ export default function Workspace() {
           </button>
           <div className="breadcrumb">
             Workspace <ChevronRight size={14} />
-            <button onClick={() => navigate("Projects")}>{view}</button>
+            <button
+              onClick={() =>
+                view === "Profile" ? closeProfile() : navigate("Projects")
+              }
+            >
+              {view}
+            </button>
             {active && (
               <>
                 <ChevronRight size={14} />
@@ -1436,10 +1606,150 @@ export default function Workspace() {
               </>
             )}
           </div>
-          <span className="top-location">Logan, Utah</span>
-          <span className="avatar">{initials(email)}</span>
+          <div className="topbar-user">
+            <span className="top-location">Logan, Utah</span>
+            <button
+              type="button"
+              className="profile-trigger"
+              aria-label={`Open profile for ${accountName || email}`}
+              onClick={openProfile}
+            >
+              <span className="profile-trigger-name">
+                {accountName || getProfileDisplayName(null, null, email)}
+              </span>
+              <span className="avatar profile-trigger-avatar" aria-hidden="true">
+                {profileAvatar ? (
+                  <img src={profileAvatar} alt="" />
+                ) : (
+                  initials(accountName || email)
+                )}
+              </span>
+            </button>
+          </div>
         </header>
-        <main className="content" inert={busy}>
+        <main className="content" inert={busy || profileSaving || avatarBusy}>
+          {view === "Profile" ? (
+            <section className="profile-page" aria-busy={profileSaving || avatarBusy}>
+              <button type="button" className="back-link" onClick={closeProfile}>
+                <ArrowLeft size={16} /> Back to workspace
+              </button>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">YOUR ACCOUNT</span>
+                  <h1>Profile</h1>
+                  <p>Manage the name, photo, and email shown for your account.</p>
+                </div>
+              </div>
+              <div className="profile-layout">
+                <section className="panel profile-panel">
+                  <div className="profile-photo-row">
+                    <span className="avatar profile-photo" aria-hidden="true">
+                      {profileAvatar ? (
+                        <img src={profileAvatar} alt="" />
+                      ) : (
+                        initials(profileName || email)
+                      )}
+                    </span>
+                    <div className="profile-photo-actions">
+                      <strong>Profile picture</strong>
+                      <small>JPEG, PNG, or WebP up to 2 MB.</small>
+                      <div className="profile-photo-buttons">
+                        <label
+                          className={
+                            "button secondary" +
+                            (avatarBusy || demo ? " disabled" : "")
+                          }
+                          htmlFor="profile-avatar-upload"
+                        >
+                          <Camera size={16} />
+                          {avatarBusy ? "Uploading…" : "Change picture"}
+                        </label>
+                        {profileAvatar && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={avatarBusy || demo}
+                            onClick={removeProfileAvatar}
+                          >
+                            Remove picture
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        id="profile-avatar-upload"
+                        className="sr-only"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={avatarBusy || demo}
+                        onChange={(event) => {
+                          void uploadProfileAvatar(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <form className="profile-form" onSubmit={saveProfile}>
+                    <label>
+                      Name
+                      <input
+                        autoComplete="name"
+                        maxLength={80}
+                        required
+                        value={profileName}
+                        disabled={demo || profileSaving}
+                        onChange={(event) => setProfileName(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Email
+                      <input
+                        autoComplete="email"
+                        type="email"
+                        maxLength={254}
+                        required
+                        value={profileEmail}
+                        disabled={demo || profileSaving}
+                        onChange={(event) => setProfileEmail(event.target.value)}
+                      />
+                    </label>
+                    <p className="profile-help">
+                      We’ll send a confirmation link before an email change takes effect.
+                    </p>
+                    {profileError && (
+                      <p className="error" role="alert">{profileError}</p>
+                    )}
+                    {profileMessage && (
+                      <p className="success-note" role="status">{profileMessage}</p>
+                    )}
+                    {demo && (
+                      <p className="profile-help">Profile editing is unavailable in local preview.</p>
+                    )}
+                    <button
+                      className="button"
+                      disabled={demo || profileSaving || avatarBusy}
+                    >
+                      {profileSaving ? "Saving…" : "Save profile"}
+                    </button>
+                  </form>
+                </section>
+                <section className="panel profile-signout">
+                  <div>
+                    <h2>Sign out</h2>
+                    <p>Sign out of Fortified Doorworks on this device.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={demo || profileSaving || avatarBusy}
+                    onClick={() => void signOut()}
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </section>
+              </div>
+            </section>
+          ) : (
+          <div className="workspace-content">
           {demo && (
             <div className="notice">
               Local preview — edits stay in this browser session.
@@ -2642,6 +2952,8 @@ export default function Workspace() {
                 </>
               )}
             </>
+          )}
+          </div>
           )}
         </main>
       </div>
