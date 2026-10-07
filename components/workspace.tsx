@@ -295,8 +295,6 @@ export default function Workspace() {
     [page, setPage] = useState(0),
     [cat, setCat] = useState("Door brands");
   const [labelKind, setLabelKind] = useState("Doors"),
-    [labelWidth, setLabelWidth] = useState(4),
-    [labelHeight, setLabelHeight] = useState(2),
     [selected, setSelected] = useState<string[]>([]),
     [labelMode, setLabelMode] = useState("all");
   const [splitOpen, setSplitOpen] = useState(false),
@@ -1239,8 +1237,6 @@ export default function Workspace() {
     try {
       const { downloadDocument } = await import("@/lib/documents");
       await downloadDocument(active, type, {
-        labelWidth,
-        labelHeight,
         labelKind,
         selectedTakeoffOnly,
         selected: labelMode === "selected" ? selected : undefined,
@@ -2959,39 +2955,6 @@ export default function Workspace() {
                         </select>
                       </label>
                       <label>
-                        Width (inches)
-                        <input
-                          type="number"
-                          min="2"
-                          max="8.5"
-                          step="0.25"
-                          value={labelWidth}
-                          onChange={(e) =>
-                            setLabelWidth(
-                              Math.max(
-                                2,
-                                Math.min(8.5, Number(e.target.value)),
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Height (inches)
-                        <input
-                          type="number"
-                          min="1"
-                          max="11"
-                          step="0.25"
-                          value={labelHeight}
-                          onChange={(e) =>
-                            setLabelHeight(
-                              Math.max(1, Math.min(11, Number(e.target.value))),
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
                         Opening selection
                         <select
                           value={labelMode}
@@ -3005,9 +2968,9 @@ export default function Workspace() {
                       </label>
                     </div>
                     <p className="printing-note">
-                      Print at 100% / actual size. Label dimensions and the
-                      original submittal layout still need comparison with your
-                      existing printed samples.
+                      Print at 100% / actual size. Frame and door labels use
+                      the fixed 4 × 1 inch layout; hardware labels use the
+                      fixed landscape layout.
                     </p>
                     <div className="opening-chips">
                       {derived.frames.map((o) => (
