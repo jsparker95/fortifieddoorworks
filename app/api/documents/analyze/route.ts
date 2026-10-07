@@ -27,6 +27,7 @@ const terms: Array<[RegExp, number, string]> = [
 ];
 
 export async function POST(request: Request) {
+  let failureStage = "request validation";
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) return Response.json({ error: "Sign in to analyze this document." }, { status: 401 });
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } });
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
   if (authError || !auth.user) return Response.json({ error: "Your session expired. Sign in again." }, { status: 401 });
 
   try {
+    failureStage = "request validation";
     const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string; manualPages?: number[] };
     if (!body.documentId || !body.projectId || !body.phaseId) return Response.json({ error: "Document, project, and phase are required." }, { status: 400 });
     const { data: project, error: projectError } = await supabase.from("projects").select("data").eq("id", body.projectId).single();
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
     if (projectError || !phases.some((phase) => phase.id === body.phaseId)) return Response.json({ error: "Project phase not found or access denied." }, { status: 404 });
     const { data: document, error: readError } = await supabase.from("project_documents").select("*").eq("id", body.documentId).eq("project_id", body.projectId).single();
     if (readError || !document) return Response.json({ error: "Document not found or access denied." }, { status: 404 });
+    failureStage = "downloading stored PDF";
     const { data: file, error: downloadError } = await supabase.storage.from("project-documents").download(document.storage_path);
     if (downloadError || !file) throw new Error(downloadError?.message || "PDF could not be downloaded.");
     if (file.size > 100 * 1024 * 1024) throw new Error("PDF exceeds the 100 MB upload limit.");
@@ -53,8 +56,11 @@ export async function POST(request: Request) {
     if (!pdfHeader.includes("%PDF-")) {
       throw new Error("This stored file does not contain a PDF header. Re-upload the original PDF and try again.");
     }
+    failureStage = "indexing PDF pages with PDF.js";
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const pdf = await pdfjs.getDocument({ data: pdfBytes, useSystemFonts: true, disableFontFace: true }).promise;
+    // pdf.js may transfer the supplied typed array to its worker. Use a copy so
+    // the original bytes remain available for pdf-lib below.
+    const pdf = await pdfjs.getDocument({ data: pdfBytes.slice(), useSystemFonts: true, disableFontFace: true }).promise;
     if (pdf.numPages > 2500) throw new Error("This PDF has more than 2,500 pages. Split it into smaller files before analysis.");
     const pages: Array<{ page: number; text: string; score: number; labels: string[] }> = [];
     let searchablePageCount = 0;
@@ -81,11 +87,13 @@ export async function POST(request: Request) {
       return Response.json({ analysis });
     }
 
-    const sourcePdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    failureStage = "loading source PDF and selecting pages with pdf-lib";
+    const sourcePdf = await PDFDocument.load(pdfBytes.slice(), { ignoreEncryption: true });
     const subset = await PDFDocument.create();
     const copied = await subset.copyPages(sourcePdf, ranked.map((p) => p.page - 1));
     copied.forEach((p) => subset.addPage(p));
     const pageMap = ranked.map((p, index) => `PDF page ${index + 1} below corresponds to original PDF page ${p.page}. Likely section: ${p.labels.join(", ")}. Extracted text: ${p.text.slice(0, 5000)}`).join("\n\n");
+    failureStage = "sending selected pages for AI extraction";
     const result = await generateText({
       model: process.env.DOCUMENT_EXTRACTION_MODEL || "google/gemini-3.1-pro-preview",
       output: Output.object({ schema: extractionSchema }),
@@ -99,11 +107,13 @@ export async function POST(request: Request) {
     const modelPages = new Map((result.output.relevantPages || []).map((page) => [page.page, page]));
     const relevantPages = ranked.map((page) => modelPages.get(page.page) || ({ page: page.page, section: page.labels.join(" · ") || "Plan reference", reason: "Matched schedule, Division 08, or drawing terminology during page indexing.", confidence: Math.min(0.95, 0.45 + page.score / 40) }));
     const analysis = { ...result.output, relevantPages, indexedPageCount: pdf.numPages, candidatePageCount: ranked.length, scannedPageCount: pdf.numPages - searchablePageCount };
+    failureStage = "saving extracted results";
     const { error: saveError } = await supabase.from("project_documents").update({ status: "needs_review", page_count: pdf.numPages, analysis }).eq("id", document.id);
     if (saveError) throw new Error("Analysis succeeded but results could not be saved. Retry analysis.");
     return Response.json({ analysis });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Document analysis failed.";
-    return Response.json({ error: message }, { status: 500 });
+    console.error(`[documents/analyze] Failed during ${failureStage}: ${message}`);
+    return Response.json({ error: `Failed during ${failureStage}: ${message}` }, { status: 500 });
   }
 }
