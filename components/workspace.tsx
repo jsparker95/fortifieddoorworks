@@ -76,6 +76,7 @@ const sections = [
   "Takeoff",
   "Production",
   "Documents",
+  "Label printing",
 ];
 const kindNames: Record<string, Kind> = {
   Openings: "openings",
@@ -2699,112 +2700,6 @@ export default function Workspace() {
                       </button>
                     ))}
                   </div>
-                  <section className="panel">
-                    <div className="panel-heading">
-                      <div>
-                        <h2>Print labels</h2>
-                        <p>{labelKind === "Anchors"
-                          ? "One consolidated anchor package label for this phase."
-                          : "One label per opening. Long hardware lists continue onto additional labels."}</p>
-                      </div>
-                      <button
-                        className="button"
-                        disabled={
-                          busy ||
-                          derived.frames.length === 0 ||
-                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
-                        }
-                        onClick={() => exportPDF("labels")}
-                      >
-                        <Download size={16} /> Generate labels
-                      </button>
-                    </div>
-                    <div className="label-controls">
-                      <label>
-                        Label contents
-                        <select
-                          value={labelKind}
-                          onChange={(e) => setLabelKind(e.target.value)}
-                        >
-                          {["Doors", "Frames", "Hardware", "Anchors"].map((v) => (
-                            <option key={v}>{v}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Width (inches)
-                        <input
-                          type="number"
-                          min="2"
-                          max="8.5"
-                          step="0.25"
-                          value={labelWidth}
-                          onChange={(e) =>
-                            setLabelWidth(
-                              Math.max(
-                                2,
-                                Math.min(8.5, Number(e.target.value)),
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Height (inches)
-                        <input
-                          type="number"
-                          min="1"
-                          max="11"
-                          step="0.25"
-                          value={labelHeight}
-                          onChange={(e) =>
-                            setLabelHeight(
-                              Math.max(1, Math.min(11, Number(e.target.value))),
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Opening selection
-                        <select
-                          value={labelMode}
-                          onChange={(e) => setLabelMode(e.target.value)}
-                        >
-                          <option value="all">All active openings</option>
-                          <option value="selected">
-                            Choose openings below
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                    <p className="printing-note">
-                      Print at 100% / actual size. Label dimensions and the
-                      original submittal layout still need comparison with your
-                      existing printed samples.
-                    </p>
-                    <div className="opening-chips">
-                      {derived.frames.map((o) => (
-                        <label
-                          className={selected.includes(o.id) ? "chosen" : ""}
-                          key={o.id}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(o.id)}
-                            onChange={(e) => {
-                              setLabelMode("selected");
-                              setSelected(
-                                e.target.checked
-                                  ? [...selected, o.id]
-                                  : selected.filter((id) => id !== o.id),
-                              );
-                            }}
-                          />
-                          {o.name}
-                        </label>
-                      ))}
-                    </div>
-                  </section>
                   <section className="panel reference-panel">
                     <div className="panel-heading">
                       <h2>Document references</h2>
@@ -2924,6 +2819,116 @@ export default function Workspace() {
                       Export JSON backup
                     </button>
                   </div>
+                </>
+              )}
+              {section === "Label printing" && (
+                <>
+                  <section className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>Print labels</h2>
+                        <p>{labelKind === "Anchors"
+                          ? "One consolidated anchor package label for this phase."
+                          : "One label per opening. Long hardware lists continue onto additional labels."}</p>
+                      </div>
+                      <button
+                        className="button"
+                        disabled={
+                          busy ||
+                          derived.frames.length === 0 ||
+                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
+                        }
+                        onClick={() => exportPDF("labels")}
+                      >
+                        <Download size={16} /> Generate labels
+                      </button>
+                    </div>
+                    <div className="label-controls">
+                      <label>
+                        Label contents
+                        <select
+                          value={labelKind}
+                          onChange={(e) => setLabelKind(e.target.value)}
+                        >
+                          {["Doors", "Frames", "Hardware", "Anchors"].map((v) => (
+                            <option key={v}>{v}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Width (inches)
+                        <input
+                          type="number"
+                          min="2"
+                          max="8.5"
+                          step="0.25"
+                          value={labelWidth}
+                          onChange={(e) =>
+                            setLabelWidth(
+                              Math.max(
+                                2,
+                                Math.min(8.5, Number(e.target.value)),
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Height (inches)
+                        <input
+                          type="number"
+                          min="1"
+                          max="11"
+                          step="0.25"
+                          value={labelHeight}
+                          onChange={(e) =>
+                            setLabelHeight(
+                              Math.max(1, Math.min(11, Number(e.target.value))),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Opening selection
+                        <select
+                          value={labelMode}
+                          onChange={(e) => setLabelMode(e.target.value)}
+                        >
+                          <option value="all">All active openings</option>
+                          <option value="selected">
+                            Choose openings below
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <p className="printing-note">
+                      Print at 100% / actual size. Label dimensions and the
+                      original submittal layout still need comparison with your
+                      existing printed samples.
+                    </p>
+                    <div className="opening-chips">
+                      {derived.frames.map((o) => (
+                        <label
+                          className={selected.includes(o.id) ? "chosen" : ""}
+                          key={o.id}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(o.id)}
+                            onChange={(e) => {
+                              setLabelMode("selected");
+                              setSelected(
+                                e.target.checked
+                                  ? [...selected, o.id]
+                                  : selected.filter((id) => id !== o.id),
+                              );
+                            }}
+                          />
+                          {o.name}
+                        </label>
+                      ))}
+                    </div>
+                  </section>
                 </>
               )}
             </>
