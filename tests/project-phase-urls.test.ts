@@ -12,6 +12,8 @@ test("the workspace stays mounted across project and phase routes", () => {
   for (const route of [
     "app/page.tsx",
     "app/projects/page.tsx",
+    "app/settings/page.tsx",
+    "app/contractors/page.tsx",
     "app/projects/[projectId]/page.tsx",
     "app/projects/[projectId]/phases/[phaseId]/page.tsx",
   ]) {
