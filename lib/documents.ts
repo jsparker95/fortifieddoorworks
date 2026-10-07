@@ -1,9 +1,10 @@
-import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
-import { derive, str, same } from "./production";
+import { PDFDocument, StandardFonts, rgb, PDFFont, degrees } from "pdf-lib";
+import { derive, str } from "./production";
 import { activePhase } from "./phases";
 import { Project, stages } from "./types";
 import QRCode from "qrcode";
 import { productionLabels } from "./labels";
+import { submittalOpenings } from "./submittal";
 const clean = (s: unknown) =>
   str(s)
     .replace(/[\u2010-\u2015]/g, "-")
@@ -47,12 +48,260 @@ function wrap(text: string, font: PDFFont, size: number, width: number) {
   }
   return lines;
 }
+
+const points = (inches: number) => inches * 72;
+const labelPdfColor = (hex: string) => {
+  const value = hex.replace("#", "");
+  return rgb(
+    Number.parseInt(value.slice(0, 2), 16) / 255,
+    Number.parseInt(value.slice(2, 4), 16) / 255,
+    Number.parseInt(value.slice(4, 6), 16) / 255,
+  );
+};
+
+async function publicPng(path: string) {
+  const url = typeof window === "undefined"
+    ? `https://fortifieddoorworks.app/${path}`
+    : new URL(`/${path}`, window.location.origin).toString();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load the ${path} label artwork.`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function drawTopText(
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageHeight: number,
+  text: string,
+  xIn: number,
+  topIn: number,
+  size: number,
+  font: PDFFont,
+) {
+  if (!text) return;
+  page.drawText(clean(text), {
+    x: points(xIn),
+    y: pageHeight - points(topIn),
+    size,
+    font,
+    color: rgb(0, 0, 0),
+  });
+}
+
+function drawTopRect(
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageHeight: number,
+  xIn: number,
+  topIn: number,
+  widthIn: number,
+  heightIn: number,
+  fill: string,
+) {
+  page.drawRectangle({
+    x: points(xIn),
+    y: pageHeight - points(topIn + heightIn),
+    width: points(widthIn),
+    height: points(heightIn),
+    color: labelPdfColor(fill),
+  });
+}
+
+async function addOpeningQr(
+  pdf: PDFDocument,
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageHeight: number,
+  project: Project,
+  phaseId: string,
+  openingId: string,
+  kind: string,
+  xIn: number,
+  topIn: number,
+  sideIn: number,
+) {
+  const appUrl = typeof window === "undefined"
+    ? "https://fortifieddoorworks.app"
+    : window.location.origin;
+  const scanUrl = new URL(appUrl);
+  scanUrl.searchParams.set("project", project.id);
+  scanUrl.searchParams.set("phase", phaseId);
+  scanUrl.searchParams.set("item", openingId);
+  scanUrl.searchParams.set("kind", kind);
+  const dataUrl = await QRCode.toDataURL(scanUrl.toString(), {
+    width: 180,
+    margin: 1,
+    errorCorrectionLevel: "H",
+  });
+  const qrBytes = Uint8Array.from(
+    atob(dataUrl.split(",")[1]),
+    (character) => character.charCodeAt(0),
+  );
+  const qr = await pdf.embedPng(qrBytes);
+  page.drawImage(qr, {
+    x: points(xIn),
+    y: pageHeight - points(topIn + sideIn),
+    width: points(sideIn),
+    height: points(sideIn),
+  });
+}
+
+async function addPageAt(pdf: PDFDocument, index: number, width: number, height: number) {
+  while (pdf.getPageCount() <= index) pdf.addPage([width, height]);
+  return pdf.getPages()[index];
+}
+
+async function drawLegacyFrameOrDoorLabels(
+  pdf: PDFDocument,
+  project: Project,
+  phaseId: string,
+  contractor: string,
+  kind: "Frames" | "Doors",
+  labels: ReturnType<typeof productionLabels>,
+  font: PDFFont,
+) {
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const logoHeightIn = kind === "Frames" ? 0.2 : 0.3;
+  const logoWidthIn = 7.75728 * logoHeightIn;
+  const logo = await pdf.embedPng(await publicPng("production-label-logo.png"));
+  for (const [index, label] of labels.entries()) {
+    const pageIndex = Math.floor(index / 20);
+    const row = index % 10;
+    const column = Math.floor((index % 20) / 10);
+    const page = await addPageAt(pdf, pageIndex, pageWidth, pageHeight);
+    const x = 0.25 + column * 4.1875;
+    const top = 0.5625 + row;
+    page.drawImage(logo, {
+      x: points(x),
+      y: pageHeight - points(top + logoHeightIn),
+      width: points(logoWidthIn),
+      height: points(logoHeightIn),
+    });
+    if (kind === "Frames") {
+      drawTopText(page, pageHeight, label.title, x + logoWidthIn + 0.15, top + logoHeightIn, 18, font);
+      drawTopText(page, pageHeight, `${project.name} | ${contractor}`, x, top + logoHeightIn + 0.16, 10, font);
+      const fields = [
+        { x: x - 0.05, textX: x, top: top + logoHeightIn + 0.27, textTop: top + logoHeightIn + 0.4, line: label.lines[0] },
+        { x: x + 0.25, textX: x + 0.3, top: top + logoHeightIn + 0.27, textTop: top + logoHeightIn + 0.4, line: label.lines[1] },
+        { x: x + 0.55, textX: x + 0.6, top: top + logoHeightIn + 0.27, textTop: top + logoHeightIn + 0.4, line: label.lines[2] },
+        { x: x + 0.95, textX: x + 1, top: top + logoHeightIn + 0.27, textTop: top + logoHeightIn + 0.4, line: label.lines[3] },
+      ];
+      for (const field of fields) {
+        drawTopRect(page, pageHeight, field.x, field.top, 0.3, 0.2, field.line.color || "#FFFFFF");
+        drawTopText(page, pageHeight, field.line.text, field.textX, field.textTop, 10, font);
+      }
+      drawTopText(page, pageHeight, label.lines[4]?.text || "", x, top + logoHeightIn + 0.6, 10, font);
+    } else {
+      drawTopText(page, pageHeight, label.title, x, top + logoHeightIn + 0.5, 20, font);
+      drawTopText(page, pageHeight, `${project.name} | ${contractor}`, x, top + logoHeightIn + 0.16, 10, font);
+      const fields = [
+        { x: x + 0.95, textX: x + 1, line: label.lines[0] },
+        { x: x + 1.25, textX: x + 1.3, line: label.lines[1] },
+        { x: x + 1.55, textX: x + 1.6, line: label.lines[2] },
+        { x: x + 1.85, textX: x + 1.9, line: label.lines[3] },
+        { x: x + 2.15, textX: x + 2.2, line: label.lines[4] },
+      ];
+      for (const field of fields) {
+        drawTopRect(page, pageHeight, field.x, top + logoHeightIn + 0.2, 0.3, 0.2, field.line.color || "#FFFFFF");
+        drawTopText(page, pageHeight, field.line.text, field.textX, top + logoHeightIn + 0.36, 10, font);
+      }
+      drawTopText(page, pageHeight, label.lines[5]?.text.replace(/^Material /, "") || "", x + 1, top + logoHeightIn + 0.51, 10, font);
+      drawTopText(page, pageHeight, label.lines[6]?.text.replace(/^Window /, "") || "", x + 2, top + logoHeightIn + 0.51, 10, font);
+    }
+    await addOpeningQr(
+      pdf,
+      page,
+      pageHeight,
+      project,
+      phaseId,
+      label.item.id,
+      kind,
+      x + 3.2,
+      top + 0.04,
+      0.75,
+    );
+  }
+}
+
+async function drawLegacyHardwareLabels(
+  pdf: PDFDocument,
+  project: Project,
+  phaseId: string,
+  contractor: string,
+  labels: ReturnType<typeof productionLabels>,
+  font: PDFFont,
+) {
+  const pageWidth = 792;
+  const pageHeight = 612;
+  const slotWidth = 3.34375;
+  const slotHeight = 4.1875;
+  const logoHeight = 0.8;
+  const logoWidth = 1.45 * logoHeight;
+  const lineHeight = 0.2;
+  const labelLinesPerStockLabel = 14;
+  const textWidth = points(slotWidth - 0.1);
+  const logo = await pdf.embedPng(await publicPng("production-hardware-logo.png"));
+  let labelIndex = 0;
+
+  for (const label of labels) {
+    const itemLines = label.lines.flatMap((line) => wrap(line.text, font, 10, textWidth));
+    const chunks: string[][] = [];
+    if (!itemLines.length) chunks.push([]);
+    for (let start = 0; start < itemLines.length; start += labelLinesPerStockLabel) {
+      chunks.push(itemLines.slice(start, start + labelLinesPerStockLabel));
+    }
+    for (const [continuation, lines] of chunks.entries()) {
+      const pageIndex = Math.floor(labelIndex / 6);
+      const row = labelIndex % 2;
+      const column = Math.floor((labelIndex % 6) / 2);
+      const page = await addPageAt(pdf, pageIndex, pageWidth, pageHeight);
+      const x = 0.5625 + column * slotWidth;
+      const top = 0.25 + row * slotHeight;
+      page.drawImage(logo, {
+        x: points(x + 0.4),
+        y: pageHeight - points(top + logoHeight),
+        width: points(logoWidth),
+        height: points(logoHeight),
+      });
+      const title = chunks.length > 1
+        ? `${label.title} (${continuation + 1}/${chunks.length})`
+        : label.title;
+      page.drawText(clean(title), {
+        x: points(x + 0.2),
+        y: pageHeight - points(top + logoHeight),
+        size: 18,
+        font,
+        rotate: degrees(90),
+        color: rgb(0, 0, 0),
+      });
+      drawTopText(page, pageHeight, `${project.name} | ${contractor}`, x, top + logoHeight + 0.2, 10, font);
+      page.drawLine({
+        start: { x: points(x), y: pageHeight - points(top + logoHeight + 0.25) },
+        end: { x: points(x + slotWidth - 0.1), y: pageHeight - points(top + logoHeight + 0.25) },
+        thickness: points(0.02),
+        color: rgb(0, 0, 0),
+      });
+      lines.forEach((line, lineIndex) =>
+        drawTopText(page, pageHeight, line, x, top + 1.25 + lineIndex * lineHeight, 10, font),
+      );
+      await addOpeningQr(
+        pdf,
+        page,
+        pageHeight,
+        project,
+        phaseId,
+        label.item.id,
+        "Hardware",
+        x + logoWidth + 0.85,
+        top,
+        0.8,
+      );
+      labelIndex++;
+    }
+  }
+}
 export async function makeDocument(
   project: Project,
   type: string,
   opts: {
-    labelWidth?: number;
-    labelHeight?: number;
     labelKind?: string;
     selected?: string[];
     contractor?: string;
@@ -65,144 +314,49 @@ export async function makeDocument(
   const d = derive(project.data);
   const phase = activePhase(project.data);
   if (type === "labels") {
-    const w = (opts.labelWidth || 4) * 72,
-      h = (opts.labelHeight || 2) * 72;
-    const selected = opts.selected;
-    const legacyKind = opts.labelKind === "Frames" || opts.labelKind === "Doors" || opts.labelKind === "Hardware"
-      ? opts.labelKind
-      : null;
-    const legacyLabels = legacyKind ? productionLabels(phase.data, legacyKind, selected) : [];
-    const items =
-      opts.labelKind === "Anchors"
-        ? [{ id: "anchor-package", name: "Anchor package" }]
-        : legacyKind
-        ? legacyLabels.map((label) => label.item)
-        : opts.labelKind === "Frames"
-          ? d.frames
-          : d.doors;
-    for (const item of items.filter(
-      (x) => opts.labelKind === "Anchors" || legacyKind || !selected || selected.includes(x.id),
-    )) {
-      let details: string[];
-      const legacyLabel = legacyLabels.find((label) => label.item.id === item.id);
-      if (legacyLabel) {
-        details = [
-          project.name,
-          `Contractor: ${opts.contractor || "-"}`,
-          `Phase: ${phase.name}`,
-          ...legacyLabel.lines.map((line) => line.text),
-        ];
-      } else if (opts.labelKind === "Anchors") {
-        details = [
-          `Contractor: ${opts.contractor || "-"}`,
-          `Jobsite: ${project.jobsite || "-"}`,
-          ...d.anchorTakeoff.map((anchor) => `${anchor.count} x ${anchor.size} ${anchor.name}`),
-        ];
-      } else if (opts.labelKind === "Frames") {
-        details = [
-          `Contractor: ${opts.contractor || "-"}`,
-          `Jobsite: ${project.jobsite || "-"}`,
-          `${str(item.width)} x ${str(item.height)} | Jamb: ${str(item.depth) || "-"}`,
-          `Handing: ${str(item.handing) || "Non-handed"}`,
-          same(item.brand, "NA") ? "Frame provided by others" : `Frame manufacturer: ${str(item.brand) || "Not specified"}`,
-          `Frame: ${str(item.frameType) || "-"}`,
-          `Anchor: ${str(item.anchor) || (/\bkd\b|knockdown/i.test(str(item.frameType)) ? "Short lag" : "Wood stud anchor")} · ${str(item.anchorQty) || (Number.parseInt(str(item.height).match(/^\s*(\d+)/)?.[1] || "7", 10) >= 8 ? "8" : "6")}`,
-          `Accessories: ${str(item.accessories) || "None"}`,
-        ];
-      } else {
-        details = [
-          `Contractor: ${opts.contractor || "-"}`,
-          `Jobsite: ${project.jobsite || "-"}`,
-          `${str(item.width)} x ${str(item.height)} | ${str(item.handing) || "Non-handed"}`,
-          same(item.brand, "NA") ? "Door provided by others" : `${str(item.material) || "Door"} | ${str(item.brand) || "Brand TBD"}`,
-          `Window / louver: ${str(item.window) || "None"}`,
-          `Fire rating: ${str(item.fire) || "Not specified"}`,
-          `Hardware group: ${str(item.group) || "-"}`,
-          `Prep: ${str(item.prep) || "-"}`,
-        ];
-      }
-      const qrSide = Math.min(54, h - 18, w * 0.32);
-      const textWidth = Math.max(72, w - qrSide - 26);
-      const title = clean(`${opts.labelKind || "Doors"} | ${str(item.name)}`);
-      const titleLines = wrap(title, bold, 12, textWidth);
-      const contentTop = h - 25 - titleLines.length * 15;
-      if (contentTop < 26)
-        throw new Error(
-          "This label is too small for the opening mark. Increase the label dimensions.",
-        );
-      let size = 10;
-      let lines: string[] = [];
-      while (size >= 7) {
-        lines = legacyKind
-          ? details.flatMap((t) => wrap(t, font, size, textWidth))
-          : opts.labelKind === "Hardware"
-          ? details.flatMap((t) => wrap(t, font, size, textWidth))
-          : [
-              ...wrap(project.name, font, size, textWidth),
-              ...wrap(`Phase: ${phase.name}`, font, size, textWidth),
-              ...details.flatMap((t) => wrap(t, font, size, textWidth)),
-            ];
-        if (lines.length * (size + 3) <= contentTop - 12 || size === 7) break;
-        size -= 0.5;
-      }
-      const cap = Math.max(1, Math.floor((contentTop - 12) / (size + 3)));
-      const chunks = [];
-      for (let i = 0; i < lines.length; i += cap)
-        chunks.push(lines.slice(i, i + cap));
-      for (const [i, chunk] of chunks.entries()) {
-        const p = pdf.addPage([w, h]);
-        titleLines.forEach((l, n) =>
-          p.drawText(l, { x: 12, y: h - 20 - n * 15, size: 12, font: bold }),
-        );
-        if (chunks.length > 1)
-          p.drawText(`${i + 1}/${chunks.length}`, {
-            x: w - 25,
-            y: 5,
-            size: 6,
-            font,
-          });
-        chunk.forEach((l, n) =>
-          p.drawText(l, { x: 12, y: contentTop - n * (size + 3), size, font }),
-        );
-        if (legacyKind) {
-          const originalLines = legacyLabel?.lines || [];
-          chunk.forEach((line, n) => {
-            const source = originalLines.find((entry) => clean(entry.text) === line && entry.color);
-            if (!source?.color) return;
-            const hex = source.color.slice(1);
-            const color = rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255);
-            p.drawRectangle({ x: 8, y: contentTop - n * (size + 3) - 2, width: Math.min(textWidth, font.widthOfTextAtSize(line, size) + 8), height: size + 3, color, opacity: 0.8 });
-            p.drawText(line, { x: 12, y: contentTop - n * (size + 3), size, font });
-          });
-        }
-        const appUrl =
-          typeof window === "undefined" ? "https://fortifieddoorworks.app" : window.location.origin;
-        const scanUrl = new URL(appUrl);
-        scanUrl.searchParams.set("project", project.id);
-        scanUrl.searchParams.set("phase", phase.id);
-        scanUrl.searchParams.set("item", item.id);
-        scanUrl.searchParams.set("kind", opts.labelKind || "Doors");
-        const dataUrl = await QRCode.toDataURL(scanUrl.toString(), {
-          width: 180,
-          margin: 1,
-          errorCorrectionLevel: "M",
-        });
-        const qrBytes = Uint8Array.from(
-          atob(dataUrl.split(",")[1]),
-          (character) => character.charCodeAt(0),
-        );
-        const qr = await pdf.embedPng(qrBytes);
-        const actualQrSide = Math.min(qrSide, h - 16);
-        p.drawImage(qr, {
-          x: w - actualQrSide - 8,
-          y: (h - actualQrSide) / 2,
-          width: actualQrSide,
-          height: actualQrSide,
-        });
-      }
+    const labelKind = opts.labelKind || "Doors";
+    const contractor = opts.contractor || "";
+    if (labelKind === "Frames" || labelKind === "Doors") {
+      const labels = productionLabels(phase.data, labelKind, opts.selected);
+      if (!labels.length) throw new Error("No openings selected for labels.");
+      await drawLegacyFrameOrDoorLabels(
+        pdf,
+        project,
+        phase.id,
+        contractor,
+        labelKind,
+        labels,
+        font,
+      );
+    } else if (labelKind === "Hardware") {
+      const labels = productionLabels(phase.data, "Hardware", opts.selected);
+      if (!labels.length) throw new Error("No openings selected for labels.");
+      await drawLegacyHardwareLabels(pdf, project, phase.id, contractor, labels, font);
+    } else {
+      const w = points(4);
+      const h = points(2);
+      const p = pdf.addPage([w, h]);
+      const details = [
+        project.name,
+        `Contractor: ${contractor || "-"}`,
+        `Phase: ${phase.name}`,
+        `Jobsite: ${project.jobsite || "-"}`,
+        ...d.anchorTakeoff.map((anchor) => `${anchor.count} x ${anchor.size} ${anchor.name}`),
+      ];
+      const labelWidth = points(4);
+      const contentWidth = labelWidth - 70;
+      const lines = details.flatMap((line) => wrap(line, font, 10, contentWidth));
+      p.drawText("Anchors | Anchor package", { x: 12, y: h - 20, size: 12, font: bold });
+      lines.forEach((line, index) => p.drawText(line, { x: 12, y: h - 42 - index * 14, size: 10, font }));
+      const scanUrl = new URL(typeof window === "undefined" ? "https://fortifieddoorworks.app" : window.location.origin);
+      scanUrl.searchParams.set("project", project.id);
+      scanUrl.searchParams.set("phase", phase.id);
+      scanUrl.searchParams.set("item", "anchor-package");
+      scanUrl.searchParams.set("kind", "Anchors");
+      const qrData = await QRCode.toDataURL(scanUrl.toString(), { width: 180, margin: 1, errorCorrectionLevel: "H" });
+      const qr = await pdf.embedPng(Uint8Array.from(atob(qrData.split(",")[1]), (character) => character.charCodeAt(0)));
+      p.drawImage(qr, { x: w - 66, y: (h - 54) / 2, width: 54, height: 54 });
     }
-    if (!pdf.getPageCount())
-      throw new Error("No openings selected for labels.");
   } else {
     let page = pdf.addPage([612, 792]),
       y = 740;
@@ -252,17 +406,9 @@ export async function makeDocument(
         ),
       );
       write("Doorways", 14, true);
-      const doorsById = new Map(d.doors.map((door) => [door.id, door]));
-      for (const frame of d.frames) {
-        const door = doorsById.get(frame.id);
-        write(`${str(frame.name)}:`, 12, true);
-        if (same(frame.brand, "NA")) write("Frame provided by others");
-        else write(`1ea. ${str(frame.brand) || "Frame manufacturer TBD"} ${feetInches(frame.width)} x ${feetInches(frame.height)} x ${jambInches(frame.depth)}\" HM Frame${frame.fire ? ` (${str(frame.fire)}H)` : ""}`);
-        if (!door || same(door.brand, "NA")) write("Door provided by others");
-        else write(`1ea. ${str(door.brand)} ${feetInches(door.width)} x ${feetInches(door.height)} ${str(door.material)}${door.fire ? ` (${str(door.fire)}H)` : ""}`);
-        d.hardware.filter((hardware) => same(hardware.group, frame.group)).forEach((hardware) =>
-          write(`${str(hardware.qty) || "1"}ea. ${str(hardware.selectedBrand)} ${str(hardware.selectedComponent)}`),
-        );
+      for (const opening of submittalOpenings(phase.data)) {
+        write(`${opening.name}:`, 12, true);
+        opening.items.forEach((item) => write(item));
         y -= 6;
       }
     }
