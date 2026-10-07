@@ -2144,6 +2144,9 @@ export default function Workspace() {
                   <button className="button secondary" onClick={duplicate}>
                     <Copy size={16} /> Duplicate
                   </button>
+                  <button className="button secondary" onClick={beginPhaseSplit}>
+                    <Layers size={16} /> Split phase
+                  </button>
                   <button
                     className="button"
                     disabled={!dirty || busy}
@@ -2151,34 +2154,6 @@ export default function Workspace() {
                   >
                     <Save size={16} />
                     {busy ? "Saving…" : dirty ? "Save changes" : "Saved"}
-                  </button>
-                </div>
-              </div>
-              <div className="phase-bar">
-                <div>
-                  <span className="eyebrow">WORK PACKAGE</span>
-                  <strong>{activePhase(active.data).name}</strong>
-                  <span className="phase-count">
-                    {activePhase(active.data).data.openings.length} openings
-                  </span>
-                </div>
-                <div className="phase-actions">
-                  <label>
-                    <span className="sr-only">Switch project phase</span>
-                    <select
-                      value={active.data.activePhaseId || ""}
-                      onChange={(e) => switchPhase(e.target.value)}
-                      aria-label="Switch project phase"
-                    >
-                      {(active.data.phases || []).map((phase) => (
-                        <option key={phase.id} value={phase.id}>
-                          {phase.name} ({phase.data.openings.length})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button className="button secondary" onClick={beginPhaseSplit}>
-                    <Layers size={16} /> Split phase
                   </button>
                 </div>
               </div>

@@ -809,45 +809,6 @@ progress::-moz-progress-bar {
   align-items: center;
   gap: 12px;
 }
-.phase-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin: -7px 0 20px;
-  padding: 13px 16px;
-  border: 1px solid #e1e6ea;
-  border-radius: 9px;
-  background: #fff;
-}
-.phase-bar > div:first-child,
-.phase-actions {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-.phase-bar .eyebrow {
-  margin: 0;
-  font-size: 9px;
-}
-.phase-bar strong {
-  font-size: 13px;
-}
-.phase-count {
-  padding-left: 12px;
-  border-left: 1px solid #e1e6ea;
-  color: #74808a;
-  font-size: 11px;
-}
-.phase-actions select {
-  min-width: 190px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 1px solid #dfe4e8;
-  border-radius: 6px;
-  color: var(--ink);
-  background: #fff;
-}
 .phase-list-heading { margin-bottom: 22px; }
 .phase-title {
   display: flex;
@@ -1759,13 +1720,6 @@ tbody tr:hover {
   .detail-heading {
     flex-direction: column;
   }
-  .phase-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .phase-actions {
-    flex-wrap: wrap;
-  }
   .table-toolbar {
     padding: 15px;
     gap: 10px;
@@ -1884,16 +1838,6 @@ tbody tr:hover {
   .phase-list { padding: 0 14px 8px; }
   .phase-list-open { gap: 11px; padding: 14px 2px; }
   .phase-list-number { width: 34px; height: 34px; }
-  .phase-bar > div:first-child,
-  .phase-actions {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .phase-actions,
-  .phase-actions label,
-  .phase-actions select {
-    width: 100%;
-  }
   .phase-count {
     padding: 0;
     border: 0;
