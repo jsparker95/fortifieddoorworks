@@ -25,7 +25,8 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
   const [docs, setDocs] = useState<ProjectDocument[]>([]), [file, setFile] = useState<File | null>(null),
     [docType, setDocType] = useState("plan_set"), [revision, setRevision] = useState(""),
     [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState(""),
-    [selectedDoc, setSelectedDoc] = useState(""), [selected, setSelected] = useState<Set<string>>(new Set());
+    [selectedDoc, setSelectedDoc] = useState(""), [selected, setSelected] = useState<Set<string>>(new Set()),
+    [manualPageInput, setManualPageInput] = useState("");
   const current = docs.find((doc) => doc.id === selectedDoc);
   const analysis = current?.analysis as Analysis | null;
 
@@ -62,10 +63,19 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
     if (!current) return;
     setBusy(true); setError(""); setNotice("");
     try {
+      const manualPages = new Set<number>();
+      for (const token of manualPageInput.split(",").map((part) => part.trim()).filter(Boolean)) {
+        const match = token.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+        if (!match) throw new Error("Enter page numbers like 22, 45-49. You can select up to 36 pages.");
+        const start = Number(match[1]), end = Number(match[2] || match[1]);
+        if (start < 1 || end < start || end - start > 35) throw new Error("Each page range must be valid and no range may exceed 36 pages.");
+        for (let page = start; page <= end; page++) manualPages.add(page);
+        if (manualPages.size > 36) throw new Error("Select no more than 36 manual pages at a time.");
+      }
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
       if (!accessToken) throw new Error("Sign in again before analyzing this PDF.");
-      const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId }) });
+      const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId, manualPages: [...manualPages] }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Analysis failed.");
       setNotice("Extraction finished. Review every item and page citation before adding anything to the phase."); await refresh();
@@ -107,6 +117,7 @@ export function DocumentManager({ projectId, phaseId, phaseAliases, phaseName, d
       </div>
       <div className="doc-list">{docs.map((doc) => <button key={doc.id} className={`doc-list-item ${doc.id === selectedDoc ? "selected" : ""}`} onClick={() => { setSelectedDoc(doc.id); setSelected(new Set()); }}><FileText size={18}/><span><strong>{doc.file_name}</strong><small>{doc.document_type.replaceAll("_", " ")} · {doc.revision_label || "No revision"} · {doc.page_count ? `${doc.page_count} pages · ` : ""}{doc.status.replaceAll("_", " ")}</small></span></button>)}{!docs.length && <p className="empty-inline">No PDFs uploaded to {phaseName} yet.</p>}</div>
       {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><button className="button" disabled={busy} onClick={() => void analyze()}><Sparkles size={16}/>{analysis ? "Analyze again" : "Find pages & extract"}</button></div>
+        <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you already know where a schedule is. Up to 36 manually selected pages are sent alongside the highest-ranked text matches.</small></label>
         {analysis && <>
           <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>
           {!!analysis.relevantPages?.length && <div className="relevant-pages"><h4>Relevant page index</h4>{analysis.relevantPages.map((item, index) => <button key={`${item.page}:${index}`} className="page-citation" onClick={() => void openPage(item.page)}><strong>p. {item.page}</strong><span>{item.section}</span><small>{item.reason} · {Math.round(item.confidence * 100)}%</small><ExternalLink size={14}/></button>)}</div>}

@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   if (authError || !auth.user) return Response.json({ error: "Your session expired. Sign in again." }, { status: 401 });
 
   try {
-    const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string };
+    const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string; manualPages?: number[] };
     if (!body.documentId || !body.projectId || !body.phaseId) return Response.json({ error: "Document, project, and phase are required." }, { status: 400 });
     const { data: project, error: projectError } = await supabase.from("projects").select("data").eq("id", body.projectId).single();
     const phases = (project?.data as { phases?: Array<{ id: string }> } | undefined)?.phases || [];
@@ -60,7 +60,13 @@ export async function POST(request: Request) {
       const score = terms.reduce((sum, [pattern, weight]) => sum + (pattern.test(text) ? weight : 0), 0);
       if (score > 0) pages.push({ page: pageNo, text, score, labels });
     }
-    const ranked = pages.sort((a, b) => b.score - a.score).slice(0, 36).sort((a, b) => a.page - b.page);
+    const requestedPages = [...new Set((Array.isArray(body.manualPages) ? body.manualPages : []).map(Number))];
+    if (requestedPages.length > 36 || requestedPages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.numPages)) {
+      return Response.json({ error: `Choose up to 36 valid page numbers from this ${pdf.numPages}-page PDF.` }, { status: 400 });
+    }
+    const manual = requestedPages.map((page) => ({ page, text: pages.find((candidate) => candidate.page === page)?.text || "", score: Number.MAX_SAFE_INTEGER, labels: ["Manually selected page"] }));
+    const automatic = pages.sort((a, b) => b.score - a.score).filter((page) => !requestedPages.includes(page.page)).slice(0, Math.max(0, 36 - manual.length));
+    const ranked = [...manual, ...automatic].sort((a, b) => a.page - b.page);
     await supabase.from("project_documents").update({ page_count: pdf.numPages, status: "indexed" }).eq("id", document.id);
     if (!ranked.length) {
       const analysis = { relevantPages: [], walls: [], doorTypes: [], openings: [], hardwareGroups: [], specFindings: [], uncertainties: ["No searchable schedule text was found. This PDF may be scanned; select key pages manually or upload a text-searchable/OCR PDF."], indexedPageCount: pdf.numPages, scannedPageCount: pdf.numPages - searchablePageCount };
