@@ -301,6 +301,8 @@ export default function Workspace() {
     [splitFirstName, setSplitFirstName] = useState(""),
     [splitSecondName, setSplitSecondName] = useState(""),
     [splitSecondIds, setSplitSecondIds] = useState<string[]>([]);
+  const [duplicateConfirmationOpen, setDuplicateConfirmationOpen] =
+    useState(false);
   const [scannedItem, setScannedItem] = useState("");
   const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
@@ -2191,7 +2193,11 @@ export default function Workspace() {
                   </div>
                 </div>
                 <div className="actions">
-                  <button className="button secondary" disabled={busy} onClick={duplicate}>
+                  <button
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => setDuplicateConfirmationOpen(true)}
+                  >
                     <Copy size={16} /> Duplicate project
                   </button>
                   <button className="button" disabled={!dirty || busy} onClick={() => saveProject()}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
@@ -3031,7 +3037,88 @@ export default function Workspace() {
           onConfirm={confirmPhaseSplit}
         />
       )}
+      {duplicateConfirmationOpen && active && (
+        <DuplicateProjectDialog
+          projectName={active.name}
+          busy={busy}
+          onClose={() => setDuplicateConfirmationOpen(false)}
+          onConfirm={() => {
+            setDuplicateConfirmationOpen(false);
+            void duplicate();
+          }}
+        />
+      )}
     </div>
+  );
+}
+function DuplicateProjectDialog({
+  projectName,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  projectName: string;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+    return () => dialog.current?.close();
+  }, []);
+  return (
+    <dialog ref={dialog} className="editor split-editor" onCancel={onClose}>
+      <header>
+        <div>
+          <span className="eyebrow">DUPLICATE PROJECT</span>
+          <h2>Make a copy of {projectName}?</h2>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close dialog"
+          onClick={onClose}
+          disabled={busy}
+        >
+          <X size={20} />
+        </button>
+      </header>
+      <div className="duplicate-project-copy">
+        <p>The copy will be a separate project and will include:</p>
+        <ul>
+          <li>
+            Project details, every phase, and all opening and takeoff data.
+          </li>
+          <li>Attached project and phase documents.</li>
+          <li>
+            New project, phase, and opening IDs, so the copy is independent.
+          </li>
+        </ul>
+        <p>
+          Production milestones and takeoff selections will be cleared, and the
+          copy will start in Planning. The original project will not change.
+        </p>
+      </div>
+      <footer>
+        <button
+          type="button"
+          className="button secondary"
+          onClick={onClose}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={onConfirm}
+          disabled={busy}
+        >
+          <Copy size={16} /> Duplicate project
+        </button>
+      </footer>
+    </dialog>
   );
 }
 function PhaseSplitDialog({
