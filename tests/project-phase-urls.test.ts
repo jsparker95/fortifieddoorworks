@@ -42,8 +42,8 @@ test("phase page heading shows the project and phase names without the generic l
   );
 
   assert.match(phaseView, /className="project-phase-title"/);
-  assert.match(phaseView, /<span>\\{active\\.name\\}<\\/span>/);
-  assert.match(phaseView, /<span>\\{activePhase\\(active\\.data\\)\\.name\\}<\\/span>/);
+  assert.ok(phaseView.includes("<span>{active.name}</span>"));
+  assert.ok(phaseView.includes("<span>{activePhase(active.data).name}</span>"));
   assert.doesNotMatch(phaseView, /MANUFACTURING PROJECT/);
 });
 
