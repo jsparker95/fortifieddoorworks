@@ -1507,6 +1507,18 @@ tbody tr:hover {
 .editor .error {
   margin: 0 26px 16px;
 }
+.duplicate-project-copy {
+  padding: 24px 26px;
+  color: var(--ink);
+  line-height: 1.55;
+}
+.duplicate-project-copy p {
+  margin: 0 0 12px;
+}
+.duplicate-project-copy ul {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
 .login {
   min-height: 100vh;
   display: grid;
