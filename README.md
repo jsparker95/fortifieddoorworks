@@ -47,6 +47,20 @@ The Vercel project is `fortifieddoors`; the GitHub repository is `fortifieddoorw
 
 Set the Supabase Auth site URL and allowed redirect URLs to the production application URL before sending users through email confirmation or password recovery. The browser application supports account creation and password sign-in; users must confirm their email and be in the workspace allowlist.
 
+## Workspace access management
+
+After deploying the access-management release and its database migration, Global Admins use **Users & access** in the sidebar, or **Settings → Manage users & access** (`/access`). The screen lists approved and revoked members, their roles, account readiness and last sign-in; it supports adding an approved email, changing roles, revoking/restoring access, and reviewing the last 100 access changes.
+
+Roles are company-wide:
+
+- **Operator**: existing shared project/document/contractor/catalog editing and own production time; read vendors.
+- **Manager**: Operator permissions plus vendor maintenance, team time review and phase cleanup.
+- **Global Admin**: Manager permissions plus membership administration.
+
+There are no per-project or read-only roles. These app roles do not grant hosting, GitHub or Supabase dashboard access. Adding a member approves an email address; it does not send mail or create a password. New members still use the existing account-creation flow. Revocation preserves accounts and work history while denying subsequent database/storage requests; signed file URLs already issued (up to one hour) and downloaded files cannot be recalled. Open pages recheck membership on focus and every minute.
+
+See [access-management deployment and verification](docs/access-management.md) before releasing. The migration explicitly promotes `jsparker95@gmail.com` and `brian@fortifieddoor.com` to Global Admin. That promotion does not take effect until the migration is applied to production.
+
 ## Scope and remaining source dependencies
 
 The recovered Apps Script builds a Google Docs submittal from each opening, its frame, door and hardware; the replacement PDF follows that per-opening content pattern. The linked Google Docs template and label-generator script remain inaccessible, so final approval-package styling and label-stock alignment still need comparison against accessible copies or physical print samples. The local label sample is matched for size and content layout; print a physical sheet before production use to confirm stock alignment.

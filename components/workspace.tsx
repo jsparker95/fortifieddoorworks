@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import SettingCell from "./setting-cell";
+import { AccessManagement } from "./access-management";
+import { canManageProduction, isWorkspaceRole, roleLabels, type WorkspaceRole } from "@/lib/access";
 import { applyCatalogField, catalogFieldValue, type CatalogField } from "@/lib/catalog-settings";
 import {
   Project,
@@ -267,7 +269,8 @@ export default function Workspace() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [role, setRole] = useState<"operator" | "manager">("operator");
+  const [role, setRole] = useState<WorkspaceRole>("operator");
+  const [accessApproved, setAccessApproved] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]),
     [contractors, setContractors] = useState<Contractor[]>([]),
     [catalogs, setCatalogs] = useState<Catalog[]>([]),
@@ -323,6 +326,7 @@ export default function Workspace() {
         setCatalogs(data.catalogs);
         setVendors([]);
         setDemo(true);
+        setAccessApproved(true);
         setEmail("Local preview");
         setProfileName("Local preview");
         setAccountName("Local preview");
@@ -349,15 +353,18 @@ export default function Workspace() {
       const member = await supabase
         .from("workspace_members")
         .select("email,role,display_name")
+        .eq("email", (user.email || "").toLowerCase())
         .maybeSingle();
       if (member.error) throw member.error;
-      if (!member.data) {
+      if (!member.data || !isWorkspaceRole(member.data.role)) {
+        setAccessApproved(false);
         setReady(true);
         throw new Error(
           "Your account is signed in but has not been approved for this workspace. Ask the workspace owner to add your email.",
         );
       }
-      setRole(member.data.role === "manager" ? "manager" : "operator");
+      setRole(member.data.role);
+      setAccessApproved(true);
       const displayName = getProfileDisplayName(
         user.user_metadata?.full_name || user.user_metadata?.name,
         member.data.display_name,
@@ -407,6 +414,27 @@ export default function Workspace() {
   useEffect(() => {
     void load();
   }, []);
+  useEffect(() => {
+    if (!ready || demo) return;
+    let cancelled = false;
+    async function checkAccess() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (!user) { setReady(false); setAccessApproved(false); return; }
+      const result = await supabase.from("workspace_members").select("role")
+        .eq("email", (user.email || "").toLowerCase()).maybeSingle();
+      if (cancelled || result.error) return;
+      if (!result.data || !isWorkspaceRole(result.data.role)) {
+        setAccessApproved(false); setProjects([]); setActive(null);
+        setContractors([]); setCatalogs([]); setVendors([]);
+        setError("Your workspace access has been revoked. Contact a Global Admin.");
+      } else { setRole(result.data.role); }
+    }
+    const interval = window.setInterval(() => void checkAccess(), 60_000);
+    const focus = () => void checkAccess();
+    window.addEventListener("focus", focus);
+    return () => { cancelled = true; window.clearInterval(interval); window.removeEventListener("focus", focus); };
+  }, [ready, demo]);
   useEffect(() => {
     const before = (e: BeforeUnloadEvent) => {
       if (dirty) e.preventDefault();
@@ -539,6 +567,8 @@ export default function Workspace() {
         ? "Projects"
         : returnPath === "/contractors"
           ? "Contractors"
+          : returnPath === "/access"
+            ? "Access"
           : returnPath === "/settings"
             ? "Settings"
             : "Dashboard",
@@ -697,6 +727,7 @@ export default function Workspace() {
     if (pathname === "/") setView("Dashboard");
     if (pathname === "/projects") setView("Projects");
     if (pathname === "/settings") setView("Settings");
+    if (pathname === "/access") { setView("Access"); setActive(null); }
     if (pathname === "/contractors") setView("Contractors");
     if (!ready || !projects.length || !routeParams?.projectId) return;
     const project = projects.find((item) => item.id === routeParams.projectId);
@@ -1644,6 +1675,7 @@ export default function Workspace() {
         )}
       </>
     );
+  if (!accessApproved) return <main className="login"><section><h1>Workspace access required</h1><p>{error || "Your access has been revoked or has not been approved."}</p><button className="button" onClick={async () => { await supabase.auth.signOut(); setReady(false); }}>Sign out</button></section></main>;
   return (
     <div className="app">
       <aside className={mobile ? "sidebar open" : "sidebar"}>
@@ -1680,6 +1712,7 @@ export default function Workspace() {
         >
           <Settings size={19} /> Settings
         </button>
+        {role === "global_admin" && <button className={"nav " + (view === "Access" ? "selected" : "")} onClick={() => navigate("Access")}><Settings size={19} /> Users &amp; access</button>}
       </aside>
       <div className="main">
         <header className="topbar">
@@ -1788,6 +1821,7 @@ export default function Workspace() {
                       />
                     </div>
                   </div>
+                  <p className="profile-help">Workspace role: {roleLabels[role]}</p>
                   <form className="profile-form" onSubmit={saveProfile}>
                     <label>
                       Name
@@ -2083,12 +2117,14 @@ export default function Workspace() {
               </div>
             </>
           )}
+          {!active && view === "Access" && <AccessManagement email={email} role={role} demo={demo} />}
           {!active && view === "Settings" && (
             <>
               <div className="page-heading">
                 <div>
                   <span className="eyebrow">MANAGE THE DETAILS</span>
                   <h1>Settings</h1>
+                  {role === "global_admin" && <button className="button secondary" onClick={() => navigate("Access")}>Manage users &amp; access</button>}
                   <p>
                     Shared options for door schedules, frames, and hardware.
                   </p>
@@ -2178,7 +2214,7 @@ export default function Workspace() {
               <VendorDirectory
                 vendors={vendors}
                 setVendors={setVendors}
-                manager={role === "manager"}
+                manager={canManageProduction(role)}
                 demo={demo}
               />
             </>
@@ -2622,7 +2658,7 @@ export default function Workspace() {
                   phaseId={activePhase(active.data).id}
                   openings={derived.frames}
                   email={email}
-                  manager={role === "manager"}
+                  manager={canManageProduction(role)}
                   demo={demo}
                   scannedOpeningId={scannedItem}
                   scannedKind={scannedKind}
