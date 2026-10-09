@@ -2369,10 +2369,13 @@ export default function Workspace() {
               </button>
               <div className="page-heading detail-heading">
                 <div>
-                  <span className="eyebrow">
-                    {active.building || "MANUFACTURING PROJECT"}
-                  </span>
-                  <h1>{active.name}</h1>
+                  <h1 className="project-phase-title">
+  <span>{active.name}</span>
+  <span className="project-phase-separator" aria-hidden="true">
+    |
+  </span>
+  <span>{activePhase(active.data).name}</span>
+</h1>
                   <p>
                     <span className="badge">{active.status}</span>{" "}
                     <span>{active.jobsite || "Jobsite not entered"}</span>
