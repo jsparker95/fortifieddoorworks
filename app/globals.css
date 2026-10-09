@@ -2269,3 +2269,78 @@ th,
 }
 .project-row .opening-count { line-height: 1.2; }
 .project-row .opening-count small { display: block; line-height: 1.2; }
+
+/* A focused, installable shop-floor app with controls sized for touch. */
+.production-app {
+  --prod-ink: #202b39;
+  --prod-muted: #6b7a8d;
+  --prod-line: #dfe4ea;
+  --prod-orange: #e95116;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 620px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+  color: var(--prod-ink);
+  background: #f3f5f8;
+  font-family: inherit;
+}
+.production-app *, .production-app *::before, .production-app *::after { box-sizing: border-box; }
+.production-app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 2px 18px; }
+.production-app-header h1 { margin: 4px 0 1px; font-size: 26px; line-height: 1.2; letter-spacing: -.03em; }
+.production-app-header p { margin: 0; color: var(--prod-muted); font-size: 13px; }
+.production-eyebrow { color: #8b5c45; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.production-icon-button { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--prod-line); border-radius: 12px; color: var(--prod-muted); background: white; }
+.production-shift-card, .production-card, .production-login { border: 1px solid var(--prod-line); border-radius: 15px; background: white; box-shadow: 0 2px 8px rgb(24 39 56 / 3%); }
+.production-shift-card { display: flex; align-items: center; gap: 12px; min-height: 86px; padding: 14px; margin-bottom: 14px; }
+.production-status-icon { display: grid; flex: 0 0 44px; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: #a04e27; background: #fff1e8; }
+.production-shift-copy, .production-recent-copy { display: grid; min-width: 0; gap: 4px; flex: 1; }
+.production-shift-copy strong { font-size: 15px; }
+.production-shift-copy span, .production-recent-copy small { color: var(--prod-muted); font-size: 12px; line-height: 1.35; }
+.production-primary, .production-stop, .production-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 50px; padding: 0 17px; border: 0; border-radius: 11px; color: white; background: var(--prod-orange); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+.production-primary:disabled, .production-stop:disabled, .production-secondary:disabled { opacity: .48; cursor: not-allowed; }
+.production-stop { color: #384454; border: 1px solid var(--prod-line); background: white; }
+.production-secondary { color: #384454; border: 1px solid var(--prod-line); background: #f8fafc; }
+.production-start { flex: 0 0 auto; min-height: 48px; padding: 0 13px; font-size: 14px; }
+.production-card { padding: 17px; margin-bottom: 14px; }
+.production-card-title { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; color: var(--prod-ink); }
+.production-card-title svg { color: #a04e27; }
+.production-card-title h2, .production-recent h2 { margin: 0; font-size: 17px; letter-spacing: -.015em; }
+.production-card label, .production-login label { display: grid; gap: 7px; margin: 12px 0; color: #465669; font-size: 12px; font-weight: 700; }
+.production-card select, .production-login input { width: 100%; min-height: 50px; padding: 0 13px; border: 1px solid #d7dee7; border-radius: 10px; color: #263447; background: white; font: inherit; font-size: 15px; }
+.production-kind-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 16px 0 12px; padding: 4px; border-radius: 12px; background: #f1f4f7; }
+.production-kind-picker button { min-height: 44px; border: 0; border-radius: 9px; color: #647386; background: transparent; font: inherit; font-size: 13px; font-weight: 650; }
+.production-kind-picker button.selected { color: #a3441e; background: white; box-shadow: 0 1px 4px rgb(20 40 60 / 10%); }
+.production-full-button { width: 100%; min-height: 54px; }
+.production-coded { padding-top: 7px; }
+.production-active-card { display: flex; align-items: center; gap: 10px; padding: 13px; border: 1px solid #c9e8d6; border-radius: 12px; color: #277447; background: #f0fbf4; }
+.production-active-card span { display: grid; gap: 3px; }
+.production-active-card small { color: #597969; }
+.production-recent { padding: 7px 2px 0; }
+.production-recent h2 { margin: 0 0 10px; }
+.production-recent-row { display: flex; align-items: center; gap: 11px; padding: 12px 2px; border-top: 1px solid var(--prod-line); }
+.production-recent-mark { display: grid; flex: 0 0 34px; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #53647a; background: #e9eef4; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.production-recent-copy strong { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.production-recent-duration { color: #465669; font-size: 12px; font-variant-numeric: tabular-nums; }
+.production-app-footer { padding: 20px 0 4px; text-align: center; }
+.production-app-footer a, .production-login > a { color: #68798e; font-size: 13px; text-decoration: none; }
+.production-message, .production-error { padding: 11px 13px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+.production-message { color: #27673f; background: #eaf8ef; }
+.production-error { color: #a52d2d; background: #fff0ef; }
+.production-login { width: 100%; max-width: 410px; padding: 26px; margin: max(28px, 10vh) auto 0; }
+.production-login img { display: block; width: 116px; height: 80px; object-fit: contain; object-position: left center; }
+.production-login h1 { margin: 11px 0 5px; font-size: 27px; }
+.production-login > p { color: var(--prod-muted); font-size: 14px; line-height: 1.45; }
+.production-login form { margin: 20px 0 14px; }
+.production-login form .production-primary { width: 100%; margin-top: 9px; }
+.production-app-loading { padding: 30vh 0; color: var(--prod-muted); text-align: center; }
+.production-workspace-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.production-workspace-actions a { text-decoration: none; }
+@media (max-width: 520px) {
+  .production-app { padding-right: 13px; padding-left: 13px; }
+  .production-shift-card { gap: 9px; padding: 11px; }
+  .production-start { min-height: 46px; padding: 0 10px; }
+  .production-card { padding: 14px; }
+  .production-login { padding: 22px; }
+}

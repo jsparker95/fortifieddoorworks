@@ -1,0 +1,17 @@
+{
+  "name": "Fortified Doorworks Production",
+  "short_name": "Production",
+  "description": "Clock shifts and record production work.",
+  "start_url": "/production",
+  "scope": "/production",
+  "display": "standalone",
+  "background_color": "#f3f5f8",
+  "theme_color": "#f3f5f8",
+  "icons": [
+    {
+      "src": "/production-hardware-logo.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}

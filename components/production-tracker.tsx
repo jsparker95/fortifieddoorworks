@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock3, Play, Square, Check, X, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import type { ProductionWorkSession, Row } from "@/lib/types";
 import { str } from "@/lib/production";
@@ -118,18 +119,7 @@ export function ProductionTracker({
 
   if (demo) return <section className="panel"><h2>Shop-floor time &amp; piece rate</h2><p>Clock and approval records require a signed-in employee account in the connected workspace.</p></section>;
   return <section className="panel production-tracker">
-    <div className="panel-heading"><div><h2>Shop-floor clock &amp; piece rate</h2><p>Workers clock a shift, time each frame/door/hardware task, and submit coded work. Managers approve coded time before it is excluded from efficiency.</p></div><button className="button secondary" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15}/> Refresh</button></div>
-    <div className="shift-clock">
-      <div className="shift-status"><Clock3 size={20}/><span><strong>{activeShift ? "Shift in progress" : "Shift not started"}</strong><small>{activeShift ? `Started ${new Date(activeShift.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${fmt(sessionHours(activeShift, now))} elapsed` : "Start a shift before timing a production task."}</small></span></div>
-      {activeShift ? <button className="button secondary" disabled={busy || !!activeTask} onClick={() => void stopRow(activeShift)}><Square size={15}/> End shift</button> : <button className="button" disabled={busy} onClick={() => void startShift()}><Play size={15}/> Start shift</button>}
-    </div>
-    <div className="work-timer-controls">
-      <label>Opening <select value={selectedOpeningId} onChange={(event) => setSelectedOpeningId(event.target.value)}><option value="">Choose a scanned or scheduled opening</option>{openings.map((opening) => <option key={opening.id} value={opening.id}>{str(opening.name)} · {str(opening.width)} × {str(opening.height)}</option>)}</select></label>
-      <label>Work item <select value={taskKind} onChange={(event) => setTaskKind(event.target.value as typeof taskKind)}><option value="frame">Frame production</option><option value="door">Door production</option><option value="hardware">Hardware packaging</option></select></label>
-      <div className="piece-rate-note">Frame credit: <strong>{hoursCredit.toFixed(2)} PR hours</strong>{selectedOpening && !hoursCredit ? <small>Set this opening’s frame piece-rate credit in the Openings tab.</small> : null}</div>
-      {!activeTask ? <button className="button" disabled={busy || !activeShift || !selectedOpeningId} onClick={() => void startTask(taskKind)}><Play size={15}/> Start work</button> : <button className="button" disabled={busy} onClick={() => void stopRow(activeTask)}><Square size={15}/> Finish {activeTask.work_kind}: {activeTask.opening_mark || "coded work"}</button>}
-    </div>
-    <div className="coded-time-row"><label>Coded work (manager-approved)<select value={codedCategory} onChange={(event) => setCodedCategory(event.target.value)}>{codedCategories.map((category) => <option key={category}>{category}</option>)}</select></label>{activeTask?.work_kind === "coded" ? <button className="button secondary" disabled={busy} onClick={() => void stopRow(activeTask)}><Square size={15}/> Submit coded time</button> : <button className="button secondary" disabled={busy || !activeShift || !!activeTask} onClick={() => void startTask("coded")}><Play size={15}/> Start coded time</button>}</div>
+    <div className="panel-heading"><div><h2>Shop-floor time &amp; piece rate</h2><p>Shift and task timers run in the mobile-first production app. Review efficiency and coded-time approvals here.</p></div><div className="production-workspace-actions"><Link className="button" href="/production"><Play size={15}/> Open production app</Link><button className="button secondary" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15}/> Refresh</button></div></div>
 
     <div className="efficiency-summary"><h3>Today’s efficiency</h3><p>Piece-rate hours ÷ (shift hours − approved coded hours). Coded entries pending approval still count against the total.</p>{efficiencyRows.length ? <div className="table-scroll"><table><thead><tr><th>Employee</th><th>Shift</th><th>Approved coded</th><th>Piece-rate hours</th><th>Productive hours</th><th>Efficiency</th></tr></thead><tbody>{efficiencyRows.map((stats) => <tr key={stats.employee}><td>{stats.employee}</td><td>{fmt(stats.shift)}</td><td>{fmt(stats.coded)}{stats.unreviewed ? ` · ${fmt(stats.unreviewed)} pending` : ""}</td><td>{stats.credit.toFixed(2)}</td><td>{fmt(stats.productive)}</td><td>{stats.efficiency === null ? "—" : `${stats.efficiency}%`}</td></tr>)}</tbody></table></div> : <p>No shift or production entries recorded today.</p>}</div>
 
