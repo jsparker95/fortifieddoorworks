@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { cleanupDeletedFiles, pendingDeletionFiles, type DeletionJob } from "@/lib/deletion";
+import { normalizeDeleteConfirmation } from "@/lib/deletion-confirmation";
 
 export function DeleteTargetDialog({ name, phase, busy, error, onClose, onConfirm }: {
   name: string; phase: boolean; busy: boolean; error: string;
@@ -9,6 +10,7 @@ export function DeleteTargetDialog({ name, phase, busy, error, onClose, onConfir
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [confirmation, setConfirmation] = useState("");
+  const confirmationMatches = normalizeDeleteConfirmation(confirmation) === normalizeDeleteConfirmation(name);
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
@@ -16,7 +18,7 @@ export function DeleteTargetDialog({ name, phase, busy, error, onClose, onConfir
   }, []);
   return <dialog ref={dialog} className="editor split-editor" aria-labelledby="delete-target-title"
     onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }}>
-    <form onSubmit={(event) => { event.preventDefault(); if (confirmation === name && !busy) onConfirm(confirmation); }}>
+    <form onSubmit={(event) => { event.preventDefault(); if (confirmationMatches && !busy) onConfirm(name); }}>
       <header><div><span className="eyebrow">PERMANENT DELETION</span>
         <h2 id="delete-target-title">Delete {phase ? "phase" : "project"}?</h2></div></header>
       <div className="duplicate-project-copy">
@@ -25,10 +27,11 @@ export function DeleteTargetDialog({ name, phase, busy, error, onClose, onConfir
         <label>Type <strong>{name}</strong> to confirm
           <input aria-label="Confirm deletion name" autoComplete="off" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} />
         </label>
+        <small>Extra spaces and dash styles are ignored when confirming.</small>
         {error && <p role="alert" className="error">{error}</p>}
       </div>
       <footer><button type="button" className="button secondary" onClick={onClose} disabled={busy}>Cancel</button>
-        <button type="submit" className="button danger" disabled={busy || confirmation !== name}><Trash2 size={16} />{busy ? "Deleting…" : "Permanently delete"}</button></footer>
+        <button type="submit" className="button danger" disabled={busy || !confirmationMatches}><Trash2 size={16} />{busy ? "Deleting…" : "Permanently delete"}</button></footer>
     </form>
   </dialog>;
 }
