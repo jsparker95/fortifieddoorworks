@@ -804,6 +804,16 @@ progress::-moz-progress-bar {
   font-size: 26px;
   max-width: 800px;
 }
+.project-phase-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 10px;
+}
+.project-phase-separator {
+  color: #9aa4af;
+  font-weight: 400;
+}
 .detail-heading p {
   display: flex;
   align-items: center;
