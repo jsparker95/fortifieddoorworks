@@ -135,7 +135,7 @@ async function addOpeningQr(
   const appUrl = typeof window === "undefined"
     ? "https://fortifieddoorworks.app"
     : window.location.origin;
-  const scanUrl = new URL(appUrl);
+  const scanUrl = new URL("/production", appUrl);
   scanUrl.searchParams.set("project", project.id);
   scanUrl.searchParams.set("phase", phaseId);
   scanUrl.searchParams.set("item", openingId);
