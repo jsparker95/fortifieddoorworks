@@ -8,6 +8,7 @@ import {
   Search,
   Plus,
   Settings,
+  UsersRound,
   Truck,
   LayoutGrid,
   LayoutDashboard,
@@ -1863,7 +1864,7 @@ export default function Workspace() {
         >
           <Settings size={19} /> Settings
         </button>
-        {role === "global_admin" && <button className={"nav " + (view === "Access" ? "selected" : "")} onClick={() => navigate("Access")}><Settings size={19} /> Users &amp; access</button>}
+        {role === "global_admin" && <button className={"nav " + (view === "Access" ? "selected" : "")} onClick={() => navigate("Access")}><UsersRound size={19} /> Users &amp; access</button>}
       </aside>
       <div className="main">
         <header className="topbar">
