@@ -785,6 +785,15 @@ export default function Workspace() {
       ? `Anchor package label opened${resolvedName ? ` for ${resolvedName}` : ""}. Review the phase anchor takeoff and stage this package with its frames.`
       : `${resolvedPhaseId === phaseId ? "QR label" : "Older QR label"} opened for ${itemId}${resolvedName ? ` in ${resolvedName}` : ""}. Choose the production or fulfillment action below.`);
     setError("");
+    if (itemId && ["Frames", "Doors", "Hardware"].includes(kind)) {
+      const productionParams = new URLSearchParams({
+        project: projectId,
+        phase: resolvedPhaseId,
+        item: itemId,
+        kind,
+      });
+      router.replace(`/production?${productionParams.toString()}`);
+    }
   }, [ready, projects]);
   function switchPhase(id: string) {
     if (!active) return;
