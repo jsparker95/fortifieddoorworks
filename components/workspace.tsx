@@ -2957,17 +2957,6 @@ export default function Workspace() {
                           ? "One consolidated anchor package label for this phase."
                           : "One label per opening. Long hardware lists continue onto additional labels."}</p>
                       </div>
-                      <button
-                        className="button"
-                        disabled={
-                          busy ||
-                          derived.frames.length === 0 ||
-                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
-                        }
-                        onClick={() => exportPDF("labels")}
-                      >
-                        <Download size={16} /> Generate labels
-                      </button>
                     </div>
                     <div className="label-controls">
                       <label>
@@ -3020,6 +3009,19 @@ export default function Workspace() {
                           {o.name}
                         </label>
                       ))}
+                    </div>
+                    <div className="label-actions">
+                      <button
+                        className="button"
+                        disabled={
+                          busy ||
+                          derived.frames.length === 0 ||
+                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
+                        }
+                        onClick={() => exportPDF("labels")}
+                      >
+                        <Download size={16} /> Generate labels
+                      </button>
                     </div>
                   </section>
                 </>
