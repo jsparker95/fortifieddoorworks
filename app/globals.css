@@ -1270,23 +1270,16 @@ tbody tr:hover {
 }
 .label-controls {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   padding: 0 24px 20px;
+  max-width: 421px;
 }
 .label-controls label {
   font-size: 12px;
   color: #687480;
 }
-.printing-note {
-  margin: 0 24px 20px;
-  padding: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7;
-}
-.label-actions { display: flex; justify-content: flex-end; margin: 0 24px 24px; }
+.label-actions { display: flex; justify-content: flex-start; margin: 0 24px 24px; }
 
 .doc-intake { margin-bottom: 24px; }
 .doc-upload-row { display: grid; grid-template-columns: minmax(200px, 1.4fr) minmax(150px, .8fr) minmax(190px, 1fr) auto; gap: 12px; align-items: end; margin: 20px; }
@@ -1306,7 +1299,6 @@ tbody tr:hover {
 .analysis-panel > .panel-heading { padding: 0 0 14px; }
 .analysis-panel > .document-progress,
 .analysis-panel > .manual-page-selection,
-.analysis-panel > .printing-note,
 .analysis-panel > .uncertainty-list,
 .analysis-panel > .candidate-row,
 .analysis-panel > .button,
@@ -1666,9 +1658,7 @@ tbody tr:hover {
   .document-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .label-controls {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  .label-controls { grid-template-columns: minmax(0, 1fr); }
   .login > section {
     padding: 45px;
   }
@@ -1957,9 +1947,7 @@ tbody tr:hover {
   .stage-summary > div {
     grid-template-columns: 135px 1fr 40px;
   }
-  .printing-note {
-    margin: 0 16px 18px;
-  }
+  .label-controls { padding-inline: 16px; }
   .label-actions { margin: 0 16px 18px; }
   .login-copy h1 {
     font-size: 36px;
@@ -1993,7 +1981,6 @@ th,
 .stage-summary > div,
 .details dt,
 .details dd,
-.printing-note,
 .panel-heading p,
 .section-heading p,
 .document-card p,

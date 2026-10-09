@@ -3070,11 +3070,6 @@ export default function Workspace() {
                         </select>
                       </label>
                     </div>
-                    <p className="printing-note">
-                      Print at 100% / actual size. Frame and door labels use
-                      the fixed 4 × 1 inch layout; hardware labels use the
-                      fixed landscape layout.
-                    </p>
                     <div className="opening-chips">
                       {derived.frames.map((o) => (
                         <label
