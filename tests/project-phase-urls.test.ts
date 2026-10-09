@@ -34,6 +34,18 @@ test("workspace navigation writes and restores project and phase URLs", () => {
   assert.match(workspace, /router\.push\(`\/projects\/\$\{active\.id\}`\)/);
 });
 
+test("saving the current project does not reset its selected section", () => {
+  const workspace = read("components/workspace.tsx");
+  assert.match(workspace, /const syncedProjectRoute = useRef\(""\)/);
+  const routeSyncStart = workspace.indexOf("const routeKey =");
+  const routeSyncEnd = workspace.indexOf("const routePhase =", routeSyncStart);
+  assert.ok(routeSyncStart >= 0 && routeSyncEnd > routeSyncStart);
+  assert.match(
+    workspace.slice(routeSyncStart, routeSyncEnd),
+    /if \(syncedProjectRoute\.current !== routeKey\)\s*\{\s*syncedProjectRoute\.current = routeKey;\s*setSection\("Overview"\);\s*\}/,
+  );
+});
+
 
 test("phase page heading shows the project and phase names without the generic label", () => {
   const workspace = read("components/workspace.tsx");
