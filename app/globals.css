@@ -2127,3 +2127,25 @@ th,
 .project-file-dialog .doc-intake { margin: 0; }
 .project-file-dialog .analysis-panel { border-top: 0; }
 @media (max-width: 700px) { .project-file-rename { flex-wrap: wrap; } .project-file-rename label { flex-basis: 100%; } .project-file-dialog { padding: 16px; } .project-file-dialog .panel-heading { flex-wrap: wrap; } }
+
+/* Workspace access management */
+.access-page { display: grid; gap: 20px; }
+.access-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.access-roles .panel, .access-message, .access-form { padding: 22px; }
+.access-roles h2 { font-size: 17px; margin-bottom: 10px; }
+.access-roles p, .access-help { color: var(--muted); line-height: 1.65; }
+.access-form { display: grid; gap: 18px; }
+.access-fields { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 16px; }
+.access-fields input, .access-fields select { width: 100%; }
+.access-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.access-email { display: block; color: var(--muted); margin-top: 4px; }
+.access-search { margin: 0 22px 20px; max-width: 400px; }
+.access-page td { vertical-align: middle; }
+.access-page .table-scroll > .access-help { padding: 22px; }
+@media (max-width: 800px) {
+  .access-roles, .access-fields { grid-template-columns: 1fr; }
+  .access-page .page-heading { gap: 16px; flex-wrap: wrap; }
+}
+
+.button.danger { background: #b42318; border-color: #b42318; color: white; }
+.button.danger:hover:not(:disabled) { background: #912018; }
