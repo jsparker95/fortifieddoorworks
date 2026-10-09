@@ -318,6 +318,7 @@ export default function Workspace() {
   const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
   const scanOpened = useRef("");
+  const syncedProjectRoute = useRef("");
   const profileReturnPath = useRef("/");
   async function load() {
     setLoading(true);
@@ -747,7 +748,13 @@ export default function Workspace() {
     setActive((current) => current?.id === project.id ? current : structuredClone(normalized));
     setView("Projects");
     setDirty(false);
-    setSection("Overview");
+    const routeKey = `${project.id}:${routeParams.phaseId || ""}`;
+    // This effect also reruns after saves refresh `projects`; keep the chosen
+    // section unless the user actually navigated to a different project/phase.
+    if (syncedProjectRoute.current !== routeKey) {
+      syncedProjectRoute.current = routeKey;
+      setSection("Overview");
+    }
     const routePhase = normalized.data.phases?.find((item) => item.id === routeParams.phaseId);
     setPhaseDetail(Boolean(routePhase));
     if (routeParams.phaseId) {
