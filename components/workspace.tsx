@@ -1617,8 +1617,8 @@ export default function Workspace() {
             </>
           )}
         </div>
-        <div className="table-scroll">
-          <table>
+        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : "table-scroll"}>
+          <table className={kind === "hardware" ? "hardware-fit-table" : undefined}>
             <thead>
               <tr>
                 {columns.map((c) => (
