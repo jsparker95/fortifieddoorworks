@@ -8,6 +8,7 @@ import {
   Search,
   Plus,
   Settings,
+  Truck,
   LayoutGrid,
   LayoutDashboard,
   DoorOpen,
@@ -569,9 +570,11 @@ export default function Workspace() {
           ? "Contractors"
           : returnPath === "/access"
             ? "Access"
-          : returnPath === "/settings"
-            ? "Settings"
-            : "Dashboard",
+            : returnPath === "/vendors"
+              ? "Vendors"
+              : returnPath === "/settings"
+                ? "Settings"
+                : "Dashboard",
     );
     router.push(returnPath);
   }
@@ -728,6 +731,7 @@ export default function Workspace() {
     if (pathname === "/projects") setView("Projects");
     if (pathname === "/settings") setView("Settings");
     if (pathname === "/access") { setView("Access"); setActive(null); }
+    if (pathname === "/vendors") setView("Vendors");
     if (pathname === "/contractors") setView("Contractors");
     if (!ready || !projects.length || !routeParams?.projectId) return;
     const project = projects.find((item) => item.id === routeParams.projectId);
@@ -1707,6 +1711,12 @@ export default function Workspace() {
           <Building2 size={19} /> Contractors
         </button>
         <button
+          className={"nav " + (view === "Vendors" ? "selected" : "")}
+          onClick={() => navigate("Vendors")}
+        >
+          <Truck size={19} /> Vendors
+        </button>
+        <button
           className={"nav " + (view === "Settings" ? "selected" : "")}
           onClick={() => navigate("Settings")}
         >
@@ -2118,6 +2128,23 @@ export default function Workspace() {
             </>
           )}
           {!active && view === "Access" && <AccessManagement email={email} role={role} demo={demo} />}
+          {!active && view === "Vendors" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">MANAGE SUPPLIERS</span>
+                  <h1>Vendors</h1>
+                  <p>Supplier contacts and default lead times for project schedules.</p>
+                </div>
+              </div>
+              <VendorDirectory
+                vendors={vendors}
+                setVendors={setVendors}
+                manager={canManageProduction(role)}
+                demo={demo}
+              />
+            </>
+          )}
           {!active && view === "Settings" && (
             <>
               <div className="page-heading">
@@ -2211,12 +2238,6 @@ export default function Workspace() {
                   </div>
                 </section>
               </div>
-              <VendorDirectory
-                vendors={vendors}
-                setVendors={setVendors}
-                manager={canManageProduction(role)}
-                demo={demo}
-              />
             </>
           )}
           {active && !phaseDetail && (
