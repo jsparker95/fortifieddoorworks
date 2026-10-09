@@ -594,7 +594,18 @@ export async function downloadDocument(
   );
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${project.name.replace(/[^a-z0-9-]/gi, "_")}-${type}.pdf`;
+  a.download = documentDownloadFilename(project.name, type, opts?.labelKind);
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function documentDownloadFilename(
+  projectName: string,
+  type: string,
+  labelKind?: string,
+) {
+  const safeProjectName = projectName.replace(/[^a-z0-9-]/gi, "_");
+  if (type !== "labels") return `${safeProjectName}-${type}.pdf`;
+  const safeLabelKind = (labelKind || "Doors").replace(/[^a-z0-9-]/gi, "_");
+  return `${safeProjectName}-${safeLabelKind}-labels.pdf`;
 }
