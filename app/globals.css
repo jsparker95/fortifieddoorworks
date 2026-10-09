@@ -1280,13 +1280,13 @@ tbody tr:hover {
 }
 .printing-note {
   margin: 0 24px 20px;
-  padding: 12px;
-  background: #fff7ee;
-  color: #986d43;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
-  border-radius: 6px;
 }
+.label-actions { display: flex; justify-content: flex-end; margin: 0 24px 24px; }
 
 .doc-intake { margin-bottom: 24px; }
 .doc-upload-row { display: grid; grid-template-columns: minmax(200px, 1.4fr) minmax(150px, .8fr) minmax(190px, 1fr) auto; gap: 12px; align-items: end; margin: 20px; }
@@ -1960,6 +1960,7 @@ tbody tr:hover {
   .printing-note {
     margin: 0 16px 18px;
   }
+  .label-actions { margin: 0 16px 18px; }
   .login-copy h1 {
     font-size: 36px;
   }
