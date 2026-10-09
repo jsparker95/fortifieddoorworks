@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 32171)
-Total output lines: 3384
-
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
 import Image from "next/image";
@@ -726,7 +723,2042 @@ export default function Workspace() {
     setSection("Overview");
     setTableQuery("");
     setSelected([]);
-  …20171 tokens truncated…                projectId={active.id}
+    setNotice("");
+    setError("");
+    setMobile(false);
+  }
+  useEffect(() => {
+    if (pathname === "/profile") {
+      setView("Profile");
+      return;
+    }
+    if (pathname === "/") setView("Dashboard");
+    if (pathname === "/projects") setView("Projects");
+    if (pathname === "/settings") setView("Settings");
+    if (pathname === "/access") { setView("Access"); setActive(null); }
+    if (pathname === "/vendors") setView("Vendors");
+    if (pathname === "/contractors") setView("Contractors");
+    if (!ready || !projects.length || !routeParams?.projectId) return;
+    const project = projects.find((item) => item.id === routeParams.projectId);
+    if (!project) return;
+    const normalized = normalizeProject(project);
+    setActive((current) => current?.id === project.id ? current : structuredClone(normalized));
+    setView("Projects");
+    setDirty(false);
+    setSection("Overview");
+    const routePhase = normalized.data.phases?.find((item) => item.id === routeParams.phaseId);
+    setPhaseDetail(Boolean(routePhase));
+    if (routeParams.phaseId) {
+      if (routePhase) setActive((current) => {
+        const source = current?.id === project.id ? current : normalized;
+        return source.data.activePhaseId === routePhase.id ? source : selectPhase(source, routePhase.id);
+      });
+    }
+  }, [ready, projects, pathname, routeParams?.projectId, routeParams?.phaseId]);
+  useEffect(() => {
+    if (!ready || !projects.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get("project");
+    const phaseId = params.get("phase");
+    const itemId = params.get("item");
+    const kind = params.get("kind") || "Doors";
+    if (!projectId || !phaseId || (!itemId && kind !== "Anchors")) return;
+    const token = `${projectId}:${phaseId}:${itemId || kind}`;
+    if (scanOpened.current === token) return;
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const normalized = normalizeProject(project);
+    const resolvedPhaseId = kind === "Anchors"
+      ? normalized.data.phases?.some((phase) => phase.id === phaseId) ? phaseId : null
+      : resolvePhaseForOpening(normalized.data, phaseId, itemId || "");
+    if (!resolvedPhaseId) return;
+    scanOpened.current = token;
+    setActive(selectPhase(normalized, resolvedPhaseId));
+    setPhaseDetail(true);
+    setDirty(false);
+    setSection("Production");
+    setScannedItem(kind === "Anchors" ? "" : itemId || "");
+    setScannedKind(kind);
+    setSelected([]);
+    const resolvedName = normalized.data.phases?.find((phase) => phase.id === resolvedPhaseId)?.name;
+    setNotice(kind === "Anchors"
+      ? `Anchor package label opened${resolvedName ? ` for ${resolvedName}` : ""}. Review the phase anchor takeoff and stage this package with its frames.`
+      : `${resolvedPhaseId === phaseId ? "QR label" : "Older QR label"} opened for ${itemId}${resolvedName ? ` in ${resolvedName}` : ""}. Choose the production or fulfillment action below.`);
+    setError("");
+    if (itemId && ["Frames", "Doors", "Hardware"].includes(kind)) {
+      const productionParams = new URLSearchParams({
+        project: projectId,
+        phase: resolvedPhaseId,
+        item: itemId,
+        kind,
+      });
+      router.replace(`/production?${productionParams.toString()}`);
+    }
+  }, [ready, projects]);
+  function switchPhase(id: string) {
+    if (!active) return;
+    if (id === active.data.activePhaseId && phaseDetail) return;
+    setActive(selectPhase(active, id));
+    setPhaseDetail(true);
+    setDirty(true);
+    setNotice("");
+    setSection("Overview");
+    setSelected([]);
+    router.push(`/projects/${active.id}/phases/${id}`);
+  }
+  function createPhase() {
+    if (!active) return;
+    const name = window.prompt("Name this phase", `Phase ${(active.data.phases || []).length + 1}`)?.trim();
+    if (!name) return;
+    if ((active.data.phases || []).some((phase) => phase.name.toLowerCase() === name.toLowerCase())) {
+      setError("Choose a phase name that is not already in use.");
+      return;
+    }
+    const blank = newProject().data.phases![0].data;
+    const phase: ProjectPhase = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), data: structuredClone(blank) };
+    const next = { ...active, data: { ...active.data, phases: [...(active.data.phases || []), phase] } };
+    setActive(next);
+    setDirty(true);
+    setNotice("Phase created. Save changes to keep it.");
+    setError("");
+  }
+  function renamePhase(phase: ProjectPhase) {
+    if (!active) return;
+    const name = window.prompt("Rename phase", phase.name)?.trim();
+    if (!name || name === phase.name) return;
+    if ((active.data.phases || []).some((item) => item.id !== phase.id && item.name.toLowerCase() === name.toLowerCase())) {
+      setError("Choose a phase name that is not already in use.");
+      return;
+    }
+    setActive({ ...active, data: { ...active.data, phases: (active.data.phases || []).map((item) => item.id === phase.id ? { ...item, name } : item) } });
+    setDirty(true);
+    setNotice("Phase renamed. Save changes to keep it.");
+    setError("");
+  }
+  function completeScannedStep() {
+    if (!active || !scannedItem || !derived) return;
+    const opening = derived.frames.find((row) => row.id === scannedItem);
+    if (!opening) {
+      setNotice("This QR code points to an item that is not in the selected phase. Check that you scanned the label for this phase.");
+      return;
+    }
+    const kindStages =
+      scannedKind === "Frames"
+        ? stages.slice(0, 3)
+        : scannedKind === "Doors"
+          ? stages.slice(3, 6)
+          : stages.slice(6);
+    const next = kindStages.find(
+      (stage) => !active.data.milestones[opening.id]?.[stage],
+    );
+    if (!next) {
+      setNotice(`${opening.name} has all production and fulfillment milestones recorded.`);
+      return;
+    }
+    updateData({
+      ...active.data,
+      milestones: {
+        ...active.data.milestones,
+        [opening.id]: {
+          ...active.data.milestones[opening.id],
+          [next]: new Date().toLocaleDateString("en-CA"),
+        },
+      },
+    });
+    setNotice(`${opening.name}: recorded “${next}” for ${email || "this team member"}. Save the project to sync the update.`);
+  }
+  function recordWorkMilestone(openingId: string, stage: string) {
+    if (!active) return;
+    updateData({
+      ...active.data,
+      milestones: {
+        ...active.data.milestones,
+        [openingId]: {
+          ...active.data.milestones[openingId],
+          [stage]: new Date().toLocaleDateString("en-CA"),
+        },
+      },
+    });
+  }
+  function beginPhaseSplit() {
+    if (!active) return;
+    const current = activePhase(active.data);
+    setSplitFirstName(current.name + " A");
+    setSplitSecondName(current.name + " B");
+    setSplitSecondIds([]);
+    setSplitOpen(true);
+    setError("");
+  }
+  async function confirmPhaseSplit() {
+    if (!active) return;
+    try {
+      const next = makeSplit(
+        active,
+        splitFirstName,
+        splitSecondName,
+        splitSecondIds,
+      );
+      setActive(next);
+      setPhaseDetail(true);
+      setDirty(true);
+      setSplitOpen(false);
+      setSection("Overview");
+      setSelected([]);
+      setNotice("Saving phase split…");
+      setError("");
+      if (await saveProject(next)) setNotice("Phase split created and saved.");
+      else setNotice("Phase split could not be saved. Fix the issue and save changes.");
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+  async function saveProject(projectToSave = active): Promise<boolean> {
+    if (!projectToSave || operation.current) return false;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const draft = {
+        ...projectToSave,
+        data: persistActivePhase(projectToSave.data),
+      };
+      let saved: Project;
+      if (demo)
+        saved = {
+          ...draft,
+          version: draft.version + 1,
+          updated_at: new Date().toISOString(),
+        };
+      else {
+        const { id, version } = draft;
+        // `active` can come from a project-list summary, which adds a derived
+        // `computed` field. Send only columns that exist on public.projects.
+        const payload = {
+          name: draft.name,
+          building: draft.building,
+          contractor_id: draft.contractor_id,
+          start_date: draft.start_date,
+          pm: draft.pm,
+          jobsite: draft.jobsite,
+          scope: draft.scope,
+          cuts: draft.cuts,
+          status: draft.status,
+          source_id: draft.source_id,
+          data: draft.data,
+        };
+        const r = await supabase
+          .from("projects")
+          .update(payload)
+          .eq("id", id)
+          .eq("version", version)
+          .select()
+          .maybeSingle();
+        if (r.error) throw r.error;
+        if (!r.data)
+          throw new Error(
+            "This project changed in another session. Your edits are still here. Export a JSON backup, then reload to reconcile the changes.",
+          );
+        saved = r.data;
+      }
+      setProjects((ps) => ps.map((p) => (p.id === saved.id ? saved : p)));
+      setActive(saved);
+      setDirty(false);
+      setNotice("Project saved.");
+      return true;
+    } catch (e) {
+      setError(message(e));
+      return false;
+    } finally {
+      setBusy(false);
+      operation.current = false;
+    }
+  }
+  const projectFields: Field[] = [
+    { key: "name", label: "Project Name", required: true },
+    { key: "building", label: "Building / master project" },
+    {
+      key: "contractor_id",
+      label: "Contractor",
+      options: contractors.map((c) => c.name),
+    },
+    { key: "start_date", label: "Start date", type: "date" },
+    { key: "pm", label: "Project manager" },
+    { key: "jobsite", label: "Jobsite" },
+    { key: "status", label: "Status", options: statuses, required: true },
+    { key: "scope", label: "Scope of work", type: "textarea" },
+    { key: "cuts", label: "Cuts / notes", type: "textarea" },
+  ];
+  function projectEditor(p: Project, create = false) {
+    setEdit({
+      title: create ? "Create project" : "Project details",
+      fields: create
+        ? [
+            ...projectFields,
+            {
+              key: "template",
+              label: "Copy schedules from (optional)",
+              options: projects.map((p) => p.name),
+            },
+          ]
+        : projectFields,
+      initial: {
+        ...p,
+        contractor_id:
+          contractors.find((c) => c.id === p.contractor_id)?.name || "",
+        id: p.id,
+      } as unknown as Row,
+      save: async (r) => {
+        if (operation.current) return;
+        const contractor = contractors.find((c) => c.name === r.contractor_id);
+        if (r.contractor_id && !contractor) {
+          setError("Add this contractor in Settings first.");
+          return;
+        }
+        if (!statuses.includes(str(r.status))) {
+          setError("Choose a listed project status.");
+          return;
+        }
+        const { template, ...record } = r;
+        const next = {
+          ...p,
+          ...record,
+          contractor_id: contractor?.id || null,
+          start_date: r.start_date || null,
+        } as unknown as Project;
+        if (create && template) {
+          const source = projects.find((x) => x.name === template);
+          if (!source) {
+            setError("Choose an existing project template.");
+            return;
+          }
+          const templateData = structuredClone(activePhase(source.data).data);
+          const fresh = newProject().data;
+          next.data = {
+            ...templateData,
+            openings: [],
+            milestones: {},
+            takeoffSelection: {},
+            links: [],
+            references: templateData.references.map((r) => ({
+              ...r,
+              page: "",
+              selection: "",
+            })),
+            phases: fresh.phases,
+            activePhaseId: fresh.activePhaseId,
+            phaseHistory: [],
+          };
+          next.data = persistActivePhase(next.data);
+        }
+        if (!create) {
+          update(next);
+          setEdit(null);
+          return;
+        }
+        operation.current = true;
+        setBusy(true);
+        try {
+          if (!demo) {
+            const result = await supabase
+              .from("projects")
+              .insert(next)
+              .select()
+              .single();
+            if (result.error) throw result.error;
+            Object.assign(next, result.data);
+          }
+          setProjects((ps) => [next, ...ps]);
+          setEdit(null);
+          open(next);
+          setNotice("Project created.");
+        } catch (e) {
+          setError(message(e));
+        } finally {
+          setBusy(false);
+          operation.current = false;
+        }
+      },
+    });
+  }
+  function rowEditor(kind: Kind, row?: Row) {
+    if (!active) return;
+    const defaultVendor = kind === "hardware" ? vendors.find((vendor) => vendor.name.toLowerCase() === "iml") : undefined;
+    const initial = row || {
+      id: crypto.randomUUID(),
+      ...(kind === "hardware" ? { qty: 1, supplier: defaultVendor?.name || "" } : {}),
+    };
+    setEdit({
+      title: row
+        ? "Edit " + (str(row.name) || str(row.component))
+        : "Add " +
+          {
+            walls: "wall type",
+            doorTypes: "door type",
+            hardware: "hardware item",
+            openings: "opening",
+          }[kind],
+      fields: fields(kind, active.data, catalogs, vendors),
+      initial,
+      save: (r) => {
+        if (!r.supplier && kind === "hardware") r.supplier = defaultVendor?.name || "";
+        if (kind === "openings") {
+          const frameVendor = supplierFor("openings", r, active.data, vendors);
+          if (!r.frameSupplier) r.frameSupplier = frameVendor?.name || "";
+          if (!r.brand) r.brand = frameVendor?.name || "";
+        }
+        const opts = fields(kind, active.data, catalogs, vendors);
+        for (const f of opts) {
+          if (
+            f.options?.length &&
+            r[f.key] &&
+            !f.options.includes(str(r[f.key]))
+          ) {
+            setError(
+              `Choose an existing ${f.label.toLowerCase()}, or add it in Settings first.`,
+            );
+            return;
+          }
+        }
+        if (
+          kind !== "hardware" &&
+          active.data[kind].some(
+            (x) =>
+              x.id !== r.id &&
+              str(x.name).toLowerCase() === str(r.name).toLowerCase(),
+          )
+        ) {
+          setError("That name is already used in this project.");
+          return;
+        }
+        let data = structuredClone(active.data);
+        data[kind] = row
+          ? data[kind].map((x) => (x.id === r.id ? r : x))
+          : [...data[kind], r];
+        if (
+          row &&
+          row.name !== r.name &&
+          (kind === "walls" || kind === "doorTypes")
+        ) {
+          const key = kind === "walls" ? "wall" : "doorType";
+          data.openings = data.openings.map((o) =>
+            o[key] === row.name ? { ...o, [key]: r.name } : o,
+          );
+        }
+        updateData(data);
+        setError("");
+        setEdit(null);
+      },
+    });
+  }
+  function removeRow(kind: Kind, row: Row) {
+    if (!active) return;
+    if (kind === "openings") {
+      updateData({
+        ...active.data,
+        openings: active.data.openings.map((r) =>
+          r.id === row.id ? { ...r, deleted: !r.deleted } : r,
+        ),
+      });
+      return;
+    }
+    if (
+      (kind === "walls" || kind === "doorTypes") &&
+      active.data.openings.some(
+        (o) => o[kind === "walls" ? "wall" : "doorType"] === row.name,
+      )
+    ) {
+      setError(
+        "This item is used by an opening. Reassign those openings before removing it.",
+      );
+      return;
+    }
+    if (!confirm("Remove this item from the project?")) return;
+    updateData({
+      ...active.data,
+      [kind]: active.data[kind].filter((r) => r.id !== row.id),
+    });
+  }
+  function beginDeletion(phase?: ProjectPhase) {
+    if (!active || role !== "global_admin" || busy || demo) return;
+    if (dirty) { setError("Save your changes before deleting a project or phase."); return; }
+    setDeleteError("");
+    setDeleteTarget({ project: structuredClone(active), phase });
+  }
+  async function deleteWorkspaceTarget(confirmation: string) {
+    if (!deleteTarget || operation.current || role !== "global_admin" || demo) return;
+    operation.current = true;
+    setBusy(true);
+    setDeleteError("");
+    try {
+      const { project, phase } = deleteTarget;
+      const { data, error: deletionError } = await supabase.rpc("delete_workspace_target", {
+        p_project_id: project.id, p_phase_id: phase?.id || null,
+        p_expected_version: project.version, p_confirmation: confirmation,
+      });
+      if (deletionError) throw deletionError;
+      const saved = data.project as Project | null;
+      setProjects((current) => saved ? current.map((item) => item.id === saved.id ? saved : item) : current.filter((item) => item.id !== project.id));
+      setActive(saved);
+      setDirty(false);
+      setPhaseDetail(false);
+      setDeleteTarget(null);
+      setView("Projects");
+      setError("");
+      router.push(saved ? `/projects/${saved.id}` : "/projects");
+      setNotice("Records deleted. Removing attached files…");
+      try {
+        const jobs = await pendingDeletionFiles();
+        await cleanupDeletedFiles(jobs.filter((job) => job.id === data.job_id));
+        setNotice(`${phase ? "Phase" : "Project"} and its exclusive files permanently deleted.`);
+      } catch {
+        setNotice("Records deleted. Some attached files may still need cleanup. Use Retry file cleanup to finish.");
+      }
+      setDeletionRevision((value) => value + 1);
+    } catch (e) {
+      setDeleteError(message(e));
+    } finally {
+      setBusy(false);
+      operation.current = false;
+    }
+  }
+  async function duplicate() {
+    if (!active || operation.current) return;
+    const source = structuredClone({
+      ...active,
+      data: persistActivePhase(active.data),
+    });
+    const { project: copy, phaseIds } = duplicateProject(source);
+    const copiedPaths: string[] = [];
+    let projectCreated = false;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("Duplicating project and files…");
+    try {
+      if (!demo) {
+        const { data: inserted, error: projectError } = await supabase
+          .from("projects")
+          .insert({
+            id: copy.id,
+            name: copy.name,
+            building: copy.building,
+            contractor_id: copy.contractor_id,
+            start_date: copy.start_date,
+            pm: copy.pm,
+            jobsite: copy.jobsite,
+            scope: copy.scope,
+            cuts: copy.cuts,
+            status: copy.status,
+            source_id: copy.source_id,
+            data: copy.data,
+            version: copy.version,
+            updated_at: copy.updated_at,
+          })
+          .select()
+          .single();
+        if (projectError) throw projectError;
+        projectCreated = true;
+        Object.assign(copy, inserted);
+
+        const { data: documents, error: documentError } = await supabase
+          .from("project_documents")
+          .select("*")
+          .eq("project_id", source.id);
+        if (documentError) throw documentError;
+
+        for (const document of documents || []) {
+          const id = crypto.randomUUID();
+          const phaseId = document.phase_id
+            ? phaseIds.get(document.phase_id)
+            : null;
+          if (document.phase_id && !phaseId) {
+            throw new Error(`Could not match the phase for ${document.file_name}.`);
+          }
+          const safeName = document.file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `${copy.id}/${phaseId || "project"}/${id}/${safeName}`;
+          const { data: file, error: downloadError } = await supabase.storage
+            .from("project-documents")
+            .download(document.storage_path);
+          if (downloadError || !file) {
+            throw new Error(downloadError?.message || `Could not read ${document.file_name}.`);
+          }
+          const { error: uploadError } = await supabase.storage
+            .from("project-documents")
+            .upload(path, file, {
+              contentType: file.type || "application/pdf",
+              upsert: false,
+            });
+          if (uploadError) throw uploadError;
+          copiedPaths.push(path);
+
+          const { error: copyError } = await supabase.from("project_documents").insert({
+            id,
+            project_id: copy.id,
+            phase_id: phaseId,
+            file_name: document.file_name,
+            storage_path: path,
+            document_type: document.document_type,
+            revision_label: document.revision_label,
+            page_count: document.page_count,
+            status: document.status,
+            analysis: document.analysis,
+          });
+          if (copyError) throw copyError;
+        }
+      }
+      setProjects((current) => [copy, ...current]);
+      open(copy);
+      setNotice("Project duplicated with all phases and attached documents. Production milestones were reset.");
+    } catch (e) {
+      if (copiedPaths.length) {
+        await supabase.storage.from("project-documents").remove(copiedPaths);
+      }
+      if (projectCreated) {
+        await supabase.from("project_documents").delete().eq("project_id", copy.id);
+        await supabase.from("projects").delete().eq("id", copy.id);
+      }
+      setNotice("");
+      setError(`Could not duplicate project: ${message(e)}`);
+    } finally {
+      setBusy(false);
+      operation.current = false;
+    }
+  }
+  async function exportPDF(type: string, selectedTakeoffOnly = false) {
+    if (!active) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { downloadDocument } = await import("@/lib/documents");
+      await downloadDocument(active, type, {
+        labelKind,
+        selectedTakeoffOnly,
+        selected: labelMode === "selected" ? selected : undefined,
+        contractor: contractors.find((c) => c.id === active.contractor_id)
+          ?.name,
+      });
+      setNotice(type + " PDF downloaded.");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  function backup() {
+    if (!active) return;
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(active, null, 2)], { type: "application/json" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = active.name.replace(/[^a-z0-9]/gi, "_") + ".json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function saveCatalogField(id: string, field: CatalogField, draft: string) {
+    let value = catalogFieldValue(field, draft);
+    if (!demo) {
+      const result = await supabase
+        .from("catalogs")
+        .update({ [field]: value })
+        .eq("id", id)
+        .select("value, description")
+        .single();
+      if (result.error) throw new Error(result.error.message);
+      value = result.data[field] ?? "";
+    }
+    setCatalogs((rows) => applyCatalogField(rows, id, field, value));
+    return value;
+  }
+  function settingsEditor(
+    type: "contractors" | "catalogs",
+    row?: Contractor | Catalog,
+  ) {
+    const fs: Field[] =
+      type === "contractors"
+        ? [
+            { key: "name", label: "Contractor name", required: true },
+            { key: "contact", label: "Contact name" },
+            { key: "email", label: "Email" },
+            { key: "phone", label: "Phone" },
+          ]
+        : [
+            {
+              key: "category",
+              label: "Category",
+              options: categories,
+              required: true,
+            },
+            { key: "value", label: "Value", required: true },
+            { key: "description", label: "Description", type: "textarea" },
+          ];
+    setEdit({
+      title: row
+        ? "Edit record"
+        : type === "contractors"
+          ? "Add contractor"
+          : "Add setting",
+      fields: fs,
+      initial: (row || {
+        id: crypto.randomUUID(),
+        category: cat,
+      }) as unknown as Row,
+      save: async (r) => {
+        if (operation.current) return;
+        operation.current = true;
+        setBusy(true);
+        try {
+          const payload = Object.fromEntries(
+            ["id", ...fs.map((f) => f.key)].map((k) => [k, r[k] || ""]),
+          );
+          if (!demo) {
+            const result = await supabase
+              .from(type)
+              .upsert(payload)
+              .select()
+              .single();
+            if (result.error) throw result.error;
+          }
+          if (type === "contractors")
+            setContractors((a) => [
+              ...a.filter((x) => x.id !== r.id),
+              payload as Contractor,
+            ]);
+          else
+            setCatalogs((a) => [
+              ...a.filter((x) => x.id !== r.id),
+              payload as Catalog,
+            ]);
+          setEdit(null);
+          setNotice("Setting saved.");
+        } catch (e) {
+          setError(message(e));
+        } finally {
+          setBusy(false);
+          operation.current = false;
+        }
+      },
+    });
+  }
+  async function deleteSetting(
+    type: "contractors" | "catalogs",
+    row: Contractor | Catalog,
+  ) {
+    if (
+      !confirm(
+        "Delete this setting? Existing project values will remain unchanged.",
+      )
+    )
+      return;
+    try {
+      if (
+        type === "contractors" &&
+        projects.some((p) => p.contractor_id === row.id)
+      )
+        throw new Error(
+          "This contractor is used by a project. Reassign the projects first.",
+        );
+      if (!demo) {
+        const r = await supabase.from(type).delete().eq("id", row.id);
+        if (r.error) throw r.error;
+      }
+      if (type === "contractors")
+        setContractors((x) => x.filter((v) => v.id !== row.id));
+      else setCatalogs((x) => x.filter((v) => v.id !== row.id));
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+  function bulk(kind: Kind) {
+    if (!active) return;
+    const fs = fields(kind, active.data, catalogs, vendors);
+    setError("");
+    setEdit({
+      title: "Paste " + kind + " rows",
+      fields: [
+        {
+          key: "text",
+          label:
+            "Paste CSV or tab-separated rows. Header row: " +
+            fs.map((f) => f.key).join(", "),
+          type: "textarea",
+          required: true,
+        },
+      ],
+      initial: { id: "bulk" },
+      save: (r) => {
+        try {
+          const parsed = parseTable(str(r.text));
+          if (parsed.length < 2)
+            throw new Error("Include a header row and at least one data row.");
+          const heads = parsed[0].map((h) => {
+            const f = fs.find(
+              (f) =>
+                f.key.toLowerCase() === h.trim().toLowerCase() ||
+                f.label.toLowerCase() === h.trim().toLowerCase(),
+            );
+            if (!f) throw new Error("Unknown column: " + h);
+            return f;
+          });
+          if (new Set(heads.map((f) => f.key)).size !== heads.length)
+            throw new Error("Each column must appear only once.");
+          const added = parsed.slice(1).map((values, i) => {
+            if (values.length !== heads.length)
+              throw new Error(
+                `Row ${i + 2}: column count differs from headers.`,
+              );
+            const row: Row = { id: crypto.randomUUID() };
+            heads.forEach((f, j) => {
+              const value = values[j].trim();
+              row[f.key] =
+                f.type === "checkbox"
+                  ? ["true", "yes", "1"].includes(value.toLowerCase())
+                  : f.type === "number"
+                    ? value === ""
+                      ? ""
+                      : Number(value)
+                    : value;
+              if (
+                f.type === "number" &&
+                value !== "" &&
+                (!Number.isFinite(row[f.key]) || Number(row[f.key]) < 0)
+              )
+                throw new Error(
+                  `Row ${i + 2}: ${f.label} must be a non-negative number.`,
+                );
+              if (f.options?.length && value && !f.options.includes(value))
+                throw new Error(`Row ${i + 2}: unknown ${f.label}: ${value}`);
+            });
+            for (const f of fs)
+              if (f.required && (row[f.key] === undefined || row[f.key] === ""))
+                throw new Error(`Row ${i + 2}: ${f.label} is required.`);
+            if (row.veSelected && (!row.veBrand || !row.veComponent))
+              throw new Error(
+                `Row ${i + 2}: alternate hardware needs both brand and component.`,
+              );
+            return row;
+          });
+          if (kind !== "hardware") {
+            const names = new Set(
+              active.data[kind].map((r) => str(r.name).toLowerCase()),
+            );
+            for (const row of added) {
+              const name = str(row.name).toLowerCase();
+              if (names.has(name))
+                throw new Error("Duplicate name: " + row.name);
+              names.add(name);
+            }
+          }
+          updateData({
+            ...active.data,
+            [kind]: [...active.data[kind], ...added],
+          });
+          setEdit(null);
+          setNotice(
+            `${added.length} rows added. Save the project to keep them.`,
+          );
+        } catch (e) {
+          setError(message(e));
+        }
+      },
+    });
+  }
+  function exportRows(kind: Kind) {
+    if (!active) return;
+    const fs = fields(kind, active.data, catalogs, vendors);
+    const content = [
+      fs.map((f) => csvCell(f.key)).join(","),
+      ...active.data[kind].map((r) =>
+        fs.map((f) => csvCell(r[f.key])).join(","),
+      ),
+    ].join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob([content], { type: "text/csv;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = kind + ".csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function table(
+    rows: Row[],
+    columns: { key: string; label: string }[],
+    kind?: Kind,
+  ) {
+    const supplierKey = kind === "openings" ? "frameSupplier" : "supplier";
+    const showLeadTime = !!kind && ["openings", "doorTypes", "hardware"].includes(kind);
+    const filtered = rows.filter((r) =>
+      Object.values(r)
+        .join(" ")
+        .toLowerCase()
+        .includes(tableQuery.toLowerCase()),
+    );
+    const max = Math.max(0, Math.ceil(filtered.length / 30) - 1),
+      current = Math.min(page, max);
+    return (
+      <>
+        <div className="table-toolbar">
+          <div className="search">
+            <Search size={16} />
+            <input
+              aria-label="Search rows"
+              placeholder="Find an opening, component, or detail…"
+              value={tableQuery}
+              onChange={(e) => setTableQuery(e.target.value)}
+            />
+          </div>
+          <span className="muted">{filtered.length} records</span>
+          {kind && (
+            <>
+              <button
+                className="button secondary"
+                onClick={() => exportRows(kind)}
+              >
+                CSV
+              </button>
+              <button className="button secondary" onClick={() => bulk(kind)}>
+                Paste rows
+              </button>
+              <button className="button" onClick={() => rowEditor(kind)}>
+                <Plus size={16} /> Add {kind === "openings" ? "opening" : "row"}
+              </button>
+            </>
+          )}
+        </div>
+        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : "table-scroll"}>
+          <table className={kind === "hardware" ? "hardware-fit-table" : undefined}>
+            <thead>
+              <tr>
+                {columns.map((c) => (
+                  <th key={c.key}>{c.label}</th>
+                ))}
+                {showLeadTime && <th>Vendor lead time</th>}
+                {kind && <th>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice(current * 30, current * 30 + 30).map((r) => (
+                <tr key={r.id} className={r.deleted ? "excluded" : ""}>
+                  {columns.map((c, i) => (
+                    <td key={c.key} className={i === 0 ? "strong" : ""}>
+                      {typeof r[c.key] === "boolean"
+                        ? r[c.key]
+                          ? "Yes"
+                          : "No"
+                        : (c.key === supplierKey && kind && active
+                          ? supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.name
+                          : str(r[c.key])) || <span className="faint">—</span>}
+                    </td>
+                  ))}
+                  {showLeadTime && (
+                    <td>
+                      {kind && active && supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days !== undefined
+                        ? `${supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days} days`
+                        : <span className="faint">Supplier not selected</span>}
+                    </td>
+                  )}
+                  {kind && (
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          className="icon-button"
+                          aria-label={
+                            "Edit " + (r.name || r.component || "row")
+                          }
+                          onClick={() => rowEditor(kind, r)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          aria-label={
+                            kind === "openings"
+                              ? r.deleted
+                                ? "Restore opening"
+                                : "Exclude opening"
+                              : "Remove row"
+                          }
+                          onClick={() => removeRow(kind, r)}
+                        >
+                          {r.deleted ? (
+                            <Plus size={15} />
+                          ) : (
+                            <Trash2 size={15} />
+                          )}
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!filtered.length && (
+            <div className="empty">
+              <Layers />
+              <h3>No matching records</h3>
+              <p>
+                {kind
+                  ? "Add a record to start this part of the project."
+                  : "Try a different search."}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="pagination">
+          <span>
+            Page {current + 1} of {max + 1}
+          </span>
+          <button disabled={current === 0} onClick={() => setPage(current - 1)}>
+            Previous
+          </button>
+          <button
+            disabled={current === max}
+            onClick={() => setPage(current + 1)}
+          >
+            Next
+          </button>
+        </div>
+      </>
+    );
+  }
+  if (loading)
+    return null;
+  if (!ready)
+    return (
+      <>
+        <Login onReady={load} />
+        {error && (
+          <div role="alert" className="error">
+            {error}
+          </div>
+        )}
+      </>
+    );
+  if (!accessApproved) return <main className="login"><section><h1>Workspace access required</h1><p>{error || "Your access has been revoked or has not been approved."}</p><button className="button" onClick={async () => { await supabase.auth.signOut(); setReady(false); }}>Sign out</button></section></main>;
+  return (
+    <div className="app">
+      <aside className={mobile ? "sidebar open" : "sidebar"}>
+        <Brand />
+        <div className="workspace-tag">
+          <span className="avatar">FD</span>
+          <div>
+            Fortified Doorworks<small>Manufacturing workspace</small>
+          </div>
+        </div>
+        <span className="nav-label">WORKSPACE</span>
+        <button
+          className={"nav " + (view === "Dashboard" ? "selected" : "")}
+          onClick={() => navigate("Dashboard")}
+        >
+          <LayoutDashboard size={19} /> Dashboard
+        </button>
+        <button
+          className={"nav " + (view === "Projects" ? "selected" : "")}
+          onClick={() => navigate("Projects")}
+        >
+          <LayoutGrid size={19} /> Projects{" "}
+          <span>{projects.filter((p) => p.status !== "Archived").length}</span>
+        </button>
+        <button
+          className={"nav " + (view === "Contractors" ? "selected" : "")}
+          onClick={() => navigate("Contractors")}
+        >
+          <Building2 size={19} /> Contractors
+        </button>
+        <button
+          className={"nav " + (view === "Vendors" ? "selected" : "")}
+          onClick={() => navigate("Vendors")}
+        >
+          <Truck size={19} /> Vendors
+        </button>
+        <button
+          className={"nav " + (view === "Settings" ? "selected" : "")}
+          onClick={() => navigate("Settings")}
+        >
+          <Settings size={19} /> Settings
+        </button>
+        {role === "global_admin" && <button className={"nav " + (view === "Access" ? "selected" : "")} onClick={() => navigate("Access")}><Settings size={19} /> Users &amp; access</button>}
+      </aside>
+      <div className="main">
+        <header className="topbar">
+          <button
+            className="icon-button mobile-toggle"
+            aria-label="Open navigation"
+            onClick={() => setMobile(!mobile)}
+          >
+            <Menu />
+          </button>
+          <div className="breadcrumb">
+            Workspace <ChevronRight size={14} />
+            <button
+              onClick={() =>
+                view === "Profile" ? closeProfile() : navigate("Projects")
+              }
+            >
+              {view}
+            </button>
+            {active && (
+              <>
+                <ChevronRight size={14} />
+                <span>{active.name}</span>
+              </>
+            )}
+          </div>
+          <div className="topbar-user">
+            <button
+              type="button"
+              className="profile-trigger"
+              aria-label={`Open profile for ${accountName || email}`}
+              onClick={openProfile}
+            >
+              <span className="profile-trigger-name">
+                {accountName || getProfileDisplayName(null, null, email)}
+              </span>
+              <span className="avatar profile-trigger-avatar" aria-hidden="true">
+                {profileAvatar ? (
+                  <img src={profileAvatar} alt="" />
+                ) : (
+                  initials(accountName || email)
+                )}
+              </span>
+            </button>
+          </div>
+        </header>
+        <main className="content" inert={busy || profileSaving || avatarBusy}>
+          {view === "Profile" ? (
+            <section className="profile-page" aria-busy={profileSaving || avatarBusy}>
+              <button type="button" className="back-link" onClick={closeProfile}>
+                <ArrowLeft size={16} /> Back to workspace
+              </button>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">YOUR ACCOUNT</span>
+                  <h1>Profile</h1>
+                  <p>Manage the name, photo, and email shown for your account.</p>
+                </div>
+              </div>
+              <div className="profile-layout">
+                <section className="panel profile-panel">
+                  <div className="profile-photo-row">
+                    <span className="avatar profile-photo" aria-hidden="true">
+                      {profileAvatar ? (
+                        <img src={profileAvatar} alt="" />
+                      ) : (
+                        initials(profileName || email)
+                      )}
+                    </span>
+                    <div className="profile-photo-actions">
+                      <strong>Profile picture</strong>
+                      <small>JPEG, PNG, or WebP up to 2 MB.</small>
+                      <div className="profile-photo-buttons">
+                        <label
+                          className={
+                            "button secondary" +
+                            (avatarBusy || demo ? " disabled" : "")
+                          }
+                          htmlFor="profile-avatar-upload"
+                        >
+                          <Camera size={16} />
+                          {avatarBusy ? "Uploading…" : "Change picture"}
+                        </label>
+                        {profileAvatar && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={avatarBusy || demo}
+                            onClick={removeProfileAvatar}
+                          >
+                            Remove picture
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        id="profile-avatar-upload"
+                        className="sr-only"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={avatarBusy || demo}
+                        onChange={(event) => {
+                          void uploadProfileAvatar(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <p className="profile-help">Workspace role: {roleLabels[role]}</p>
+                  <form className="profile-form" onSubmit={saveProfile}>
+                    <label>
+                      Name
+                      <input
+                        autoComplete="name"
+                        maxLength={80}
+                        required
+                        value={profileName}
+                        disabled={demo || profileSaving}
+                        onChange={(event) => setProfileName(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Email
+                      <input
+                        autoComplete="email"
+                        type="email"
+                        maxLength={254}
+                        required
+                        value={profileEmail}
+                        disabled={demo || profileSaving}
+                        onChange={(event) => setProfileEmail(event.target.value)}
+                      />
+                    </label>
+                    <p className="profile-help">
+                      We’ll send a confirmation link before an email change takes effect.
+                    </p>
+                    {profileError && (
+                      <p className="error" role="alert">{profileError}</p>
+                    )}
+                    {profileMessage && (
+                      <p className="success-note" role="status">{profileMessage}</p>
+                    )}
+                    {demo && (
+                      <p className="profile-help">Profile editing is unavailable in local preview.</p>
+                    )}
+                    <button
+                      className="button"
+                      disabled={demo || profileSaving || avatarBusy}
+                    >
+                      {profileSaving ? "Saving…" : "Save profile"}
+                    </button>
+                  </form>
+                </section>
+                <section className="panel profile-signout">
+                  <div>
+                    <h2>Sign out</h2>
+                    <p>Sign out of Fortified Doorworks on this device.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={demo || profileSaving || avatarBusy}
+                    onClick={() => void signOut()}
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </section>
+              </div>
+            </section>
+          ) : (
+          <div className="workspace-content">
+          {demo && (
+            <div className="notice">
+              Local preview — edits stay in this browser session.
+            </div>
+          )}
+          {error && (
+            <div className="error" role="alert">
+              <AlertCircle size={18} />
+              {error}
+              <button aria-label="Dismiss error" onClick={() => setError("")}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          {role === "global_admin" && !demo && <DeletionCleanup revision={deletionRevision} />}
+          {notice && (
+            <div className="notice" role="status">
+              <Check size={16} />
+              {notice}
+            </div>
+          )}
+          {!active && view === "Dashboard" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">WORKSPACE AT A GLANCE</span>
+                  <h1>Dashboard</h1>
+                  <p>Key numbers from your project pipeline.</p>
+                </div>
+                <button
+                  className="button"
+                  onClick={() => projectEditor(newProject(), true)}
+                >
+                  <Plus size={18} /> New project
+                </button>
+              </div>
+              <div className="metrics">
+                <Metric
+                  label="Active projects"
+                  value={
+                    summaries.filter(
+                      (p) => !["Complete", "Archived"].includes(p.status),
+                    ).length
+                  }
+                  icon={<Layers />}
+                />
+                <Metric
+                  label="Openings tracked"
+                  value={summaries.reduce(
+                    (n, p) => n + p.computed.frames.length,
+                    0,
+                  )}
+                  icon={<DoorOpen />}
+                />
+                <Metric
+                  label="In production"
+                  value={
+                    summaries.filter((p) => p.status === "In production").length
+                  }
+                  icon={<Package />}
+                />
+                <Metric
+                  label="Completed projects"
+                  value={
+                    summaries.filter((p) => p.status === "Complete").length
+                  }
+                  icon={<Check />}
+                />
+              </div>
+            </>
+          )}
+          {!active && view === "Projects" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <h1>
+                    Projects<span className="count">{projects.length}</span>
+                  </h1>
+                </div>
+                <button
+                  className="button"
+                  onClick={() => projectEditor(newProject(), true)}
+                >
+                  <Plus size={18} /> New project
+                </button>
+              </div>
+              <section className="panel">
+                <div className="filters">
+                  <div className="search">
+                    <Search size={18} />
+                    <input
+                      aria-label="Search projects"
+                      placeholder="Search projects, contractors, or jobsite…"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </div>
+                  <select
+                    aria-label="Filter project status"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                  >
+                    {["All statuses", ...statuses].map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter building"
+                    value={building}
+                    onChange={(e) => setBuilding(e.target.value)}
+                  >
+                    {[
+                      "All buildings",
+                      ...new Set(
+                        projects.map((p) => p.building).filter(Boolean),
+                      ),
+                    ].map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="project-table-head" aria-label="Project columns">
+                  <span aria-hidden="true" />
+                  {projectSortColumns.map(({ label, key }) => (
+                    <span key={key}>{projectColumn(label, key)}</span>
+                  ))}
+                  <span aria-hidden="true" />
+                </div>
+                <div className="project-list">
+                  {visible.map((p) => (
+                    <button
+                      className="project-row"
+                      key={p.id}
+                      onClick={() => open(p)}
+                    >
+                      <span className="project-icon">
+                        <Building2 size={18} />
+                      </span>
+                      <div className="project-name">
+                        <h3>{p.name}</h3>
+                      </div>
+                      <span className="project-meta-cell">{p.building || "Independent project"}</span>
+                      <span className="project-meta-cell">{contractors.find((c) => c.id === p.contractor_id)?.name || "Not assigned"}</span>
+                      <span className="project-meta-cell">{p.pm || "Not assigned"}</span>
+                      <span
+                        className={
+                          "badge status-" +
+                          p.status.toLowerCase().replaceAll(" ", "-")
+                        }
+                      >
+                        {p.status}
+                      </span>
+                      <div className="opening-count">
+                        <strong>{p.computed.frames.length}</strong>
+                        <small>{p.computed.phaseCount} phase{p.computed.phaseCount === 1 ? "" : "s"}</small>
+                      </div>
+                      <div className="progress-cell">
+                        <div>
+                          <span>Production</span>
+                          <b>{p.computed.progress}%</b>
+                        </div>
+                        <progress value={p.computed.progress} max="100" />
+                      </div>
+                      <ArrowUpRight className="row-arrow" size={18} />
+                    </button>
+                  ))}
+                  {!visible.length && (
+                    <div className="empty">
+                      <Layers />
+                      <h3>No projects found</h3>
+                      <p>Create your first project or adjust the filters.</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+              <div className="workspace-footer">
+                <span>
+                  <span className="orange-square" /> FORTIFIED DOORWORKS
+                </span>
+                <span>Designed around the way you build.</span>
+              </div>
+            </>
+          )}
+          {!active && view === "Contractors" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">WORKSPACE DIRECTORY</span>
+                  <h1>Contractors</h1>
+                  <p>Maintain the companies linked to your projects.</p>
+                </div>
+                <button
+                  className="button"
+                  onClick={() => settingsEditor("contractors")}
+                >
+                  <Plus size={18} /> Add contractor
+                </button>
+              </div>
+              <div className="panel table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Company</th>
+                      <th>Contact</th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contractors.map((c) => (
+                      <tr key={c.id}>
+                        <td className="strong">{c.name}</td>
+                        <td>{c.contact || "—"}</td>
+                        <td>{c.email || "—"}</td>
+                        <td>{c.phone || "—"}</td>
+                        <td>
+                          <button
+                            className="icon-button"
+                            aria-label={"Edit " + c.name}
+                            onClick={() => settingsEditor("contractors", c)}
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={"Delete " + c.name}
+                            onClick={() => deleteSetting("contractors", c)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {!active && view === "Access" && <AccessManagement email={email} role={role} demo={demo} />}
+          {!active && view === "Vendors" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">MANAGE SUPPLIERS</span>
+                  <h1>Vendors</h1>
+                  <p>Supplier contacts and default lead times for project schedules.</p>
+                </div>
+              </div>
+              <VendorDirectory
+                vendors={vendors}
+                setVendors={setVendors}
+                manager={canManageProduction(role)}
+                demo={demo}
+              />
+            </>
+          )}
+          {!active && view === "Settings" && (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">MANAGE THE DETAILS</span>
+                  <h1>Settings</h1>
+                  {role === "global_admin" && <button className="button secondary" onClick={() => navigate("Access")}>Manage users &amp; access</button>}
+                  <p>
+                    Shared options for door schedules, frames, and hardware.
+                  </p>
+                </div>
+                <button
+                  className="button"
+                  onClick={() => settingsEditor("catalogs")}
+                >
+                  <Plus size={18} /> Add option
+                </button>
+              </div>
+              <div className="settings-layout">
+                <nav className="settings-nav">
+                  {categories.map((c) => (
+                    <button
+                      key={c}
+                      className={c === cat ? "active" : ""}
+                      onClick={() => setCat(c)}
+                    >
+                      {c}
+                      <span>
+                        {catalogs.filter((x) => x.category === c).length}
+                      </span>
+                    </button>
+                  ))}
+                </nav>
+                <section className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>{cat}</h2>
+                      <p>Edit any value or description. Changes save when you leave the field.</p>
+                    </div>
+                  </div>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Value</th>
+                          <th>Description</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catalogs
+                          .filter((c) => c.category === cat)
+                          .map((c) => (
+                            <tr key={c.id}>
+                              <td className="strong">
+                                <SettingCell
+                                  value={c.value}
+                                  label={cat + " value " + c.value}
+                                  required
+                                  onSave={(value) => saveCatalogField(c.id, "value", value)}
+                                />
+                              </td>
+                              <td>
+                                <SettingCell
+                                  value={c.description || ""}
+                                  label={cat + " description " + c.value}
+                                  multiline
+                                  onSave={(value) => saveCatalogField(c.id, "description", value)}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  className="icon-button"
+                                  aria-label={"Edit " + c.value}
+                                  onClick={() => settingsEditor("catalogs", c)}
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                                <button
+                                  className="icon-button"
+                                  aria-label={"Delete " + c.value}
+                                  onClick={() => deleteSetting("catalogs", c)}
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+            </>
+          )}
+          {active && !phaseDetail && (
+            <>
+              <div className="page-heading detail-heading phase-list-heading">
+                <div>
+                  <div className="phase-title">
+                    <h1>{active.name}</h1>
+                    <span className="badge">{active.status}</span>
+                  </div>
+                </div>
+                <div className="actions">
+                  {role === "global_admin" && !demo && <button className="button secondary" disabled={busy} onClick={() => beginDeletion()}><Trash2 size={16} /> Delete project</button>}
+                  <button
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => setDuplicateConfirmationOpen(true)}
+                  >
+                    <Copy size={16} /> Duplicate project
+                  </button>
+                  <button className="button" disabled={!dirty || busy} onClick={() => saveProject()}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
+                </div>
+              </div>
+              <div className="project-overview-grid">
+                <section className="panel project-details-panel">
+                  <div className="panel-heading">
+                    <div><h2>Project details</h2><p>Key information for this job.</p></div>
+                    <button className="button secondary" onClick={() => projectEditor(active)}><Pencil size={15} /> Edit details</button>
+                  </div>
+                  <div className="project-detail-grid">
+                    <div><small>Building</small><strong>{active.building || "Not specified"}</strong></div>
+                    <div><small>Contractor</small><strong>{contractors.find((item) => item.id === active.contractor_id)?.name || "Not assigned"}</strong></div>
+                    <div><small>Project manager</small><strong>{active.pm || "Not assigned"}</strong></div>
+                    <div><small>Start date</small><strong>{active.start_date || "Not scheduled"}</strong></div>
+                    <div className="project-detail-wide"><small>Jobsite</small><strong>{active.jobsite || "No jobsite entered"}</strong></div>
+                    {active.scope && <div className="project-detail-wide"><small>Scope of work</small><strong className="project-scope-text">{active.scope}</strong></div>}
+                  </div>
+                </section>
+                <section className="panel phase-list-panel">
+                  <div className="panel-heading">
+                    <div><h2>Phases</h2><p>Choose a work package to view openings, takeoff, and production.</p></div>
+                    <button className="button" onClick={createPhase}><Plus size={17} /> New phase</button>
+                  </div>
+                  <div className="phase-list">
+                    {(active.data.phases || []).map((phase, index) => (
+                      <div className="phase-list-row" key={phase.id}>
+                        <button className="phase-list-open" onClick={() => switchPhase(phase.id)}>
+                          <span className="phase-list-number">{String(index + 1).padStart(2, "0")}</span>
+                          <span className="phase-list-copy"><strong>{phase.name}</strong><small>{phase.data.openings.length} openings</small></span>
+                          <ArrowUpRight size={18} />
+                        </button>
+                        <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
+                        {role === "global_admin" && !demo && <button className="button secondary" aria-label={`Delete phase ${phase.name}`} disabled={busy} onClick={() => beginDeletion(phase)}><Trash2 size={16} /> Delete phase</button>}
+                      </div>
+                    ))}
+                    {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
+                  </div>
+                </section>
+                <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
+                  phases={active.data.phases || [activePhase(active.data)]}
+                  activePhaseId={activePhase(active.data).id}
+                  onApply={(phaseId, rows) => {
+                    const data = persistActivePhase(active.data);
+                    const phases = (data.phases || []).map((phase) => phase.id === phaseId ? {
+                      ...phase, data: { ...phase.data, ...Object.fromEntries(Object.entries(rows).map(([kind, additions]) =>
+                        [kind, [...(phase.data[kind as Kind] || []), ...(additions || [])]])) },
+                    } : phase);
+                    const current = phases.find((phase) => phase.id === data.activePhaseId);
+                    update({ ...active, data: { ...data, ...(current?.data || {}), phases } });
+                  }} />
+              </div>
+            </>
+          )}
+          {active && derived && phaseDetail && (
+            <>
+              <button
+                className="back-link"
+                onClick={() => { if (dirty && !confirm("Keep unsaved changes while returning to phases?")) return; setPhaseDetail(false); setNotice(""); setError(""); if (active) router.push(`/projects/${active.id}`); }}
+              >
+                <ArrowLeft size={16} /> All phases
+              </button>
+              <div className="page-heading detail-heading">
+                <div>
+                  <h1 className="project-phase-title">
+                    <span>{active.name}</span>
+                    <span className="project-phase-separator" aria-hidden="true">
+                      |
+                    </span>
+                    <select
+                      className="project-phase-select"
+                      aria-label="Select phase"
+                      value={activePhase(active.data).id}
+                      onChange={(event) => switchPhase(event.target.value)}
+                    >
+                      {(active.data.phases || [activePhase(active.data)]).map((phase) => (
+                        <option key={phase.id} value={phase.id}>
+                          {phase.name}
+                        </option>
+                      ))}
+                    </select>
+                  </h1>
+                  <p>
+                    <span className="badge">{active.status}</span>{" "}
+                    <span>{active.jobsite || "Jobsite not entered"}</span>
+                  </p>
+                </div>
+                <div className="actions">
+                  <button className="button secondary" onClick={beginPhaseSplit}>
+                    <Layers size={16} /> Split phase
+                  </button>
+                  {role === "global_admin" && !demo && (
+                    <button className="button secondary" disabled={busy} onClick={() => beginDeletion(activePhase(active.data))}>
+                      <Trash2 size={16} /> Delete phase
+                    </button>
+                  )}
+                  <button
+                    className="button"
+                    disabled={!dirty || busy}
+                    onClick={() => saveProject()}
+                  >
+                    <Save size={16} />
+                    {busy ? "Saving…" : dirty ? "Save changes" : "Saved"}
+                  </button>
+                </div>
+              </div>
+              <nav className="tabs">
+                {sections.map((s) => (
+                  <button
+                    className={s === section ? "active" : ""}
+                    key={s}
+                    onClick={() => {
+                      setSection(s);
+                      setTableQuery("");
+                    }}
+                  >
+                    {s}
+                    {s === "Openings" && <span>{derived.frames.length}</span>}
+                  </button>
+                ))}
+              </nav>
+              {section === "Overview" && (
+                <>
+                  <div className="metrics">
+                    <Metric
+                      label="Active openings"
+                      value={derived.frames.length}
+                      icon={<DoorOpen />}
+                    />
+                    <Metric
+                      label="Hardware pieces"
+                      value={derived.hardwareTakeoff.reduce(
+                        (n, h) => n + h.count,
+                        0,
+                      )}
+                      icon={<Package />}
+                    />
+                    <Metric
+                      label="Production progress"
+                      value={derived.progress + "%"}
+                      icon={<Check />}
+                    />
+                    <Metric
+                      label="Needs review"
+                      value={derived.warnings.length}
+                      icon={<AlertCircle />}
+                    />
+                  </div>
+                  <div className="overview-grid">
+                    <section className="panel">
+                      <div className="panel-heading">
+                        <h2>Job information</h2>
+                        <button
+                          className="text-button"
+                          onClick={() => projectEditor(active)}
+                        >
+                          <Pencil size={15} /> Edit details
+                        </button>
+                      </div>
+                      <dl className="details">
+                        {[
+                          [
+                            "Contractor",
+                            contractors.find(
+                              (c) => c.id === active.contractor_id,
+                            )?.name,
+                          ],
+                          ["Start date", active.start_date],
+                          ["Project manager", active.pm],
+                          ["Jobsite", active.jobsite],
+                          ["Scope of work", active.scope],
+                          ["Cuts / notes", active.cuts],
+                        ].map(([k, v]) => (
+                          <div key={k}>
+                            <dt>{k}</dt>
+                            <dd>{v || "Not entered"}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+                    <section className="panel">
+                      <div className="panel-heading">
+                        <h2>Production snapshot</h2>
+                      </div>
+                      <div className="stage-summary">
+                        {stages.map((s) => {
+                          const count = derived.frames.filter(
+                            (o) => active.data.milestones[o.id]?.[s],
+                          ).length;
+                          return (
+                            <div key={s}>
+                              <span>{s}</span>
+                              <progress
+                                max={derived.frames.length || 1}
+                                value={count}
+                              />
+                              <strong>
+                                {count}/{derived.frames.length}
+                              </strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  </div>
+                  {derived.warnings.length > 0 && (
+                    <section className="panel review-panel">
+                      <div className="panel-heading">
+                        <h2>
+                          <AlertCircle size={18} /> Review before release
+                        </h2>
+                        <span className="label">
+                          {derived.warnings.length} items
+                        </span>
+                      </div>
+                      <ul>
+                        {derived.warnings.slice(0, 12).map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                      {derived.warnings.length > 12 && (
+                        <p className="muted">
+                          And {derived.warnings.length - 12} more. Review
+                          opening details before manufacturing.
+                        </p>
+                      )}
+                    </section>
+                  )}
+                </>
+              )}
+              {kindNames[section] && (
+                <section className="panel">
+                  {table(
+                    section === "Hardware"
+                      ? (derived.hardware as Row[])
+                      : active.data[kindNames[section]],
+                    fields(kindNames[section], active.data, catalogs, vendors)
+                      .filter(
+                        (f) =>
+                          ![
+                            "notes",
+                            "veBrand",
+                            "veComponent",
+                            "veSelected",
+                            "deleted",
+                            "pr",
+                            "qty",
+                          ].includes(f.key) ||
+                          (section === "Hardware" &&
+                            ["qty", "veSelected"].includes(f.key)),
+                      )
+                      .map((f) => ({ key: f.key, label: f.label }))
+                      .concat(
+                        section === "Hardware"
+                          ? [
+                              { key: "selectedBrand", label: "Selected brand" },
+                              {
+                                key: "selectedComponent",
+                                label: "Selected component",
+                              },
+                              { key: "frameCount", label: "Openings" },
+                              { key: "lineQty", label: "Total quantity" },
+                            ]
+                          : [],
+                      ),
+                    kindNames[section],
+                  )}
+                </section>
+              )}
+              {section === "Frames" && (
+                <section className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Frame schedule</h2>
+                      <p>
+                        Calculated depths, modifications and part names for
+                        active openings.
+                      </p>
+                    </div>
+                  </div>
+                  {table(derived.frames, [
+                    { key: "name", label: "Opening" },
+                    { key: "brand", label: "Brand" },
+                    { key: "width", label: "Width" },
+                    { key: "height", label: "Height" },
+                    { key: "depth", label: "Depth" },
+                    { key: "handing", label: "Handing" },
+                    { key: "frameType", label: "Frame type" },
+                    { key: "accessories", label: "Modifications" },
+                    { key: "partName", label: "Part name" },
+                  ])}
+                </section>
+              )}
+              {section === "Doors" && (
+                <section className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Door schedule</h2>
+                      <p>
+                        Calculated from openings, door types, and hardware
+                        groups.
+                      </p>
+                    </div>
+                    <button
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => exportPDF("Opening schedule")}
+                    >
+                      <Download size={16} /> Export PDF
+                    </button>
+                  </div>
+                  {table(derived.doors, [
+                    { key: "name", label: "Opening" },
+                    { key: "width", label: "Width" },
+                    { key: "height", label: "Height" },
+                    { key: "handing", label: "Handing" },
+                    { key: "brand", label: "Brand" },
+                    { key: "material", label: "Material" },
+                    { key: "window", label: "Window" },
+                    { key: "fire", label: "Fire rating" },
+                    { key: "typ", label: "Modifications" },
+                    { key: "prep", label: "Prep" },
+                    { key: "partName", label: "Part name" },
+                  ])}
+                </section>
+              )}
+              {section === "Takeoff" && (
+                <>
+                  <div className="section-heading">
+                    <div>
+                      <h2>Project takeoff</h2>
+                      <p>
+                        Live totals from all active openings. Excluded openings
+                        are not counted.
+                      </p>
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => exportPDF("Takeoff", true)}
+                      >
+                        Selected PDF
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => exportPDF("Takeoff")}
+                      >
+                        <Download size={16} /> Download all
+                      </button>
+                    </div>
+                  </div>
+                  {[
+                    ["Frames", derived.frameTakeoff],
+                    ["Doors", derived.doorTakeoff],
+                    ["Hardware", derived.hardwareTakeoff],
+                  ].map(([name, rs]) => (
+                    <section className="panel takeoff-panel" key={str(name)}>
+                      <div className="panel-heading">
+                        <h2>{str(name)}</h2>
+                        <span className="label">
+                          {(rs as { count: number }[]).reduce(
+                            (n, r) => n + r.count,
+                            0,
+                          )}{" "}
+                          pieces
+                        </span>
+                      </div>
+                      <div className="table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Selected</th>
+                              <th>Part / component</th>
+                              <th>Quantity</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(
+                              rs as {
+                                name: string;
+                                count: number;
+                                brand?: string;
+                              }[]
+                            ).map((r, i) => (
+                              <tr key={i}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={
+                                      "Select " + str(name) + " " + r.name
+                                    }
+                                    checked={
+                                      !!active.data.takeoffSelection?.[
+                                        JSON.stringify([
+                                          name,
+                                          r.brand || "",
+                                          r.name,
+                                        ])
+                                      ]
+                                    }
+                                    onChange={(e) =>
+                                      updateData({
+                                        ...active.data,
+                                        takeoffSelection: {
+                                          ...active.data.takeoffSelection,
+                                          [JSON.stringify([
+                                            name,
+                                            r.brand || "",
+                                            r.name,
+                                          ])]: e.target.checked,
+                                        },
+                                      })
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  {r.brand && (
+                                    <small className="cell-brand">
+                                      {r.brand}
+                                    </small>
+                                  )}
+                                  {r.name}
+                                </td>
+                                <td className="quantity">{r.count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </>
+              )}
+              {section === "Production" && (
+                <>
+                <ProductionTracker
+                  key={`${active.id}:${activePhase(active.data).id}:${email}`}
+                  projectId={active.id}
                   phaseId={activePhase(active.data).id}
                   openings={derived.frames}
                   email={email}
