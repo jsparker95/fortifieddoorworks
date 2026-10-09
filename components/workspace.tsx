@@ -1970,6 +1970,12 @@ export default function Workspace() {
                   <h1>Dashboard</h1>
                   <p>Key numbers from your project pipeline.</p>
                 </div>
+                <button
+                  className="button"
+                  onClick={() => projectEditor(newProject(), true)}
+                >
+                  <Plus size={18} /> New project
+                </button>
               </div>
               <div className="metrics">
                 <Metric
