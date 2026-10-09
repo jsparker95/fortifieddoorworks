@@ -2116,22 +2116,35 @@ th,
 @media (max-width: 700px) { .project-file-rename { flex-wrap: wrap; } .project-file-rename label { flex-basis: 100%; } .project-file-dialog { padding: 16px; } .project-file-dialog .panel-heading { flex-wrap: wrap; } }
 
 /* Workspace access management */
-.access-page { display: grid; gap: 20px; }
-.access-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.access-roles .panel, .access-message, .access-form { padding: 22px; }
-.access-roles h2 { font-size: 17px; margin-bottom: 10px; }
-.access-roles p, .access-help { color: var(--muted); line-height: 1.65; }
+.access-page { display: grid; gap: 16px; }
+.access-message, .access-form { padding: 22px; }
+.access-help { color: var(--muted); line-height: 1.65; }
 .access-form { display: grid; gap: 18px; }
 .access-fields { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 16px; }
 .access-fields input, .access-fields select { width: 100%; }
+.access-role-label { display: flex; align-items: center; gap: 6px; }
+.role-info-button { display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #687683; cursor: pointer; }
+.role-info-button:hover, .role-info-button:focus-visible { background: #f0f3f5; color: var(--ink); }
+.role-info-button svg { width: 16px; height: 16px; }
+.role-capability-help { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafb; color: var(--ink); }
+.role-capability-help p { margin: 4px 0 0; color: var(--muted); line-height: 1.55; }
+.role-capability-help[hidden] { display: none; }
 .access-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .access-email { display: block; color: var(--muted); margin-top: 4px; }
-.access-search { margin: 0 22px 20px; max-width: 400px; }
+.access-members-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.access-members-title h2 { margin: 0; font-size: 16px; }
+.access-members-title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.access-search { display: block; flex: 0 1 320px; margin: 0; }
+.access-search input { width: 100%; padding: 8px 10px; }
 .access-page td { vertical-align: middle; }
 .access-page .table-scroll > .access-help { padding: 22px; }
 @media (max-width: 800px) {
-  .access-roles, .access-fields { grid-template-columns: 1fr; }
+  .access-fields { grid-template-columns: 1fr; }
   .access-page .page-heading { gap: 16px; flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+  .access-members-header { align-items: stretch; flex-direction: column; gap: 10px; padding: 12px 16px; }
+  .access-search { flex-basis: auto; width: 100%; }
 }
 
 .button.danger { background: #b42318; border-color: #b42318; color: white; }

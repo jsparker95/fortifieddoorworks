@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { Info } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   accountStatus,
@@ -37,6 +38,7 @@ export function AccessManagement({
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [nextRole, setNextRole] = useState<WorkspaceRole>("operator");
+  const [roleInfoOpen, setRoleInfoOpen] = useState(false);
   const [confirm, setConfirm] = useState<WorkspaceMember | null>(null);
   const allowed = role === "global_admin" && !demo;
   const refresh = useCallback(async () => {
@@ -103,15 +105,14 @@ export function AccessManagement({
     setName(member?.display_name || "");
     setAddress(member?.email || "");
     setNextRole(member?.role || "operator");
+    setRoleInfoOpen(false);
   }
 
   return (
     <section className="access-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">WORKSPACE SECURITY</span>
           <h1>Users &amp; access</h1>
-          <p>Manage who can use Fortified Doorworks and what they can do.</p>
         </div>
         {allowed && (
           <button
@@ -123,20 +124,6 @@ export function AccessManagement({
           </button>
         )}
       </div>
-      <div className="access-roles">
-        {workspaceRoles.map((item) => (
-          <article className="panel" key={item}>
-            <h2>{roleLabels[item]}</h2>
-            <p>{roleDescriptions[item]}</p>
-          </article>
-        ))}
-      </div>
-      <p className="access-help">
-        Roles apply across the company workspace. Operators can edit shared
-        business data; they are not read-only users. Global Admin is an app role
-        and does not grant access to hosting, source code or the database
-        dashboard.
-      </p>
       {!allowed ? (
         <div className="panel access-message">
           <h2>Global Admin access required</h2>
@@ -202,7 +189,19 @@ export function AccessManagement({
                   />
                 </label>
                 <label>
-                  Role
+                  <span className="access-role-label">
+                    Role
+                    <button
+                      type="button"
+                      className="role-info-button"
+                      aria-label={`Show ${roleLabels[nextRole]} permissions`}
+                      aria-expanded={roleInfoOpen}
+                      aria-controls="role-capability-help"
+                      onClick={() => setRoleInfoOpen((open) => !open)}
+                    >
+                      <Info aria-hidden="true" />
+                    </button>
+                  </span>
                   <select
                     value={nextRole}
                     onChange={(event) =>
@@ -218,7 +217,15 @@ export function AccessManagement({
                   </select>
                 </label>
               </div>
-              <p>{roleDescriptions[nextRole]}</p>
+              <div
+                id="role-capability-help"
+                className="role-capability-help"
+                hidden={!roleInfoOpen}
+                aria-live="polite"
+              >
+                <strong>{roleLabels[nextRole]}</strong>
+                <p>{roleDescriptions[nextRole]}</p>
+              </div>
               {editing === "new" && (
                 <p className="access-help">
                   This approves an email address for access. It does not create
@@ -285,8 +292,8 @@ export function AccessManagement({
             </section>
           )}
           <section className="panel">
-            <div className="panel-heading">
-              <div>
+            <div className="access-members-header">
+              <div className="access-members-title">
                 <h2>Workspace members</h2>
                 <p>
                   {data.members.filter((member) => member.active).length} active
@@ -294,23 +301,17 @@ export function AccessManagement({
                   revoked
                 </p>
               </div>
-              <button
-                className="button secondary"
-                disabled={loading || busy}
-                onClick={() => void refresh()}
-              >
-                Refresh
-              </button>
+              <label className="access-search">
+                <span className="sr-only">Find a member</span>
+                <input
+                  type="search"
+                  aria-label="Find a member"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Name or email"
+                />
+              </label>
             </div>
-            <label className="access-search">
-              Find a member
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Name or email"
-              />
-            </label>
             {loading ? (
               <p className="access-help" role="status">
                 Loading members…
