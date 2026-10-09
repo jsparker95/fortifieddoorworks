@@ -225,17 +225,17 @@ async function drawLegacyFrameOrDoorLabels(
         x + 1,
         top + logoHeightIn + 0.51,
         10,
-        1,
+        1.45,
         font,
       );
       drawWrappedTopText(
         page,
         pageHeight,
         label.lines[6]?.text.replace(/^Window /, "") || "",
-        x + 2,
+        x + 2.5,
         top + logoHeightIn + 0.51,
         10,
-        1,
+        0.65,
         font,
       );
     }
