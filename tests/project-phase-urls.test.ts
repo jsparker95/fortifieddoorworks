@@ -43,7 +43,10 @@ test("phase page heading shows the project and phase names without the generic l
 
   assert.match(phaseView, /className="project-phase-title"/);
   assert.ok(phaseView.includes("<span>{active.name}</span>"));
-  assert.ok(phaseView.includes("<span>{activePhase(active.data).name}</span>"));
+  assert.ok(phaseView.includes('className="project-phase-select"'));
+  assert.ok(phaseView.includes('aria-label="Select phase"'));
+  assert.ok(phaseView.includes("{phase.name}"));
+  assert.ok(phaseView.includes("onChange={(event) => switchPhase(event.target.value)}"));
   assert.doesNotMatch(phaseView, /MANUFACTURING PROJECT/);
 });
 
