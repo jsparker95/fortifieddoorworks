@@ -35,6 +35,19 @@ test("workspace navigation writes and restores project and phase URLs", () => {
 });
 
 
+test("phase page heading shows the project and phase names without the generic label", () => {
+  const workspace = read("components/workspace.tsx");
+  const phaseView = workspace.slice(
+    workspace.indexOf("{active && derived && phaseDetail && ("),
+  );
+
+  assert.match(phaseView, /className="project-phase-title"/);
+  assert.match(phaseView, /<span>\\{active\\.name\\}<\\/span>/);
+  assert.match(phaseView, /<span>\\{activePhase\\(active\\.data\\)\\.name\\}<\\/span>/);
+  assert.doesNotMatch(phaseView, /MANUFACTURING PROJECT/);
+});
+
+
 test("Vendors has its own sidebar destination and route restoration", () => {
   const workspace = read("components/workspace.tsx");
   assert.match(workspace, /navigate\("Vendors"\)/);
