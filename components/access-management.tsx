@@ -293,14 +293,6 @@ export function AccessManagement({
           )}
           <section className="panel">
             <div className="access-members-header">
-              <div className="access-members-title">
-                <h2>Workspace members</h2>
-                <p>
-                  {data.members.filter((member) => member.active).length} active
-                  · {data.members.filter((member) => !member.active).length}{" "}
-                  revoked
-                </p>
-              </div>
               <label className="access-search">
                 <span className="sr-only">Find a member</span>
                 <input
