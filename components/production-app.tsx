@@ -6,6 +6,7 @@ import { ArrowLeft, CheckCircle2, Clock3, DoorOpen, LogOut, Play, Square } from 
 import { supabase } from "@/lib/supabase";
 import { normalizeProject } from "@/lib/phases";
 import { str } from "@/lib/production";
+import { recordProductionMilestone } from "@/lib/production-milestones";
 import type { ProductionWorkSession, Project, ProjectPhase, Row } from "@/lib/types";
 
 const codedCategories = ["Cleaning / staging", "Delivery", "Inventory", "Project support", "Training", "Other approved work"];
@@ -120,6 +121,17 @@ export function ProductionApp() {
     finally { setBusy(false); }
   }
 
+  async function syncMilestone(row: ProductionWorkSession): Promise<boolean> {
+    if (!["frame", "door", "hardware"].includes(row.work_kind)) return true;
+    if (!row.project_id || !row.phase_id || !row.opening_id) return false;
+    const projectResult = await supabase.from("projects").select("id,data,version").eq("id", row.project_id).maybeSingle();
+    if (projectResult.error || !projectResult.data) return false;
+    const data = recordProductionMilestone(projectResult.data.data, row.phase_id, row.opening_id, row.work_kind as "frame" | "door" | "hardware", new Date().toLocaleDateString("en-CA"));
+    if (!data) return false;
+    const update = await supabase.from("projects").update({ data }).eq("id", row.project_id).eq("version", projectResult.data.version).select("id").maybeSingle();
+    return !update.error && !!update.data;
+  }
+
   async function stop(row: ProductionWorkSession) {
     if (row.work_kind === "shift" && task) { setError("Finish the active task before ending your shift."); return; }
     setBusy(true); setError(""); setMessage("");
@@ -127,7 +139,14 @@ export function ProductionApp() {
     try {
       const result = await supabase.from("production_work_sessions").update({ ended_at: endedAt, status: row.work_kind === "coded" ? "pending_approval" : "completed" }).eq("id", row.id).eq("status", "running");
       if (result.error) throw result.error;
-      setMessage(row.work_kind === "coded" ? "Coded time sent to a manager for review." : `${row.work_kind === "shift" ? "Shift" : "Task"} recorded · ${clockText(elapsed({ ...row, ended_at: endedAt }, now))}.`);
+      if (row.work_kind === "coded") setMessage("Coded time sent to a manager for review.");
+      else if (row.work_kind === "shift") setMessage(`Shift recorded · ${clockText(elapsed({ ...row, ended_at: endedAt }, now))}.`);
+      else {
+        const milestoneSaved = await syncMilestone(row);
+        setMessage(milestoneSaved
+          ? `${row.work_kind} timer saved · ${clockText(elapsed({ ...row, ended_at: endedAt }, now))}. Project milestone updated.`
+          : `${row.work_kind} timer saved · ${clockText(elapsed({ ...row, ended_at: endedAt }, now))}. Update the milestone in the project workspace; the project changed while this task was running.`);
+      }
       await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save this timer."); }
     finally { setBusy(false); }
