@@ -27,7 +27,7 @@ const contentFrom = (data: Partial<ProjectData>): PhaseContent => ({
 export function normalizeProject(project: Project): Project {
   const data = project.data as ProjectData;
   let phases = Array.isArray(data.phases) ? data.phases : [];
-  if (!phases.length) {
+  if (!Array.isArray(data.phases)) {
     const id = crypto.randomUUID();
     phases = [
       {
@@ -50,9 +50,9 @@ export function normalizeProject(project: Project): Project {
   return {
     ...project,
     data: {
-      ...selected.data,
+      ...(selected?.data || emptyPhaseContent()),
       phases,
-      activePhaseId: selected.id,
+      activePhaseId: selected?.id || "",
       phaseHistory: Array.isArray(data.phaseHistory) ? data.phaseHistory : [],
     },
   };
@@ -127,6 +127,8 @@ export function selectPhase(project: Project, phaseId: string): Project {
 
 /** Keep the selected phase's editable data and its persisted phase record in sync. */
 export function persistActivePhase(data: ProjectData): ProjectData {
+  if (Array.isArray(data.phases) && data.phases.length === 0)
+    return { ...emptyPhaseContent(), phases: [], activePhaseId: "", phaseHistory: [] };
   const current = activePhase(data);
   const content = contentFrom(data);
   const phases = data.phases?.length

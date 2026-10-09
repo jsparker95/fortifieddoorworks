@@ -5,9 +5,20 @@
  */
 import { createServer } from "node:http";
 import { accessDatabase, asUser, identities } from "./access-db";
+import { newProject } from "../lib/types";
 
 async function main() {
   const db = await accessDatabase();
+  const example = newProject();
+  example.name = "Deletion verification";
+  example.data.phases!.push({ ...structuredClone(example.data.phases![0]), id: crypto.randomUUID(), name: "Phase 2" });
+  await db.query("insert into public.projects(id,name,data) values($1,$2,$3)", [example.id,example.name,JSON.stringify(example.data)]);
+  for (const phase of example.data.phases!) {
+    const path = `${example.id}/${phase.id}/test-plan.pdf`;
+    await db.query("insert into public.project_documents(project_id,phase_id,file_name,storage_path) values($1,$2,'Test plan.pdf',$3)",[example.id,phase.id,path]);
+    await db.query("insert into storage.objects(bucket_id,name) values('project-documents',$1)",[path]);
+  }
+  let failFirstRemoval = true;
   let pending = Promise.resolve();
   createServer((request, response) => {
     pending = pending
@@ -17,7 +28,7 @@ async function main() {
           "http://127.0.0.1:3017",
         );
         response.setHeader("Access-Control-Allow-Headers", "*");
-        response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+        response.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
         response.setHeader("Content-Type", "application/json");
         if (request.method === "OPTIONS") {
           response.end();
@@ -109,6 +120,20 @@ async function main() {
           response.end("null");
           return;
         }
+        if (url.pathname === "/rest/v1/rpc/delete_workspace_target") {
+          const result = await db.query<{result: unknown}>("select public.delete_workspace_target($1,$2,$3,$4) result", [body.p_project_id,body.p_phase_id,body.p_expected_version,body.p_confirmation]);
+          response.end(JSON.stringify(result.rows[0].result)); return;
+        }
+        if (url.pathname === "/rest/v1/rpc/pending_deletion_files") {
+          const result = await db.query<{result: unknown}>("select public.pending_deletion_files() result");
+          response.end(JSON.stringify(result.rows[0].result)); return;
+        }
+        if (url.pathname === "/storage/v1/object/project-documents" && request.method === "DELETE") {
+          if (failFirstRemoval) { failFirstRemoval = false; throw new Error("Simulated first Storage failure; retry to finish"); }
+          // This throwaway database has no actual storage service or file bytes.
+          const result = await db.query("delete from storage.objects where bucket_id='project-documents' and name=any($1) returning name",[body.prefixes]);
+          response.end(JSON.stringify(result.rows)); return;
+        }
         const table = url.pathname.replace("/rest/v1/", "");
         if (
           ![
@@ -117,6 +142,7 @@ async function main() {
             "contractors",
             "catalogs",
             "vendors",
+            "project_documents",
           ].includes(table)
         )
           throw new Error("Unsupported fixture endpoint");

@@ -11,7 +11,7 @@ export const roleDescriptions: Record<WorkspaceRole, string> = {
   manager:
     "All Operator permissions, plus maintain vendors, review team production time and delete phases with their work history.",
   global_admin:
-    "All Manager permissions, plus view members, add access, change roles, revoke or restore access, and review the access log.",
+    "All Manager permissions, plus permanently delete entire projects or individual phases with their related records and files. View members, add access, change roles, revoke or restore access, and review the access log.",
 };
 export function isWorkspaceRole(value: unknown): value is WorkspaceRole {
   return workspaceRoles.some((role) => role === value);

@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import SettingCell from "./setting-cell";
+import { DeleteTargetDialog, DeletionCleanup } from "./delete-target";
+import { cleanupDeletedFiles, pendingDeletionFiles } from "@/lib/deletion";
 import { AccessManagement } from "./access-management";
 import { canManageProduction, isWorkspaceRole, roleLabels, type WorkspaceRole } from "@/lib/access";
 import { applyCatalogField, catalogFieldValue, type CatalogField } from "@/lib/catalog-settings";
@@ -307,6 +309,9 @@ export default function Workspace() {
     [splitSecondIds, setSplitSecondIds] = useState<string[]>([]);
   const [duplicateConfirmationOpen, setDuplicateConfirmationOpen] =
     useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ project: Project; phase?: ProjectPhase } | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deletionRevision, setDeletionRevision] = useState(0);
   const [scannedItem, setScannedItem] = useState("");
   const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
@@ -1164,6 +1169,49 @@ export default function Workspace() {
       [kind]: active.data[kind].filter((r) => r.id !== row.id),
     });
   }
+  function beginDeletion(phase?: ProjectPhase) {
+    if (!active || role !== "global_admin" || busy || demo) return;
+    if (dirty) { setError("Save your changes before deleting a project or phase."); return; }
+    setDeleteError("");
+    setDeleteTarget({ project: structuredClone(active), phase });
+  }
+  async function deleteWorkspaceTarget(confirmation: string) {
+    if (!deleteTarget || operation.current || role !== "global_admin" || demo) return;
+    operation.current = true;
+    setBusy(true);
+    setDeleteError("");
+    try {
+      const { project, phase } = deleteTarget;
+      const { data, error: deletionError } = await supabase.rpc("delete_workspace_target", {
+        p_project_id: project.id, p_phase_id: phase?.id || null,
+        p_expected_version: project.version, p_confirmation: confirmation,
+      });
+      if (deletionError) throw deletionError;
+      const saved = data.project as Project | null;
+      setProjects((current) => saved ? current.map((item) => item.id === saved.id ? saved : item) : current.filter((item) => item.id !== project.id));
+      setActive(saved);
+      setDirty(false);
+      setPhaseDetail(false);
+      setDeleteTarget(null);
+      setView("Projects");
+      setError("");
+      router.push(saved ? `/projects/${saved.id}` : "/projects");
+      setNotice("Records deleted. Removing attached files…");
+      try {
+        const jobs = await pendingDeletionFiles();
+        await cleanupDeletedFiles(jobs.filter((job) => job.id === data.job_id));
+        setNotice(`${phase ? "Phase" : "Project"} and its exclusive files permanently deleted.`);
+      } catch {
+        setNotice("Records deleted. Some attached files may still need cleanup. Use Retry file cleanup to finish.");
+      }
+      setDeletionRevision((value) => value + 1);
+    } catch (e) {
+      setDeleteError(message(e));
+    } finally {
+      setBusy(false);
+      operation.current = false;
+    }
+  }
   async function duplicate() {
     if (!active || operation.current) return;
     const source = structuredClone({
@@ -1908,6 +1956,7 @@ export default function Workspace() {
               </button>
             </div>
           )}
+          {role === "global_admin" && !demo && <DeletionCleanup revision={deletionRevision} />}
           {notice && (
             <div className="notice" role="status">
               <Check size={16} />
@@ -2250,6 +2299,7 @@ export default function Workspace() {
                   </div>
                 </div>
                 <div className="actions">
+                  {role === "global_admin" && !demo && <button className="button secondary" disabled={busy} onClick={() => beginDeletion()}><Trash2 size={16} /> Delete project</button>}
                   <button
                     className="button secondary"
                     disabled={busy}
@@ -2289,12 +2339,13 @@ export default function Workspace() {
                           <ArrowUpRight size={18} />
                         </button>
                         <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
+                        {role === "global_admin" && !demo && <button className="icon-button" aria-label={`Delete phase ${phase.name}`} title="Delete phase" disabled={busy} onClick={() => beginDeletion(phase)}><Trash2 size={16} /></button>}
                       </div>
                     ))}
                     {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
                   </div>
                 </section>
-                <ProjectFiles key={active.id} projectId={active.id} demo={demo}
+                <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
                   phases={active.data.phases || [activePhase(active.data)]}
                   activePhaseId={activePhase(active.data).id}
                   onApply={(phaseId, rows) => {
@@ -2993,17 +3044,6 @@ export default function Workspace() {
                           ? "One consolidated anchor package label for this phase."
                           : "One label per opening. Long hardware lists continue onto additional labels."}</p>
                       </div>
-                      <button
-                        className="button"
-                        disabled={
-                          busy ||
-                          derived.frames.length === 0 ||
-                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
-                        }
-                        onClick={() => exportPDF("labels")}
-                      >
-                        <Download size={16} /> Generate labels
-                      </button>
                     </div>
                     <div className="label-controls">
                       <label>
@@ -3057,6 +3097,19 @@ export default function Workspace() {
                         </label>
                       ))}
                     </div>
+                    <div className="label-actions">
+                      <button
+                        className="button"
+                        disabled={
+                          busy ||
+                          derived.frames.length === 0 ||
+                          (labelKind !== "Anchors" && labelMode === "selected" && !selected.length)
+                        }
+                        onClick={() => exportPDF("labels")}
+                      >
+                        <Download size={16} /> Generate labels
+                      </button>
+                    </div>
                   </section>
                 </>
               )}
@@ -3094,6 +3147,7 @@ export default function Workspace() {
           onConfirm={confirmPhaseSplit}
         />
       )}
+      {deleteTarget && <DeleteTargetDialog name={deleteTarget.phase?.name || deleteTarget.project.name} phase={!!deleteTarget.phase} busy={busy} error={deleteError} onClose={() => setDeleteTarget(null)} onConfirm={(confirmation) => void deleteWorkspaceTarget(confirmation)} />}
       {duplicateConfirmationOpen && active && (
         <DuplicateProjectDialog
           projectName={active.name}
