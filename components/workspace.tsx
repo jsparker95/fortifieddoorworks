@@ -2370,12 +2370,23 @@ export default function Workspace() {
               <div className="page-heading detail-heading">
                 <div>
                   <h1 className="project-phase-title">
-  <span>{active.name}</span>
-  <span className="project-phase-separator" aria-hidden="true">
-    |
-  </span>
-  <span>{activePhase(active.data).name}</span>
-</h1>
+                    <span>{active.name}</span>
+                    <span className="project-phase-separator" aria-hidden="true">
+                      |
+                    </span>
+                    <select
+                      className="project-phase-select"
+                      aria-label="Select phase"
+                      value={activePhase(active.data).id}
+                      onChange={(event) => switchPhase(event.target.value)}
+                    >
+                      {(active.data.phases || [activePhase(active.data)]).map((phase) => (
+                        <option key={phase.id} value={phase.id}>
+                          {phase.name}
+                        </option>
+                      ))}
+                    </select>
+                  </h1>
                   <p>
                     <span className="badge">{active.status}</span>{" "}
                     <span>{active.jobsite || "Jobsite not entered"}</span>
