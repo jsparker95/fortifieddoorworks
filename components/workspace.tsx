@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, type FocusEvent } from "react";
 import Image from "next/image";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
@@ -286,6 +286,7 @@ export default function Workspace() {
     [filter, setFilter] = useState("All statuses"),
     [building, setBuilding] = useState("All buildings");
   const [projectSort, setProjectSort] = useState<{ key: ProjectSortKey; direction: "asc" | "desc" }>({ key: "updated_at", direction: "desc" });
+  const [hardwareSort, setHardwareSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "group", direction: "asc" });
   const [dirty, setDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
@@ -973,6 +974,48 @@ export default function Workspace() {
       operation.current = false;
     }
   }
+  async function saveHardwareCell(row: Row, columnKey: string, rawValue: string | boolean) {
+    if (!active || busy) return;
+    const sourceKey = columnKey === "selectedBrand"
+      ? row.veSelected ? "veBrand" : "brand"
+      : columnKey === "selectedComponent"
+        ? row.veSelected ? "veComponent" : "component"
+        : columnKey;
+    const field = fields("hardware", active.data, catalogs, vendors).find((candidate) => candidate.key === sourceKey);
+    let value: Row[string] = rawValue;
+    if (field?.type === "number") {
+      value = rawValue === "" ? "" : Number(rawValue);
+      if (value !== "" && (!Number.isFinite(value) || Number(value) < 0)) {
+        setError(`${field.label} must be a non-negative number.`);
+        return;
+      }
+    } else if (typeof rawValue === "string") value = rawValue.trim();
+    if (field?.required && !String(value).trim()) {
+      setError(`${field.label} is required.`);
+      return;
+    }
+    if (field?.options?.length && value && !field.options.includes(String(value))) {
+      setError(`Choose an existing ${field.label.toLowerCase()}, or add it in Settings first.`);
+      return;
+    }
+    const { frameCount: _frameCount, lineQty: _lineQty, selectedBrand: _selectedBrand, selectedComponent: _selectedComponent, ...sourceRow } = row;
+    const nextRow: Row = { ...sourceRow, [sourceKey]: value };
+    if (sourceKey === "veSelected" && value && (!nextRow.veBrand || !nextRow.veComponent)) {
+      setError("Choose both an alternate brand and component before using alternate hardware.");
+      return;
+    }
+    const next = {
+      ...active,
+      data: persistActivePhase({
+        ...active.data,
+        hardware: active.data.hardware.map((item) => item.id === row.id ? nextRow : item),
+      }),
+    };
+    setError("");
+    update(next);
+    setNotice("Saving hardware change…");
+    await saveProject(next);
+  }
   const projectFields: Field[] = [
     { key: "name", label: "Project Name", required: true },
     { key: "building", label: "Building / master project" },
@@ -1594,6 +1637,45 @@ export default function Workspace() {
         .toLowerCase()
         .includes(tableQuery.toLowerCase()),
     );
+    const sortValue = (row: Row, key: string) => {
+      if (kind === "hardware" && key === "selectedBrand") return row.selectedBrand ?? (row.veSelected ? row.veBrand : row.brand) ?? "";
+      if (kind === "hardware" && key === "selectedComponent") return row.selectedComponent ?? (row.veSelected ? row.veComponent : row.component) ?? "";
+      if (kind === "hardware" && key === "supplier") return (active ? supplierFor("hardware", row, active.data, vendors)?.name : "") || "";
+      if (kind === "hardware" && key === "vendorLeadTime") return (active ? supplierFor("hardware", row, active.data, vendors)?.lead_time_days : "") ?? "";
+      return row[key] ?? "";
+    };
+    const sorted = kind === "hardware"
+      ? filtered.map((row, index) => ({ row, index })).sort((a, b) => {
+        const comparison = String(sortValue(a.row, hardwareSort.key)).localeCompare(
+          String(sortValue(b.row, hardwareSort.key)), undefined, { numeric: true, sensitivity: "base" },
+        );
+        return comparison === 0
+          ? a.index - b.index
+          : comparison * (hardwareSort.direction === "asc" ? 1 : -1);
+      }).map(({ row }) => row)
+      : filtered;
+    const renderHardwareCell = (row: Row, key: string, label: string) => {
+      const sourceKey = key === "selectedBrand"
+        ? row.veSelected ? "veBrand" : "brand"
+        : key === "selectedComponent"
+          ? row.veSelected ? "veComponent" : "component"
+          : key;
+      const field = active && fields("hardware", active.data, catalogs, vendors).find((candidate) => candidate.key === sourceKey);
+      const value = sortValue(row, key);
+      if (["frameCount", "lineQty"].includes(key)) return str(value) || <span className="faint">—</span>;
+      if (!field || !active) return str(value) || <span className="faint">—</span>;
+      if (field.type === "checkbox") return <input type="checkbox" aria-label={`Edit ${label}`} checked={!!row[sourceKey]} disabled={busy} onChange={(event) => void saveHardwareCell(row, key, event.target.checked)} />;
+      const editorProps = {
+        "aria-label": `Edit ${label}`,
+        disabled: busy,
+        defaultValue: String(value ?? ""),
+        onBlur: (event: FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+          if (event.currentTarget.value !== String(value ?? "")) void saveHardwareCell(row, key, event.currentTarget.value);
+        },
+      };
+      if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps}><option value="">—</option>{!field.options.includes(String(value)) && value ? <option value={String(value)}>{String(value)}</option> : null}{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
+      return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
+    };
     const max = Math.max(0, Math.ceil(filtered.length / 30) - 1),
       current = Math.min(page, max);
     return (
@@ -1631,18 +1713,20 @@ export default function Workspace() {
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c.key}>{c.label}</th>
+                  <th key={c.key} aria-sort={kind === "hardware" && hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>
+                    {kind === "hardware" ? <button type="button" className="hardware-sort" aria-label={`Sort by ${c.label}`} onClick={() => setHardwareSort((current) => ({ key: c.key, direction: current.key === c.key && current.direction === "asc" ? "desc" : "asc" }))}>{c.label}<span aria-hidden="true">{hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "↑" : "↓" : "↕"}</span></button> : c.label}
+                  </th>
                 ))}
-                {showLeadTime && <th>Vendor lead time</th>}
+                {showLeadTime && <th aria-sort={kind === "hardware" && hardwareSort.key === "vendorLeadTime" ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>{kind === "hardware" ? <button type="button" className="hardware-sort" aria-label="Sort by Vendor lead time" onClick={() => setHardwareSort((current) => ({ key: "vendorLeadTime", direction: current.key === "vendorLeadTime" && current.direction === "asc" ? "desc" : "asc" }))}>Vendor lead time<span aria-hidden="true">{hardwareSort.key === "vendorLeadTime" ? hardwareSort.direction === "asc" ? "↑" : "↓" : "↕"}</span></button> : "Vendor lead time"}</th>}
                 {kind && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(current * 30, current * 30 + 30).map((r) => (
+              {sorted.slice(current * 30, current * 30 + 30).map((r) => (
                 <tr key={r.id} className={r.deleted ? "excluded" : ""}>
                   {columns.map((c, i) => (
                     <td key={c.key} className={i === 0 ? "strong" : ""}>
-                      {typeof r[c.key] === "boolean"
+                      {kind === "hardware" ? renderHardwareCell(r, c.key, c.label) : typeof r[c.key] === "boolean"
                         ? r[c.key]
                           ? "Yes"
                           : "No"
@@ -2672,10 +2756,11 @@ export default function Workspace() {
                       </button>
                     </div>
                   </div>
+                  <div className="takeoff-grid">
                   {[
-                    ["Frames", derived.frameTakeoff],
-                    ["Doors", derived.doorTakeoff],
                     ["Hardware", derived.hardwareTakeoff],
+                    ["Doors", derived.doorTakeoff],
+                    ["Frames", derived.frameTakeoff],
                   ].map(([name, rs]) => (
                     <section className="panel takeoff-panel" key={str(name)}>
                       <div className="panel-heading">
@@ -2752,6 +2837,7 @@ export default function Workspace() {
                       </div>
                     </section>
                   ))}
+                  </div>
                 </>
               )}
               {section === "Production" && (
