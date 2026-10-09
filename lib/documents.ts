@@ -87,6 +87,21 @@ function drawTopText(
   });
 }
 
+function drawWrappedTopText(
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageHeight: number,
+  text: string,
+  xIn: number,
+  topIn: number,
+  size: number,
+  widthIn: number,
+  font: PDFFont,
+) {
+  wrap(text, font, size, points(widthIn)).forEach((line, index) => {
+    drawTopText(page, pageHeight, line, xIn, topIn + index * 0.14, size, font);
+  });
+}
+
 function drawTopRect(
   page: ReturnType<PDFDocument["addPage"]>,
   pageHeight: number,
@@ -203,8 +218,26 @@ async function drawLegacyFrameOrDoorLabels(
         drawTopRect(page, pageHeight, field.x, top + logoHeightIn + 0.2, 0.3, 0.2, field.line.color || "#FFFFFF");
         drawTopText(page, pageHeight, field.line.text, field.textX, top + logoHeightIn + 0.36, 10, font);
       }
-      drawTopText(page, pageHeight, label.lines[5]?.text.replace(/^Material /, "") || "", x + 1, top + logoHeightIn + 0.51, 10, font);
-      drawTopText(page, pageHeight, label.lines[6]?.text.replace(/^Window /, "") || "", x + 2, top + logoHeightIn + 0.51, 10, font);
+      drawWrappedTopText(
+        page,
+        pageHeight,
+        label.lines[5]?.text.replace(/^Material /, "") || "",
+        x + 1,
+        top + logoHeightIn + 0.51,
+        10,
+        1,
+        font,
+      );
+      drawWrappedTopText(
+        page,
+        pageHeight,
+        label.lines[6]?.text.replace(/^Window /, "") || "",
+        x + 2,
+        top + logoHeightIn + 0.51,
+        10,
+        1,
+        font,
+      );
     }
     await addOpeningQr(
       pdf,
