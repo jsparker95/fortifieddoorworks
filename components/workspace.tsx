@@ -2071,11 +2071,10 @@ export default function Workspace() {
                       onClick={() => open(p)}
                     >
                       <span className="project-icon">
-                        <Building2 size={22} />
+                        <Building2 size={18} />
                       </span>
                       <div className="project-name">
                         <h3>{p.name}</h3>
-                        <small>{p.start_date || "Start date not set"}</small>
                       </div>
                       <span className="project-meta-cell">{p.building || "Independent project"}</span>
                       <span className="project-meta-cell">{contractors.find((c) => c.id === p.contractor_id)?.name || "Not assigned"}</span>

@@ -2157,3 +2157,33 @@ th,
 
 .button.danger { background: #b42318; border-color: #b42318; color: white; }
 .button.danger:hover:not(:disabled) { background: #912018; }
+
+
+/* Compact project overview keeps the working columns aligned. */
+.project-row,
+.project-table-head {
+  grid-template-columns: 32px minmax(190px, 1.8fr) minmax(105px, 1fr) minmax(110px, 1fr) minmax(100px, 1fr) 100px 75px 130px 22px;
+  gap: 12px;
+}
+.project-row {
+  padding: 8px 16px;
+  min-height: 50px;
+}
+.project-table-head { padding: 9px 16px; }
+.project-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+}
+.project-name h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.project-row .badge { padding: 4px 8px; }
+.project-row .opening-count strong { font-size: 16px; }
+@media (max-width: 900px) {
+  .project-row { padding: 8px 15px; }
+}
+.project-row .opening-count { line-height: 1.2; }
+.project-row .opening-count small { display: block; line-height: 1.2; }
