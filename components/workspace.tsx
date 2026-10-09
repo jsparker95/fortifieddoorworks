@@ -1798,7 +1798,6 @@ export default function Workspace() {
             )}
           </div>
           <div className="topbar-user">
-            <span className="top-location">Logan, Utah</span>
             <button
               type="button"
               className="profile-trigger"
@@ -2339,7 +2338,7 @@ export default function Workspace() {
                           <ArrowUpRight size={18} />
                         </button>
                         <button className="icon-button" aria-label={`Rename ${phase.name}`} title="Rename phase" onClick={() => renamePhase(phase)}><Pencil size={16} /></button>
-                        {role === "global_admin" && !demo && <button className="icon-button" aria-label={`Delete phase ${phase.name}`} title="Delete phase" disabled={busy} onClick={() => beginDeletion(phase)}><Trash2 size={16} /></button>}
+                        {role === "global_admin" && !demo && <button className="button secondary" aria-label={`Delete phase ${phase.name}`} disabled={busy} onClick={() => beginDeletion(phase)}><Trash2 size={16} /> Delete phase</button>}
                       </div>
                     ))}
                     {!(active.data.phases || []).length && <div className="empty"><Layers /><h3>No phases yet</h3><p>Create a phase to organize this project’s work.</p></div>}
@@ -2386,6 +2385,11 @@ export default function Workspace() {
                   <button className="button secondary" onClick={beginPhaseSplit}>
                     <Layers size={16} /> Split phase
                   </button>
+                  {role === "global_admin" && !demo && (
+                    <button className="button secondary" disabled={busy} onClick={() => beginDeletion(activePhase(active.data))}>
+                      <Trash2 size={16} /> Delete phase
+                    </button>
+                  )}
                   <button
                     className="button"
                     disabled={!dirty || busy}
