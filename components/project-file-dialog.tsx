@@ -9,7 +9,7 @@ import { DocumentManager } from "./document-manager";
 export function ProjectFileDialog({ document, phases, activePhaseId, onClose, onUpdated, onApply }: {
   document: ProjectDocument; phases: ProjectPhase[]; activePhaseId: string;
   onClose: () => void; onUpdated: (document: ProjectDocument) => void;
-  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void;
+  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void | Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const latestDocument = useRef(document);
@@ -78,14 +78,14 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
         <p>A preview is unavailable for this file format. Use Open in new tab to view or download it.</p>}
     </div>
     {extension === "pdf" && <>
-      <label className="project-file-phase">Add reviewed results to phase
+      <label className="project-file-phase">Extraction target phase
         <select value={phaseId} onChange={(event) => setPhaseId(event.target.value)}>
           {phases.map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}
         </select>
       </label>
       {phase ? <DocumentManager key={document.id} projectId={document.project_id} phaseId={phase.id} phaseName={phase.name}
         document={document} onApply={(rows) => onApply(phase.id, rows)}
-        onAnalyzed={(analysis) => onUpdated({ ...latestDocument.current, analysis, status: "needs_review", page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
+        onAnalyzed={(analysis) => onUpdated({ ...latestDocument.current, phase_id: phase.id, analysis, status: "needs_review", page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
         <p>Create a project phase before extracting openings.</p>}
     </>}
   </dialog>;

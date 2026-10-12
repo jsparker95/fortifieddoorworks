@@ -58,6 +58,7 @@ import {
   selectPhase,
   resolvePhaseForOpening,
 } from "@/lib/phases";
+import { mergePhaseCandidateRows } from "@/lib/drawing-takeoff/phase-import";
 import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
@@ -562,6 +563,18 @@ export default function Workspace() {
   }
   function updateData(data: ProjectData) {
     if (active) update({ ...active, data: persistActivePhase(data) });
+  }
+  async function markCandidateReviewed(kind: Kind, row: Row) {
+    if (!active || row.reviewState !== "ai-draft") return;
+    const data = persistActivePhase(active.data);
+    const currentPhase = activePhase(data);
+    const phases = (data.phases || []).map((phase) => phase.id === currentPhase.id ? {
+      ...phase,
+      data: { ...phase.data, [kind]: phase.data[kind].map((item) => item.id === row.id ? { ...item, reviewState: "human-reviewed" } : item) },
+    } : phase);
+    const next = { ...active, data: { ...data, ...(phases.find((phase) => phase.id === currentPhase.id)?.data || {}), phases } };
+    update(next);
+    if (await saveProject(next)) setNotice(`${row.name || row.component || "Draft item"} marked reviewed and saved.`);
   }
   function openProfile() {
     if (pathname !== "/profile") profileReturnPath.current = pathname || "/";
@@ -1776,6 +1789,7 @@ export default function Workspace() {
                         : (c.key === supplierKey && kind && active
                           ? supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.name
                           : str(r[c.key])) || <span className="faint">—</span>}
+                      {i === 0 && r.reviewState === "ai-draft" && <small className="row-source-badge">AI draft · p. {str(r.sourcePage) || "?"}</small>}
                     </td>
                   ))}
                   {showLeadTime && (
@@ -1788,6 +1802,7 @@ export default function Workspace() {
                   {kind && (
                     <td>
                       <div className="row-actions">
+                        {r.reviewState === "ai-draft" && <button className="button secondary row-review-button" disabled={busy} onClick={() => void markCandidateReviewed(kind, r)}><Check size={14} /> Mark reviewed</button>}
                         <button
                           className="icon-button"
                           aria-label={
@@ -2488,14 +2503,16 @@ export default function Workspace() {
                 <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
                   phases={active.data.phases || [activePhase(active.data)]}
                   activePhaseId={activePhase(active.data).id}
-                  onApply={(phaseId, rows) => {
+                  onApply={async (phaseId, rows) => {
                     const data = persistActivePhase(active.data);
                     const phases = (data.phases || []).map((phase) => phase.id === phaseId ? {
                       ...phase, data: { ...phase.data, ...Object.fromEntries(Object.entries(rows).map(([kind, additions]) =>
-                        [kind, [...(phase.data[kind as Kind] || []), ...(additions || [])]])) },
+                        [kind, mergePhaseCandidateRows(phase.data[kind as Kind] || [], additions || [])])) },
                     } : phase);
                     const current = phases.find((phase) => phase.id === data.activePhaseId);
-                    update({ ...active, data: { ...data, ...(current?.data || {}), phases } });
+                    const next = { ...active, data: { ...data, ...(current?.data || {}), phases } };
+                    update(next);
+                    if (!await saveProject(next)) throw new Error("Draft entries are in this page, but the project could not be saved. Resolve the save error before leaving.");
                   }} />
               </div>
             </>

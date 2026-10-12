@@ -22,7 +22,7 @@ const ALLOWED_MIME_TYPES = new Set(Object.values(MIME_BY_EXTENSION));
 
 export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }: {
   projectId: string; demo: boolean; phases: ProjectPhase[]; activePhaseId: string;
-  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void;
+  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void | Promise<void>;
 }) {
   const [selectedDocument, setSelectedDocument] = useState<ProjectDocument | null>(null);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
@@ -65,22 +65,23 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }
         .from("project-documents")
         .upload(path, file, { contentType: mimeType, upsert: false });
       if (uploadError) throw uploadError;
-      const { error: rowError } = await supabase.from("project_documents").insert({
+      const { data: row, error: rowError } = await supabase.from("project_documents").insert({
         id,
         project_id: projectId,
-        phase_id: null,
+        phase_id: activePhaseId || null,
         file_name: file.name,
         storage_path: path,
         document_type: "project_file",
         revision_label: "",
         status: "uploaded",
-      });
+      }).select("*").single();
       if (rowError) {
         await supabase.storage.from("project-documents").remove([path]);
         throw rowError;
       }
-      setNotice("File added to project.");
+      setNotice(file.name.toLowerCase().endsWith(".pdf") && activePhaseId ? "PDF uploaded. Extracting draft takeoff data for the active phase…" : "File added to project.");
       await refresh();
+      if (row && file.name.toLowerCase().endsWith(".pdf")) setSelectedDocument(row as ProjectDocument);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed.");
     } finally {

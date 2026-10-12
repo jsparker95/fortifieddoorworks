@@ -3,12 +3,12 @@ export const str = (v: unknown) =>
   v === undefined || v === null ? "" : String(v);
 export const same = (a: unknown, b: unknown) =>
   str(a).toLowerCase() === str(b).toLowerCase();
-export const eligible = (r: Row) => !r.deleted && !!str(r.name).trim();
+export const eligible = (r: Row) => !r.deleted && r.reviewState !== "ai-draft" && !!str(r.name).trim();
 export function derive(data: ProjectData) {
   const openings = data.openings.filter(eligible);
   const key = (v: unknown) => str(v).toLowerCase();
-  const walls = new Map(data.walls.map((w) => [key(w.name), w]));
-  const types = new Map(data.doorTypes.map((t) => [key(t.name), t]));
+  const walls = new Map(data.walls.filter((row) => row.reviewState !== "ai-draft").map((w) => [key(w.name), w]));
+  const types = new Map(data.doorTypes.filter((row) => row.reviewState !== "ai-draft").map((t) => [key(t.name), t]));
   const groupCounts = new Map<string, number>(),
     nameCounts = new Map<string, number>(),
     groups = new Map<string, Row[]>();
@@ -16,11 +16,12 @@ export function derive(data: ProjectData) {
     groupCounts.set(key(o.group), (groupCounts.get(key(o.group)) || 0) + 1);
     nameCounts.set(key(o.name), (nameCounts.get(key(o.name)) || 0) + 1);
   }
-  for (const h of data.hardware) {
+  const reviewedHardware = data.hardware.filter((row) => row.reviewState !== "ai-draft");
+  for (const h of reviewedHardware) {
     const g = key(h.group);
     groups.set(g, [...(groups.get(g) || []), h]);
   }
-  const hardware = data.hardware.map(
+  const hardware = reviewedHardware.map(
     (
       h,
     ): Row & {
