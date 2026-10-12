@@ -10,6 +10,7 @@ const sessionHours = (row: ProductionWorkSession, now: number) =>
   );
 
 export type DailyEfficiencyRow = {
+  employeeEmail: string;
   employee: string;
   shift: number;
   coded: number;
@@ -25,6 +26,7 @@ export function summarizeDailyEfficiency(
   rows: readonly ProductionWorkSession[],
   today: string,
   now: number,
+  employeeNames: ReadonlyMap<string, string> = new Map(),
 ): DailyEfficiencyRow[] {
   const grouped = new Map<
     string,
@@ -40,8 +42,10 @@ export function summarizeDailyEfficiency(
       dayKey(row.ended_at) === today;
     if (!startedToday && !completedToday) continue;
 
-    const stats = grouped.get(row.worker_email) || {
-      employee: row.worker_email,
+    const employeeEmail = row.worker_email.toLowerCase();
+    const stats = grouped.get(employeeEmail) || {
+      employeeEmail,
+      employee: employeeNames.get(employeeEmail)?.trim() || row.worker_email,
       shift: 0,
       coded: 0,
       credit: 0,
@@ -61,7 +65,7 @@ export function summarizeDailyEfficiency(
     }
 
     if (completedToday) stats.completedItems.push(row);
-    grouped.set(row.worker_email, stats);
+    grouped.set(employeeEmail, stats);
   }
 
   return [...grouped.values()].map((stats) => ({

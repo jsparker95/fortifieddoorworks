@@ -69,6 +69,12 @@ export async function accessDatabase() {
       "utf8",
     ),
   );
+  await db.exec(
+    await readFile(
+      "supabase/migrations/20261012220549_list_production_employee_names.sql",
+      "utf8",
+    ),
+  );
   await db.exec(await readFile("supabase/migrations/20261009201707_global_admin_deletion.sql", "utf8"));
   return db;
 }

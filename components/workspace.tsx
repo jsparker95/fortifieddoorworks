@@ -3012,6 +3012,7 @@ export default function Workspace() {
                   openings={derived.frames}
                   projects={projects}
                   email={email}
+                  employeeName={profileName || email}
                   manager={canManageProduction(role)}
                   demo={demo}
                   scannedOpeningId={scannedItem}
