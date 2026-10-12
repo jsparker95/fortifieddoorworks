@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 34114)
+Total output lines: 3488
+
 "use client";
 import { useEffect, useMemo, useState, useRef, type FocusEvent } from "react";
 import Image from "next/image";
@@ -58,6 +61,7 @@ import {
   selectPhase,
   resolvePhaseForOpening,
 } from "@/lib/phases";
+import { mergePhaseCandidateRows } from "@/lib/drawing-takeoff/phase-import";
 import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
@@ -557,6 +561,18 @@ export default function Workspace() {
   }
   function updateData(data: ProjectData) {
     if (active) update({ ...active, data: persistActivePhase(data) });
+  }
+  async function markCandidateReviewed(kind: Kind, row: Row) {
+    if (!active || row.reviewState !== "ai-draft") return;
+    const data = persistActivePhase(active.data);
+    const currentPhase = activePhase(data);
+    const phases = (data.phases || []).map((phase) => phase.id === currentPhase.id ? {
+      ...phase,
+      data: { ...phase.data, [kind]: phase.data[kind].map((item) => item.id === row.id ? { ...item, reviewState: "human-reviewed" } : item) },
+    } : phase);
+    const next = { ...active, data: { ...data, ...(phases.find((phase) => phase.id === currentPhase.id)?.data || {}), phases } };
+    update(next);
+    if (await saveProject(next)) setNotice(`${row.name || row.component || "Draft item"} marked reviewed and saved.`);
   }
   function openProfile() {
     if (pathname !== "/profile") profileReturnPath.current = pathname || "/";
@@ -1674,371 +1690,7 @@ export default function Workspace() {
           if (event.currentTarget.value !== String(value ?? "")) void saveHardwareCell(row, key, event.currentTarget.value);
         },
       };
-      if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps}><option value="">—</option>{!field.options.includes(String(value)) && value ? <option value={String(value)}>{String(value)}</option> : null}{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
-      return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
-    };
-    const max = Math.max(0, Math.ceil(filtered.length / 30) - 1),
-      current = Math.min(page, max);
-    return (
-      <>
-        <div className="table-toolbar">
-          <div className="search">
-            <Search size={16} />
-            <input
-              aria-label="Search rows"
-              placeholder="Find an opening, component, or detail…"
-              value={tableQuery}
-              onChange={(e) => setTableQuery(e.target.value)}
-            />
-          </div>
-          <span className="muted">{filtered.length} records</span>
-          {kind && (
-            <>
-              <button
-                className="button secondary"
-                onClick={() => exportRows(kind)}
-              >
-                CSV
-              </button>
-              <button className="button secondary" onClick={() => bulk(kind)}>
-                Paste rows
-              </button>
-              <button className="button" onClick={() => rowEditor(kind)}>
-                <Plus size={16} /> Add {kind === "openings" ? "opening" : "row"}
-              </button>
-            </>
-          )}
-        </div>
-        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : "table-scroll"}>
-          <table className={kind === "hardware" ? "hardware-fit-table" : undefined}>
-            <thead>
-              <tr>
-                {columns.map((c) => (
-                  <th key={c.key} aria-sort={kind === "hardware" && hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>
-                    {kind === "hardware" ? <button type="button" className="hardware-sort" aria-label={`Sort by ${c.label}`} onClick={() => setHardwareSort((current) => ({ key: c.key, direction: current.key === c.key && current.direction === "asc" ? "desc" : "asc" }))}>{c.label}<span aria-hidden="true">{hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "↑" : "↓" : "↕"}</span></button> : c.label}
-                  </th>
-                ))}
-                {showLeadTime && <th aria-sort={kind === "hardware" && hardwareSort.key === "vendorLeadTime" ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>{kind === "hardware" ? <button type="button" className="hardware-sort" aria-label="Sort by Vendor lead time" onClick={() => setHardwareSort((current) => ({ key: "vendorLeadTime", direction: current.key === "vendorLeadTime" && current.direction === "asc" ? "desc" : "asc" }))}>Vendor lead time<span aria-hidden="true">{hardwareSort.key === "vendorLeadTime" ? hardwareSort.direction === "asc" ? "↑" : "↓" : "↕"}</span></button> : "Vendor lead time"}</th>}
-                {kind && <th>Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.slice(current * 30, current * 30 + 30).map((r) => (
-                <tr key={r.id} className={r.deleted ? "excluded" : ""}>
-                  {columns.map((c, i) => (
-                    <td key={c.key} className={i === 0 ? "strong" : ""}>
-                      {kind === "hardware" ? renderHardwareCell(r, c.key, c.label) : typeof r[c.key] === "boolean"
-                        ? r[c.key]
-                          ? "Yes"
-                          : "No"
-                        : (c.key === supplierKey && kind && active
-                          ? supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.name
-                          : str(r[c.key])) || <span className="faint">—</span>}
-                    </td>
-                  ))}
-                  {showLeadTime && (
-                    <td>
-                      {kind && active && supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days !== undefined
-                        ? `${supplierFor(kind as "openings" | "doorTypes" | "hardware", r, active.data, vendors)?.lead_time_days} days`
-                        : <span className="faint">Supplier not selected</span>}
-                    </td>
-                  )}
-                  {kind && (
-                    <td>
-                      <div className="row-actions">
-                        <button
-                          className="icon-button"
-                          aria-label={
-                            "Edit " + (r.name || r.component || "row")
-                          }
-                          onClick={() => rowEditor(kind, r)}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={
-                            kind === "openings"
-                              ? r.deleted
-                                ? "Restore opening"
-                                : "Exclude opening"
-                              : "Remove row"
-                          }
-                          onClick={() => removeRow(kind, r)}
-                        >
-                          {r.deleted ? (
-                            <Plus size={15} />
-                          ) : (
-                            <Trash2 size={15} />
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!filtered.length && (
-            <div className="empty">
-              <Layers />
-              <h3>No matching records</h3>
-              <p>
-                {kind
-                  ? "Add a record to start this part of the project."
-                  : "Try a different search."}
-              </p>
-            </div>
-          )}
-        </div>
-        <div className="pagination">
-          <span>
-            Page {current + 1} of {max + 1}
-          </span>
-          <button disabled={current === 0} onClick={() => setPage(current - 1)}>
-            Previous
-          </button>
-          <button
-            disabled={current === max}
-            onClick={() => setPage(current + 1)}
-          >
-            Next
-          </button>
-        </div>
-      </>
-    );
-  }
-  if (loading)
-    return null;
-  if (!ready)
-    return (
-      <>
-        <Login onReady={load} />
-        {error && (
-          <div role="alert" className="error">
-            {error}
-          </div>
-        )}
-      </>
-    );
-  if (!accessApproved) return <main className="login"><section><h1>Workspace access required</h1><p>{error || "Your access has been revoked or has not been approved."}</p><button className="button" onClick={async () => { await supabase.auth.signOut(); setReady(false); }}>Sign out</button></section></main>;
-  return (
-    <div className="app">
-      <aside className={mobile ? "sidebar open" : "sidebar"}>
-        <Brand />
-        <div className="workspace-tag">
-          <span className="avatar">FD</span>
-          <div>
-            Fortified Doorworks<small>Manufacturing workspace</small>
-          </div>
-        </div>
-        <span className="nav-label">WORKSPACE</span>
-        <button
-          className={"nav " + (view === "Dashboard" ? "selected" : "")}
-          onClick={() => navigate("Dashboard")}
-        >
-          <LayoutDashboard size={19} /> Dashboard
-        </button>
-        <button
-          className={"nav " + (view === "Projects" ? "selected" : "")}
-          onClick={() => navigate("Projects")}
-        >
-          <LayoutGrid size={19} /> Projects{" "}
-          <span>{projects.filter((p) => p.status !== "Archived").length}</span>
-        </button>
-        <button
-          className={"nav " + (view === "Contractors" ? "selected" : "")}
-          onClick={() => navigate("Contractors")}
-        >
-          <Building2 size={19} /> Contractors
-        </button>
-        <button
-          className={"nav " + (view === "Vendors" ? "selected" : "")}
-          onClick={() => navigate("Vendors")}
-        >
-          <Truck size={19} /> Vendors
-        </button>
-        <button
-          className={"nav " + (view === "Settings" ? "selected" : "")}
-          onClick={() => navigate("Settings")}
-        >
-          <Settings size={19} /> Settings
-        </button>
-        {role === "global_admin" && <button className={"nav " + (view === "Access" ? "selected" : "")} onClick={() => navigate("Access")}><UsersRound size={19} /> Users &amp; access</button>}
-      </aside>
-      <div className="main">
-        <header className="topbar">
-          <button
-            className="icon-button mobile-toggle"
-            aria-label="Open navigation"
-            onClick={() => setMobile(!mobile)}
-          >
-            <Menu />
-          </button>
-          <div className="breadcrumb">
-            Workspace <ChevronRight size={14} />
-            <button
-              onClick={() =>
-                view === "Profile" ? closeProfile() : navigate("Projects")
-              }
-            >
-              {view}
-            </button>
-            {active && (
-              <>
-                <ChevronRight size={14} />
-                <span>{active.name}</span>
-              </>
-            )}
-          </div>
-          <div className="topbar-user">
-            <button
-              type="button"
-              className="profile-trigger"
-              aria-label={`Open profile for ${accountName || email}`}
-              onClick={openProfile}
-            >
-              <span className="profile-trigger-name">
-                {accountName || getProfileDisplayName(null, null, email)}
-              </span>
-              <span className="avatar profile-trigger-avatar" aria-hidden="true">
-                {profileAvatar ? (
-                  <img src={profileAvatar} alt="" />
-                ) : (
-                  initials(accountName || email)
-                )}
-              </span>
-            </button>
-          </div>
-        </header>
-        <main className="content" inert={busy || profileSaving || avatarBusy}>
-          {view === "Profile" ? (
-            <section className="profile-page" aria-busy={profileSaving || avatarBusy}>
-              <button type="button" className="back-link" onClick={closeProfile}>
-                <ArrowLeft size={16} /> Back to workspace
-              </button>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">YOUR ACCOUNT</span>
-                  <h1>Profile</h1>
-                  <p>Manage the name, photo, and email shown for your account.</p>
-                </div>
-              </div>
-              <div className="profile-layout">
-                <section className="panel profile-panel">
-                  <div className="profile-photo-row">
-                    <span className="avatar profile-photo" aria-hidden="true">
-                      {profileAvatar ? (
-                        <img src={profileAvatar} alt="" />
-                      ) : (
-                        initials(profileName || email)
-                      )}
-                    </span>
-                    <div className="profile-photo-actions">
-                      <strong>Profile picture</strong>
-                      <small>JPEG, PNG, or WebP up to 2 MB.</small>
-                      <div className="profile-photo-buttons">
-                        <label
-                          className={
-                            "button secondary" +
-                            (avatarBusy || demo ? " disabled" : "")
-                          }
-                          htmlFor="profile-avatar-upload"
-                        >
-                          <Camera size={16} />
-                          {avatarBusy ? "Uploading…" : "Change picture"}
-                        </label>
-                        {profileAvatar && (
-                          <button
-                            type="button"
-                            className="text-button"
-                            disabled={avatarBusy || demo}
-                            onClick={removeProfileAvatar}
-                          >
-                            Remove picture
-                          </button>
-                        )}
-                      </div>
-                      <input
-                        id="profile-avatar-upload"
-                        className="sr-only"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={avatarBusy || demo}
-                        onChange={(event) => {
-                          void uploadProfileAvatar(event.currentTarget.files?.[0]);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <p className="profile-help">Workspace role: {roleLabels[role]}</p>
-                  <form className="profile-form" onSubmit={saveProfile}>
-                    <label>
-                      Name
-                      <input
-                        autoComplete="name"
-                        maxLength={80}
-                        required
-                        value={profileName}
-                        disabled={demo || profileSaving}
-                        onChange={(event) => setProfileName(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Email
-                      <input
-                        autoComplete="email"
-                        type="email"
-                        maxLength={254}
-                        required
-                        value={profileEmail}
-                        disabled={demo || profileSaving}
-                        onChange={(event) => setProfileEmail(event.target.value)}
-                      />
-                    </label>
-                    <p className="profile-help">
-                      We’ll send a confirmation link before an email change takes effect.
-                    </p>
-                    {profileError && (
-                      <p className="error" role="alert">{profileError}</p>
-                    )}
-                    {profileMessage && (
-                      <p className="success-note" role="status">{profileMessage}</p>
-                    )}
-                    {demo && (
-                      <p className="profile-help">Profile editing is unavailable in local preview.</p>
-                    )}
-                    <button
-                      className="button"
-                      disabled={demo || profileSaving || avatarBusy}
-                    >
-                      {profileSaving ? "Saving…" : "Save profile"}
-                    </button>
-                  </form>
-                </section>
-                <section className="panel profile-signout">
-                  <div>
-                    <h2>Sign out</h2>
-                    <p>Sign out of Fortified Doorworks on this device.</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={demo || profileSaving || avatarBusy}
-                    onClick={() => void signOut()}
-                  >
-                    <LogOut size={16} /> Sign out
-                  </button>
-                </section>
-              </div>
-            </section>
-          ) : (
-          <div className="workspace-content">
-          {demo && (
-            <div className="notice">
-              Local preview — edits stay in this browser session.
-            </div>
+      if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...e…4114 tokens truncated…v>
           )}
           {error && (
             <div className="error" role="alert">
@@ -2446,14 +2098,16 @@ export default function Workspace() {
                 <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
                   phases={active.data.phases || [activePhase(active.data)]}
                   activePhaseId={activePhase(active.data).id}
-                  onApply={(phaseId, rows) => {
+                  onApply={async (phaseId, rows) => {
                     const data = persistActivePhase(active.data);
                     const phases = (data.phases || []).map((phase) => phase.id === phaseId ? {
                       ...phase, data: { ...phase.data, ...Object.fromEntries(Object.entries(rows).map(([kind, additions]) =>
-                        [kind, [...(phase.data[kind as Kind] || []), ...(additions || [])]])) },
+                        [kind, mergePhaseCandidateRows(phase.data[kind as Kind] || [], additions || [])])) },
                     } : phase);
                     const current = phases.find((phase) => phase.id === data.activePhaseId);
-                    update({ ...active, data: { ...data, ...(current?.data || {}), phases } });
+                    const next = { ...active, data: { ...data, ...(current?.data || {}), phases } };
+                    update(next);
+                    if (!await saveProject(next)) throw new Error("Draft entries are in this page, but the project could not be saved. Resolve the save error before leaving.");
                   }} />
               </div>
             </>
