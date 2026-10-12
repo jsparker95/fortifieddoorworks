@@ -72,6 +72,17 @@ test("excluded openings consistently leave takeoff, hardware and progress", () =
   assert.equal(derive(d).hardwareTakeoff[0].count, 3);
   assert.equal(derive(d).frameTakeoff[0].count, 1);
 });
+test("AI draft rows stay out of takeoff until reviewed", () => {
+  const d = sample();
+  d.openings[0].reviewState = "ai-draft";
+  d.walls[0].reviewState = "ai-draft";
+  d.doorTypes[0].reviewState = "ai-draft";
+  d.hardware[0].reviewState = "ai-draft";
+  const r = derive(d);
+  assert.equal(r.frames.length, 0);
+  assert.equal(r.doors.length, 0);
+  assert.equal(r.hardwareTakeoff.length, 0);
+});
 test("groups are not limited to 57 and progress follows stable opening ids", () => {
   const d = sample();
   d.openings = Array.from({ length: 300 }, (_, i) => ({
