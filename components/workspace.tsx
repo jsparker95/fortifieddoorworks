@@ -3002,6 +3002,7 @@ export default function Workspace() {
                   projectId={active.id}
                   phaseId={activePhase(active.data).id}
                   openings={derived.frames}
+                  projects={projects}
                   email={email}
                   manager={canManageProduction(role)}
                   demo={demo}

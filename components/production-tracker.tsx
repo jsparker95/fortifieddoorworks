@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock3, Play, Square, Check, X, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import type { ProductionWorkSession, Row } from "@/lib/types";
+import type { ProductionWorkSession, Project, Row } from "@/lib/types";
 import { str } from "@/lib/production";
+import { summarizeDailyEfficiency } from "@/lib/production-efficiency";
 
 const codedCategories = ["Cleaning / staging", "Delivery", "Inventory", "Project support", "Training", "Other approved work"];
 const fmt = (hours: number) => `${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m`;
@@ -13,9 +14,9 @@ const sessionHours = (row: ProductionWorkSession, now: number) =>
 const dayKey = (value: string) => new Date(value).toLocaleDateString("en-CA");
 
 export function ProductionTracker({
-  projectId, phaseId, openings, email, manager, demo, scannedOpeningId, scannedKind, onMilestone,
+  projectId, phaseId, openings, projects, email, manager, demo, scannedOpeningId, scannedKind, onMilestone,
 }: {
-  projectId: string; phaseId: string; openings: Row[]; email: string; manager: boolean; demo: boolean;
+  projectId: string; phaseId: string; openings: Row[]; projects: Project[]; email: string; manager: boolean; demo: boolean;
   scannedOpeningId: string; scannedKind: string; onMilestone: (openingId: string, stage: string) => void;
 }) {
   const [rows, setRows] = useState<ProductionWorkSession[]>([]);
@@ -101,27 +102,89 @@ export function ProductionTracker({
   }
 
   const today = dayKey(new Date(now).toISOString());
-  const efficiencyRows = useMemo(() => {
-    const grouped = new Map<string, { employee: string; shift: number; coded: number; credit: number; unreviewed: number }>();
-    for (const row of rows) {
-      if (dayKey(row.started_at) !== today) continue;
-      const stats = grouped.get(row.worker_email) || { employee: row.worker_email, shift: 0, coded: 0, credit: 0, unreviewed: 0 };
-      if (row.work_kind === "shift") stats.shift += sessionHours(row, now);
-      if (row.work_kind === "coded") {
-        if (row.status === "approved") stats.coded += sessionHours(row, now);
-        if (row.status === "pending_approval") stats.unreviewed += sessionHours(row, now);
-      }
-      if (row.work_kind === "frame" && row.status === "completed") stats.credit += Number(row.piece_rate_hours || 0);
-      grouped.set(row.worker_email, stats);
-    }
-    return [...grouped.values()].map((stats) => ({ ...stats, productive: Math.max(0, stats.shift - stats.coded), efficiency: stats.shift > stats.coded ? Math.round((stats.credit / (stats.shift - stats.coded)) * 100) : null }));
-  }, [rows, today, now]);
+  const efficiencyRows = useMemo(
+    () => summarizeDailyEfficiency(rows, today, now),
+    [rows, today, now],
+  );
 
   if (demo) return <section className="panel"><h2>Shop-floor time &amp; piece rate</h2><p>Clock and approval records require a signed-in employee account in the connected workspace.</p></section>;
   return <section className="panel production-tracker">
     <div className="panel-heading"><div><h2>Shop-floor time &amp; piece rate</h2><p>Shift and task timers run in the mobile-first production app. Review efficiency and coded-time approvals here.</p></div><div className="production-workspace-actions"><Link className="button" href="/production"><Play size={15}/> Open production app</Link><button className="button secondary" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15}/> Refresh</button></div></div>
 
-    <div className="efficiency-summary"><h3>Today’s efficiency</h3><p>Piece-rate hours ÷ (shift hours − approved coded hours). Coded entries pending approval still count against the total.</p>{efficiencyRows.length ? <div className="table-scroll"><table><thead><tr><th>Employee</th><th>Shift</th><th>Approved coded</th><th>Piece-rate hours</th><th>Productive hours</th><th>Efficiency</th></tr></thead><tbody>{efficiencyRows.map((stats) => <tr key={stats.employee}><td>{stats.employee}</td><td>{fmt(stats.shift)}</td><td>{fmt(stats.coded)}{stats.unreviewed ? ` · ${fmt(stats.unreviewed)} pending` : ""}</td><td>{stats.credit.toFixed(2)}</td><td>{fmt(stats.productive)}</td><td>{stats.efficiency === null ? "—" : `${stats.efficiency}%`}</td></tr>)}</tbody></table></div> : <p>No shift or production entries recorded today.</p>}</div>
+    <div className="efficiency-summary">
+      <h3>Today’s efficiency</h3>
+      <p>Piece-rate hours ÷ (shift hours − approved coded hours). Coded entries pending approval still count against the total.</p>
+      {efficiencyRows.length ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Completed items</th>
+                <th>Shift</th>
+                <th>Approved coded</th>
+                <th>Piece-rate hours</th>
+                <th>Productive hours</th>
+                <th>Efficiency</th>
+              </tr>
+            </thead>
+            <tbody>
+              {efficiencyRows.map((stats) => (
+                <tr key={stats.employee}>
+                  <td>{stats.employee}</td>
+                  <td>
+                    {stats.completedItems.length ? (
+                      <ul className="efficiency-items">
+                        {stats.completedItems.map((item) => {
+                          const project = projects.find(
+                            (candidate) => candidate.id === item.project_id,
+                          );
+                          const phaseName = project?.data.phases?.find(
+                            (phase) => phase.id === item.phase_id,
+                          )?.name;
+                          const kind =
+                            item.work_kind === "frame"
+                              ? "Frame"
+                              : item.work_kind === "door"
+                                ? "Door"
+                                : "Hardware";
+
+                          return (
+                            <li key={item.id}>
+                              <strong>
+                                {kind} · {item.opening_mark || "Opening"}
+                              </strong>
+                              {project && (
+                                <small>
+                                  {project.name}
+                                  {phaseName ? ` · ${phaseName}` : ""}
+                                </small>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td>{fmt(stats.shift)}</td>
+                  <td>
+                    {fmt(stats.coded)}
+                    {stats.unreviewed ? ` · ${fmt(stats.unreviewed)} pending` : ""}
+                  </td>
+                  <td>{stats.credit.toFixed(2)}</td>
+                  <td>{fmt(stats.productive)}</td>
+                  <td>{stats.efficiency === null ? "—" : `${stats.efficiency}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p>No shift or production entries recorded today.</p>
+      )}
+    </div>
 
     {manager && <div className="approval-queue"><h3>Coded time pending approval <span>{pendingApprovals.length}</span></h3>{pendingApprovals.map((row) => <div className="approval-row" key={row.id}><span><strong>{row.worker_email}</strong><small>{row.coded_category} · {new Date(row.started_at).toLocaleString()} – {row.ended_at ? new Date(row.ended_at).toLocaleTimeString() : "running"} · {fmt(sessionHours(row, now))}</small></span><button aria-label="Approve coded time" disabled={busy} onClick={() => void reviewCoded(row, true)}><Check size={16}/></button><button aria-label="Reject coded time" disabled={busy} onClick={() => void reviewCoded(row, false)}><X size={16}/></button></div>)}{!pendingApprovals.length && <p>No coded entries need review.</p>}</div>}
 
