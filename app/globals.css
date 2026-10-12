@@ -1519,6 +1519,9 @@ tbody tr:hover {
 .efficiency-summary, .approval-queue, .session-history { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; }
 .efficiency-summary h3, .approval-queue h3, .session-history h3 { margin: 0 0 6px; }
 .efficiency-summary > p, .approval-queue > p { color: var(--muted); font-size: 13px; }
+.efficiency-items { display: grid; gap: 6px; min-width: 170px; margin: 0; padding: 0; list-style: none; }
+.efficiency-items li { display: grid; gap: 2px; }
+.efficiency-items small { color: var(--muted); font-size: 11px; }
 .approval-queue h3 span { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #fff1d6; color: #855200; font-size: 12px; }
 .approval-row, .session-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); }
 .approval-row > span, .session-row > span:first-child { display: grid; gap: 4px; }
