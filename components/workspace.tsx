@@ -287,6 +287,8 @@ export default function Workspace() {
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All statuses"),
     [building, setBuilding] = useState("All buildings");
+  const activeRef = useRef<Project | null>(null);
+  activeRef.current = active;
   const [projectSort, setProjectSort] = useState<{ key: ProjectSortKey; direction: "asc" | "desc" }>({ key: "updated_at", direction: "desc" });
   const [hardwareSort, setHardwareSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "group", direction: "asc" });
   const [dirty, setDirty] = useState(false),
@@ -319,6 +321,8 @@ export default function Workspace() {
   const [scannedKind, setScannedKind] = useState("");
   const operation = useRef(false);
   const scanOpened = useRef("");
+  const autosaveBlocked = useRef<Project | null>(null);
+  const syncedProjectRoute = useRef("");
   const profileReturnPath = useRef("/");
   async function load() {
     setLoading(true);
@@ -553,6 +557,7 @@ export default function Workspace() {
   }
   function update(p: Project) {
     setActive(p);
+    autosaveBlocked.current = null;
     setDirty(true);
     setNotice("");
   }
@@ -708,7 +713,10 @@ export default function Workspace() {
     }
   }
   async function signOut() {
-    if (dirty && !confirm("Discard unsaved changes and sign out?")) return;
+    if (dirty && phaseDetail) {
+      if (busy) { setNotice("Saving is still in progress. Wait a moment, then sign out."); return; }
+      if (!(await saveProject(activeRef.current))) return;
+    } else if (dirty && !confirm("Discard unsaved changes and sign out?")) return;
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) {
       setProfileError(message(signOutError));
@@ -721,8 +729,11 @@ export default function Workspace() {
     setView("Dashboard");
     router.push("/");
   }
-  function navigate(v: string) {
-    if (dirty && !confirm("Discard your unsaved project changes?")) return;
+  async function navigate(v: string) {
+    if (dirty && phaseDetail) {
+      if (busy) { setNotice("Saving is still in progress. Wait a moment, then navigate."); return; }
+      if (!(await saveProject(activeRef.current))) return;
+    } else if (dirty && !confirm("Discard your unsaved project changes?")) return;
     setActive(null);
     setDirty(false);
     setView(v);
@@ -759,8 +770,16 @@ export default function Workspace() {
     const normalized = normalizeProject(project);
     setActive((current) => current?.id === project.id ? current : structuredClone(normalized));
     setView("Projects");
-    setDirty(false);
-    setSection("Overview");
+    const routeKey = `${project.id}:${routeParams.phaseId || ""}`;
+    if (syncedProjectRoute.current !== routeKey && dirty && phaseDetail) {
+      if (!busy) void saveProject(activeRef.current);
+      return;
+    }
+    if (syncedProjectRoute.current !== routeKey) {
+      syncedProjectRoute.current = routeKey;
+      setDirty(false);
+      setSection("Overview");
+    }
     const routePhase = normalized.data.phases?.find((item) => item.id === routeParams.phaseId);
     setPhaseDetail(Boolean(routePhase));
     if (routeParams.phaseId) {
@@ -769,7 +788,7 @@ export default function Workspace() {
         return source.data.activePhaseId === routePhase.id ? source : selectPhase(source, routePhase.id);
       });
     }
-  }, [ready, projects, pathname, routeParams?.projectId, routeParams?.phaseId]);
+  }, [ready, projects, pathname, routeParams?.projectId, routeParams?.phaseId, dirty, busy, phaseDetail]);
   useEffect(() => {
     if (!ready || !projects.length) return;
     const params = new URLSearchParams(window.location.search);
@@ -810,16 +829,22 @@ export default function Workspace() {
       router.replace(`/production?${productionParams.toString()}`);
     }
   }, [ready, projects]);
-  function switchPhase(id: string) {
-    if (!active) return;
-    if (id === active.data.activePhaseId && phaseDetail) return;
-    setActive(selectPhase(active, id));
+  async function switchPhase(id: string) {
+    const current = activeRef.current;
+    if (!current) return;
+    if (id === current.data.activePhaseId && phaseDetail) return;
+    if (dirty) {
+      if (busy) { setNotice("Saving is still in progress. Wait a moment, then switch phases."); return; }
+      if (!(await saveProject(current))) return;
+    }
+    const latest = activeRef.current;
+    if (!latest) return;
+    setActive(selectPhase(latest, id));
+    setDirty(false);
     setPhaseDetail(true);
-    setDirty(true);
-    setNotice("");
     setSection("Overview");
     setSelected([]);
-    router.push(`/projects/${active.id}/phases/${id}`);
+    router.push(`/projects/${latest.id}/phases/${id}`);
   }
   function createPhase() {
     if (!active) return;
@@ -832,9 +857,8 @@ export default function Workspace() {
     const blank = newProject().data.phases![0].data;
     const phase: ProjectPhase = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), data: structuredClone(blank) };
     const next = { ...active, data: { ...active.data, phases: [...(active.data.phases || []), phase] } };
-    setActive(next);
-    setDirty(true);
-    setNotice("Phase created. Save changes to keep it.");
+    update(next);
+    setNotice("Phase created. Saving automatically…");
     setError("");
   }
   function renamePhase(phase: ProjectPhase) {
@@ -845,9 +869,8 @@ export default function Workspace() {
       setError("Choose a phase name that is not already in use.");
       return;
     }
-    setActive({ ...active, data: { ...active.data, phases: (active.data.phases || []).map((item) => item.id === phase.id ? { ...item, name } : item) } });
-    setDirty(true);
-    setNotice("Phase renamed. Save changes to keep it.");
+    update({ ...active, data: { ...active.data, phases: (active.data.phases || []).map((item) => item.id === phase.id ? { ...item, name } : item) } });
+    setNotice("Phase renamed. Saving automatically…");
     setError("");
   }
   function completeScannedStep() {
@@ -880,7 +903,7 @@ export default function Workspace() {
         },
       },
     });
-    setNotice(`${opening.name}: recorded “${next}” for ${email || "this team member"}. Save the project to sync the update.`);
+    setNotice(`${opening.name}: recorded “${next}” for ${email || "this team member"}. Saving automatically…`);
   }
   function recordWorkMilestone(openingId: string, stage: string) {
     if (!active) return;
@@ -922,7 +945,7 @@ export default function Workspace() {
       setNotice("Saving phase split…");
       setError("");
       if (await saveProject(next)) setNotice("Phase split created and saved.");
-      else setNotice("Phase split could not be saved. Fix the issue and save changes.");
+      else setNotice("Phase split could not be saved. Review the error and retry the save.");
     } catch (e) {
       setError(message(e));
     }
@@ -976,11 +999,22 @@ export default function Workspace() {
         saved = r.data;
       }
       setProjects((ps) => ps.map((p) => (p.id === saved.id ? saved : p)));
-      setActive(saved);
-      setDirty(false);
-      setNotice("Project saved.");
+      const current = activeRef.current;
+      autosaveBlocked.current = null;
+      if (current?.id === saved.id) {
+        if (current !== projectToSave) {
+          setActive({ ...current, version: saved.version, updated_at: saved.updated_at });
+          setDirty(true);
+          setNotice("Saving newer changes…");
+        } else {
+          setActive(saved);
+          setDirty(false);
+          setNotice("All changes saved.");
+        }
+      }
       return true;
     } catch (e) {
+      autosaveBlocked.current = projectToSave;
       setError(message(e));
       return false;
     } finally {
@@ -988,6 +1022,14 @@ export default function Workspace() {
       operation.current = false;
     }
   }
+  useEffect(() => {
+    if (!phaseDetail || !active || !dirty || busy || autosaveBlocked.current === active) return;
+    const projectToSave = active;
+    const timer = window.setTimeout(() => {
+      void saveProject(projectToSave);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [active, phaseDetail, dirty, busy]);
   async function saveHardwareCell(row: Row, columnKey: string, rawValue: string | boolean) {
     if (!active || busy) return;
     const sourceKey = columnKey === "selectedBrand"
@@ -1612,7 +1654,7 @@ export default function Workspace() {
           });
           setEdit(null);
           setNotice(
-            `${added.length} rows added. Save the project to keep them.`,
+            `${added.length} rows added. Saving automatically.`,
           );
         } catch (e) {
           setError(message(e));
@@ -2420,7 +2462,7 @@ export default function Workspace() {
                   >
                     <Copy size={16} /> Duplicate project
                   </button>
-                  <button className="button" disabled={!dirty || busy} onClick={() => saveProject()}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
+          <button className="button" disabled={!dirty || busy} onClick={() => { autosaveBlocked.current = null; void saveProject(); }}><Save size={16} />{busy ? "Saving…" : dirty ? "Save changes" : "Saved"}</button>
                 </div>
               </div>
               <div className="project-overview-grid">
@@ -2479,7 +2521,13 @@ export default function Workspace() {
             <>
               <button
                 className="back-link"
-                onClick={() => { if (dirty && !confirm("Keep unsaved changes while returning to phases?")) return; setPhaseDetail(false); setNotice(""); setError(""); if (active) router.push(`/projects/${active.id}`); }}
+                onClick={async () => {
+                  if (dirty) {
+                    if (busy) { setNotice("Saving is still in progress. Wait a moment, then return to phases."); return; }
+                    if (!(await saveProject())) return;
+                  }
+                  setPhaseDetail(false); setNotice(""); setError(""); if (active) router.push(`/projects/${active.id}`);
+                }}
               >
                 <ArrowLeft size={16} /> All phases
               </button>
@@ -2517,14 +2565,12 @@ export default function Workspace() {
                       <Trash2 size={16} /> Delete phase
                     </button>
                   )}
-                  <button
-                    className="button"
-                    disabled={!dirty || busy}
-                    onClick={() => saveProject()}
-                  >
-                    <Save size={16} />
-                    {busy ? "Saving…" : dirty ? "Save changes" : "Saved"}
-                  </button>
+                  <span className="label" role="status" aria-live="polite">
+                    {dirty ? busy ? "Saving…" : autosaveBlocked.current === active ? "Save failed" : "Saving automatically…" : "All changes saved"}
+                  </span>
+                  {autosaveBlocked.current === active && !busy && (
+                    <button className="button secondary" onClick={() => { autosaveBlocked.current = null; void saveProject(active); }}>Retry save</button>
+                  )}
                 </div>
               </div>
               <nav className="tabs">

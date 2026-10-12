@@ -27,11 +27,22 @@ test("workspace navigation writes and restores project and phase URLs", () => {
   assert.match(workspace, /router\.push\(`\/projects\/\$\{p\.id\}`\)/);
   assert.match(
     workspace,
-    /router\.push\(`\/projects\/\$\{active\.id\}\/phases\/\$\{id\}`\)/,
+    /router\.push\(`\/projects\/\$\{latest\.id\}\/phases\/\$\{id\}`\)/,
   );
   assert.match(workspace, /routeParams\.projectId/);
   assert.match(workspace, /routeParams\.phaseId/);
   assert.match(workspace, /router\.push\(`\/projects\/\$\{active\.id\}`\)/);
+});
+
+test("phase edits autosave and project-list refreshes do not clear pending edits", () => {
+  const workspace = read("components/workspace.tsx");
+  assert.match(workspace, /if \(!phaseDetail \|\| !active \|\| !dirty \|\| busy \|\| autosaveBlocked\.current === active\) return/);
+  assert.match(workspace, /window\.setTimeout\(\(\) => \{\s*void saveProject\(projectToSave\);\s*\}, 650\)/);
+  assert.match(workspace, /if \(syncedProjectRoute\.current !== routeKey\) \{\s*syncedProjectRoute\.current = routeKey;\s*setDirty\(false\)/);
+  assert.match(workspace, /if \(syncedProjectRoute\.current !== routeKey && dirty && phaseDetail\) \{\s*if \(!busy\) void saveProject\(activeRef\.current\);\s*return;/);
+  const phaseView = workspace.slice(workspace.indexOf("{active && derived && phaseDetail && ("));
+  assert.match(phaseView, /All changes saved/);
+  assert.doesNotMatch(phaseView, /Save changes/);
 });
 
 

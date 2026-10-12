@@ -103,7 +103,7 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
       (byKind[category.kind] ||= []).push(mapPhaseCandidate(current.id, category.kind, row, index, "human-reviewed"));
     });
     if (!Object.keys(byKind).length) return;
-    await onApply(byKind); setSelected(new Set()); setNotice(`Marked ${Object.values(byKind).reduce((sum, rows) => sum + (rows?.length || 0), 0)} selected item(s) as reviewed. Verify dimensions, handing, scope, and hardware before ordering or production.`);
+    await onApply(byKind); setSelected(new Set()); setNotice(`Marked ${Object.values(byKind).reduce((sum, rows) => sum + (rows?.length || 0), 0)} selected item(s) as reviewed and saved automatically. Verify dimensions, handing, scope, and hardware before ordering or production.`);
   }
   function toggle(id: string) { setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 

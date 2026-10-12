@@ -77,7 +77,7 @@ export function ProductionTracker({
         const stage = row.work_kind === "frame" ? "Frames produced" : row.work_kind === "door" ? "Doors produced" : "Hardware packaged";
         onMilestone(row.opening_id, stage);
       }
-      setNotice(row.work_kind === "coded" ? "Coded time submitted for a manager to review; it will not be excluded from efficiency until approved." : `Work timer stopped · ${fmt(sessionHours({ ...row, ended_at: end }, now))}. Save the project board to sync its production milestone.`);
+      setNotice(row.work_kind === "coded" ? "Coded time submitted for a manager to review; it will not be excluded from efficiency until approved." : `Work timer stopped · ${fmt(sessionHours({ ...row, ended_at: end }, now))}. Saving the production milestone automatically.`);
       await refresh();
     }
     setBusy(false);
