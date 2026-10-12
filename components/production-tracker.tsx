@@ -14,12 +14,16 @@ const sessionHours = (row: ProductionWorkSession, now: number) =>
 const dayKey = (value: string) => new Date(value).toLocaleDateString("en-CA");
 
 export function ProductionTracker({
-  projectId, phaseId, openings, projects, email, manager, demo, scannedOpeningId, scannedKind, onMilestone,
+  projectId, phaseId, openings, projects, email, employeeName, manager, demo, scannedOpeningId, scannedKind, onMilestone,
 }: {
-  projectId: string; phaseId: string; openings: Row[]; projects: Project[]; email: string; manager: boolean; demo: boolean;
+  projectId: string; phaseId: string; openings: Row[]; projects: Project[]; email: string; employeeName: string; manager: boolean; demo: boolean;
   scannedOpeningId: string; scannedKind: string; onMilestone: (openingId: string, stage: string) => void;
 }) {
   const [rows, setRows] = useState<ProductionWorkSession[]>([]);
+  const ownEmail = email.toLowerCase();
+  const [employeeNames, setEmployeeNames] = useState<Map<string, string>>(
+    () => new Map([[ownEmail, employeeName.trim() || email]]),
+  );
   const [selectedOpeningId, setSelectedOpeningId] = useState("");
   const [taskKind, setTaskKind] = useState<"frame" | "door" | "hardware">("frame");
   const [codedCategory, setCodedCategory] = useState(codedCategories[0]);
@@ -31,9 +35,30 @@ export function ProductionTracker({
   const refresh = useCallback(async () => {
     if (demo) return;
     const { data, error: queryError } = await supabase.from("production_work_sessions").select("*").order("started_at", { ascending: false }).limit(500);
-    if (queryError) setError(queryError.message);
-    else setRows((data || []) as ProductionWorkSession[]);
-  }, [demo]);
+    if (queryError) {
+      setError(queryError.message);
+      return;
+    }
+    const sessions = (data || []) as ProductionWorkSession[];
+    setRows(sessions);
+    if (!manager) {
+      setEmployeeNames(new Map([[ownEmail, employeeName.trim() || email]]));
+      return;
+    }
+    const employeeEmails = [...new Set(sessions.map((row) => row.worker_email.toLowerCase()))];
+    if (!employeeEmails.length) {
+      setEmployeeNames(new Map([[ownEmail, employeeName.trim() || email]]));
+      return;
+    }
+    const nameResult = await supabase.rpc("list_production_employee_names", { p_emails: employeeEmails });
+    if (nameResult.error) {
+      setEmployeeNames(new Map([[ownEmail, employeeName.trim() || email]]));
+      setError(nameResult.error.message);
+      return;
+    }
+    setEmployeeNames(new Map(((nameResult.data || []) as { email: string; display_name: string }[])
+      .map((member) => [member.email.toLowerCase(), member.display_name])));
+  }, [demo, email, employeeName, manager, ownEmail]);
 
   useEffect(() => { void refresh(); const loadTimer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(loadTimer); }, [refresh]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1_000); return () => window.clearInterval(timer); }, []);
@@ -45,7 +70,6 @@ export function ProductionTracker({
     }
   }, [scannedOpeningId, scannedKind, openings]);
 
-  const ownEmail = email.toLowerCase();
   const ownRows = useMemo(() => rows.filter((row) => row.worker_email.toLowerCase() === ownEmail), [rows, ownEmail]);
   const activeShift = ownRows.find((row) => row.work_kind === "shift" && row.status === "running");
   const activeTask = ownRows.find((row) => row.work_kind !== "shift" && row.status === "running");
@@ -103,8 +127,8 @@ export function ProductionTracker({
 
   const today = dayKey(new Date(now).toISOString());
   const efficiencyRows = useMemo(
-    () => summarizeDailyEfficiency(rows, today, now),
-    [rows, today, now],
+    () => summarizeDailyEfficiency(rows, today, now, employeeNames),
+    [rows, today, now, employeeNames],
   );
 
   if (demo) return <section className="panel"><h2>Shop-floor time &amp; piece rate</h2><p>Clock and approval records require a signed-in employee account in the connected workspace.</p></section>;
@@ -130,7 +154,7 @@ export function ProductionTracker({
             </thead>
             <tbody>
               {efficiencyRows.map((stats) => (
-                <tr key={stats.employee}>
+                <tr key={stats.employeeEmail}>
                   <td>{stats.employee}</td>
                   <td>
                     {stats.completedItems.length ? (

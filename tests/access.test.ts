@@ -258,3 +258,50 @@ test("database enforces administrator access, audit, revocation and manager comp
     false,
   );
 });
+
+test("only production managers can resolve names for employees with time records", async (t) => {
+  const db = await accessDatabase();
+  t.after(() => db.close());
+  await asUser(db, identities.operator);
+  await db.query(
+    "insert into production_work_sessions(worker_email,work_kind) values($1,'shift')",
+    [identities.operator.email],
+  );
+
+  await asUser(db, identities.manager);
+  const names = await db.query<{ email: string; display_name: string }>(
+    "select * from public.list_production_employee_names($1)",
+    [[identities.operator.email, identities.outsider.email]],
+  );
+  assert.deepEqual(names.rows, [
+    { email: identities.operator.email, display_name: "operator" },
+  ]);
+  await assert.rejects(
+    db.query("select * from public.list_production_employee_names($1)", [
+      Array.from({ length: 501 }, () => identities.operator.email),
+    ]),
+    /Too many employee names requested/,
+  );
+
+  await asUser(db, identities.operator);
+  await assert.rejects(
+    db.query("select * from public.list_production_employee_names($1)", [
+      [identities.operator.email],
+    ]),
+    /Production manager access required/,
+  );
+  await asUser(db, identities.outsider);
+  await assert.rejects(
+    db.query("select * from public.list_production_employee_names($1)", [
+      [identities.operator.email],
+    ]),
+    /Production manager access required/,
+  );
+  await asUser(db, null);
+  await assert.rejects(
+    db.query("select * from public.list_production_employee_names($1)", [
+      [identities.operator.email],
+    ]),
+    /permission denied/,
+  );
+});

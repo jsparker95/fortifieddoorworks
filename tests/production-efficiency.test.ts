@@ -82,3 +82,19 @@ test("an item started yesterday appears when it is completed today", () => {
   assert.deepEqual(rows[0].completedItems, [completed]);
   assert.equal(rows[0].credit, 0);
 });
+
+test("today's efficiency shows employee names and keeps email as fallback and row identity", () => {
+  const rows = summarizeDailyEfficiency(
+    [
+      session({ id: "named", worker_email: "brian@example.test" }),
+      session({ id: "fallback", worker_email: "unknown@example.test" }),
+    ],
+    today,
+    new Date(`${today}T17:00:00`).getTime(),
+    new Map([["brian@example.test", "Brian Jarvis"]]),
+  );
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find((row) => row.employeeEmail === "brian@example.test")?.employee, "Brian Jarvis");
+  assert.equal(rows.find((row) => row.employeeEmail === "unknown@example.test")?.employee, "unknown@example.test");
+});
