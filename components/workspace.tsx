@@ -76,6 +76,7 @@ import { DoorProductionForms } from "./door-production-forms";
 import { supplierFor } from "@/lib/vendors";
 import { parseTable, csvCell } from "@/lib/tabular";
 import { getProfileDisplayName, isValidAvatarFile } from "@/lib/profile";
+import { settingsCategories, settingsCategoryFromSearch, settingsSectionUrl, type SettingsCategory } from "@/lib/settings-sections";
 import {
   compareProjects,
   projectSortColumns,
@@ -101,21 +102,6 @@ const kindNames: Record<string, Kind> = {
   "Door types": "doorTypes",
   Hardware: "hardware",
 };
-const categories = [
-  "Door brands",
-  "Door materials",
-  "Windows",
-  "Handing",
-  "Fire ratings",
-  "Frame brands",
-  "Frame types",
-  "Anchors",
-  "Hardware brands",
-  "Hardware components",
-  "Frame modifications",
-  "Door modifications",
-  "Material reference",
-];
 async function readAll(table: string, order: string) {
   const rows: unknown[] = [];
   for (let start = 0; ; start += 500) {
@@ -308,7 +294,7 @@ export default function Workspace() {
   const [mobile, setMobile] = useState(false),
     [tableQuery, setTableQuery] = useState(""),
     [page, setPage] = useState(0),
-    [cat, setCat] = useState("Door brands");
+    [cat, setCat] = useState<SettingsCategory>("Door brands");
   const [catalogQuery, setCatalogQuery] = useState("");
   const hardwareBrands = catalogs.filter((row) => row.category === "Hardware brands");
   const visibleCatalogs = filterCatalogs(catalogs, cat, cat === "Hardware components" ? catalogQuery : "");
@@ -435,6 +421,12 @@ export default function Workspace() {
       setLoading(false);
     }
   }
+  useEffect(() => {
+    const syncSettingsCategory = () => setCat(settingsCategoryFromSearch(window.location.search));
+    syncSettingsCategory();
+    window.addEventListener("popstate", syncSettingsCategory);
+    return () => window.removeEventListener("popstate", syncSettingsCategory);
+  }, []);
   useEffect(() => {
     void load();
   }, []);
@@ -1520,7 +1512,7 @@ export default function Workspace() {
             {
               key: "category",
               label: "Category",
-              options: categories,
+              options: [...settingsCategories],
               required: true,
             },
             { key: "value", label: "Value", required: true },
@@ -2466,11 +2458,14 @@ export default function Workspace() {
               </div>
               <div className="settings-layout">
                 <nav className="settings-nav">
-                  {categories.map((c) => (
+                  {settingsCategories.map((c) => (
                     <button
                       key={c}
                       className={c === cat ? "active" : ""}
-                      onClick={() => setCat(c)}
+                      onClick={() => {
+                        setCat(c);
+                        window.history.pushState(null, "", settingsSectionUrl(window.location.search, c));
+                      }}
                     >
                       {c}
                       <span>
