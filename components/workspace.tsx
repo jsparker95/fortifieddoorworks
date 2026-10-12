@@ -31,6 +31,7 @@ import {
   Menu,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { HARDWARE_DOCUMENT_BUCKET } from "@/lib/hardware-component-documents";
 import SettingCell from "./setting-cell";
 import { HardwareComponentBrand, HardwareComponentDocument } from "./hardware-component-settings";
 import { DeleteTargetDialog, DeletionCleanup } from "./delete-target";
@@ -1451,7 +1452,19 @@ export default function Workspace() {
     setError("");
     try {
       const { downloadDocument } = await import("@/lib/documents");
+      let documentCatalogs = catalogs;
+      if (type === "Submittal" && !demo) {
+        const result = await readAll("catalogs", "id");
+        if (result.error) throw new Error(`Could not load hardware documents. ${result.error.message}`);
+        documentCatalogs = result.data as Catalog[];
+      }
       await downloadDocument(active, type, {
+        catalogs: documentCatalogs,
+        loadHardwareDocument: async (path) => {
+          const result = await supabase.storage.from(HARDWARE_DOCUMENT_BUCKET).download(path);
+          if (result.error) throw result.error;
+          return new Uint8Array(await result.data.arrayBuffer());
+        },
         labelKind,
         selectedTakeoffOnly,
         selected: labelMode === "selected" ? selected : undefined,

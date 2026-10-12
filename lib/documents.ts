@@ -1,10 +1,11 @@
 import { PDFDocument, StandardFonts, rgb, PDFFont, degrees } from "pdf-lib";
 import { derive, str } from "./production";
 import { activePhase } from "./phases";
-import { Project, stages } from "./types";
+import { Catalog, Project, stages } from "./types";
 import QRCode from "qrcode";
 import { productionLabels } from "./labels";
 import { submittalOpenings } from "./submittal";
+import { appendHardwareDocuments, submittalHardwareDocuments, type HardwareDocumentLoader } from "./submittal-hardware-documents";
 const clean = (s: unknown) =>
   str(s)
     .replace(/[\u2010-\u2015]/g, "-")
@@ -339,6 +340,8 @@ export async function makeDocument(
     selected?: string[];
     contractor?: string;
     selectedTakeoffOnly?: boolean;
+    catalogs?: Catalog[];
+    loadHardwareDocument?: HardwareDocumentLoader;
   } = {},
 ) {
   const pdf = await PDFDocument.create();
@@ -578,6 +581,9 @@ export async function makeDocument(
         font,
         color: rgb(0.4, 0.45, 0.5),
       });
+  }
+  if (type === "Submittal") {
+    await appendHardwareDocuments(pdf, submittalHardwareDocuments({ ...project.data, ...phase.data }, opts.catalogs || []), opts.loadHardwareDocument);
   }
   pdf.setTitle(`${project.name} - ${type}`);
   pdf.setAuthor("Fortified Doorworks");
