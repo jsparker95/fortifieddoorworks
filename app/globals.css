@@ -1233,6 +1233,41 @@ tr:last-child td {
 tbody tr:hover {
   background: #fcfcfd;
 }
+.inline-add-row {
+  background: #fbfcfd;
+}
+.inline-add-row:hover {
+  background: #f7f9fb;
+}
+.inline-add-row td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.inline-add-row input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 88px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #dfe4e9;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+.inline-add-row input:not([type="checkbox"]):focus {
+  outline: 2px solid #ef6a32;
+  outline-offset: 1px;
+}
+.inline-save-button {
+  min-height: 32px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.hardware-fit-table .inline-add-row input:not([type="checkbox"]) {
+  min-width: 0;
+  min-height: 29px;
+  padding: 4px 3px;
+}
 .strong {
   font-weight: 600;
   white-space: nowrap;

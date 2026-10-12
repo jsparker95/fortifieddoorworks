@@ -305,6 +305,7 @@ export default function Workspace() {
     [tableQuery, setTableQuery] = useState(""),
     [page, setPage] = useState(0),
     [cat, setCat] = useState("Door brands");
+  const [inlineDrafts, setInlineDrafts] = useState<Record<string, Row>>({});
   const [labelKind, setLabelKind] = useState("Doors"),
     [selected, setSelected] = useState<string[]>([]),
     [labelMode, setLabelMode] = useState("all");
@@ -1685,6 +1686,49 @@ export default function Workspace() {
     columns: { key: string; label: string }[],
     kind?: Kind,
   ) {
+    const draftKey = kind && active ? `${active.id}:${active.data.activePhaseId || "default"}:${kind}` : "";
+    const draft = kind && draftKey ? (inlineDrafts[draftKey] || { id: "" }) : null;
+    const draftFields = kind && active ? fields(kind, active.data, catalogs, vendors) : [];
+    const updateDraft = (key: string, value: string | number | boolean) => {
+      if (!draftKey || !draft) return;
+      setInlineDrafts((current) => ({ ...current, [draftKey]: { ...draft, [key]: value } }));
+    };
+    const saveDraft = () => {
+      if (!kind || !active || !draft || !draftKey) return false;
+      const candidate: Row = { ...draft, id: crypto.randomUUID() };
+      const missing = draftFields.find((field) => field.required && !String(candidate[field.key] ?? "").trim());
+      if (missing) {
+        setError(`Enter ${missing.label.toLowerCase()} to add this row.`);
+        return false;
+      }
+      if (kind === "hardware" && candidate.veSelected && (!candidate.veBrand || !candidate.veComponent)) {
+        setError("Choose both an alternate brand and component.");
+        return false;
+      }
+      for (const field of draftFields) {
+        if (field.options?.length && candidate[field.key] && !field.options.includes(str(candidate[field.key]))) {
+          setError(`Choose an existing ${field.label.toLowerCase()}, or add it in Settings first.`);
+          return false;
+        }
+      }
+      if (kind !== "hardware" && rows.some((row) => str(row.name).toLowerCase() === str(candidate.name).toLowerCase())) {
+        setError("That name is already used in this project.");
+        return false;
+      }
+      if (kind === "hardware" && !candidate.supplier) {
+        candidate.supplier = vendors.find((vendor) => vendor.name.toLowerCase() === "iml")?.name || "";
+      }
+      if (kind === "openings") {
+        const vendor = supplierFor("openings", candidate, active.data, vendors);
+        if (!candidate.frameSupplier) candidate.frameSupplier = vendor?.name || "";
+        if (!candidate.brand) candidate.brand = vendor?.name || "";
+      }
+      updateData({ ...active.data, [kind]: [...rows, candidate] });
+      setInlineDrafts((current) => ({ ...current, [draftKey]: { id: "" } }));
+      setError("");
+      setNotice("Row added. Saving automatically…");
+      return true;
+    };
     const supplierKey = kind === "openings" ? "frameSupplier" : "supplier";
     const showLeadTime = !!kind && ["openings", "doorTypes", "hardware"].includes(kind);
     const filtered = rows.filter((r) =>
@@ -1757,9 +1801,6 @@ export default function Workspace() {
               </button>
               <button className="button secondary" onClick={() => bulk(kind)}>
                 Paste rows
-              </button>
-              <button className="button" onClick={() => rowEditor(kind)}>
-                <Plus size={16} /> Add {kind === "openings" ? "opening" : "row"}
               </button>
             </>
           )}
@@ -1834,6 +1875,30 @@ export default function Workspace() {
                   )}
                 </tr>
               ))}
+              {kind && draft && (
+                <tr className="inline-add-row" onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    const hasValue = draftFields.some((field) => draft[field.key] !== undefined && String(draft[field.key]).trim() !== "");
+                    if (hasValue) saveDraft();
+                  }
+                }}>
+                  {columns.map((column, index) => {
+                    const fieldKey = column.key === "selectedBrand" ? (draft.veSelected ? "veBrand" : "brand") : column.key === "selectedComponent" ? (draft.veSelected ? "veComponent" : "component") : column.key;
+                    const field = draftFields.find((item) => item.key === fieldKey);
+                    if (!field) return <td key={column.key}>{index === 0 ? <span className="muted">New row</span> : <span className="faint">—</span>}</td>;
+                    const value = draft[fieldKey];
+                    const listId = `inline-${kind}-${fieldKey}`;
+                    return <td key={column.key} className={index === 0 ? "strong" : ""}>
+                      {field.type === "checkbox" ? <input aria-label={field.label} type="checkbox" checked={!!value} disabled={busy} onChange={(event) => updateDraft(fieldKey, event.target.checked)} /> : <>
+                        <input aria-label={field.label} placeholder={field.required ? `${field.label} *` : field.label} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step="any" list={field.options ? listId : undefined} value={String(value ?? "")} disabled={busy} onChange={(event) => updateDraft(fieldKey, field.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)} />
+                        {field.options && <datalist id={listId}>{field.options.map((option) => <option key={option} value={option} />)}</datalist>}
+                      </>}
+                    </td>;
+                  })}
+                  {showLeadTime && <td><span className="faint">—</span></td>}
+                  <td><button type="button" className="button secondary inline-save-button" disabled={busy || !draftFields.some((field) => draft[field.key] !== undefined && String(draft[field.key]).trim() !== "")} onClick={saveDraft}>Save row</button></td>
+                </tr>
+              )}
             </tbody>
           </table>
           {!filtered.length && (
@@ -1842,7 +1907,7 @@ export default function Workspace() {
               <h3>No matching records</h3>
               <p>
                 {kind
-                  ? "Add a record to start this part of the project."
+                  ? "Use the blank row below to add a record."
                   : "Try a different search."}
               </p>
             </div>
