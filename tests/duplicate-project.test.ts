@@ -8,6 +8,8 @@ test("project duplication keeps every phase and its linked schedule data with fr
   source.name = "School doors";
   source.status = "In production";
   source.building = "North building";
+  source.data.delivering = true;
+  source.data.installing = false;
   const first = source.data.phases![0];
   first.name = "Frames";
   first.data.openings = [{ id: "opening-1", name: "101", width: "3/0" }];
@@ -51,4 +53,6 @@ test("project duplication keeps every phase and its linked schedule data with fr
   assert.equal(copy.building, source.building);
   assert.equal(copy.status, "Planning");
   assert.equal(copy.source_id, null);
+  assert.equal(copy.data.delivering, true);
+  assert.equal(copy.data.installing, false);
 });
