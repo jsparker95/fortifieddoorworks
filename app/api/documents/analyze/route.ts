@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 import { matchSchedule, type ScheduleOpening } from "@/lib/drawing-takeoff/matching";
 import { deduplicateDoors, normalizeMark, type DoorDetection } from "@/lib/drawing-takeoff/geometry";
+import { selectDrawingPages, type IndexedDrawingPage } from "@/lib/drawing-takeoff/page-selection";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -33,23 +34,12 @@ const MAX_VISUALLY_SCREENED_SCANNED_PAGES = 8;
 const MAX_AUTOMATICALLY_SELECTED_PAGES = 10;
 const DEFAULT_EXTRACTION_MODEL = "google/gemini-2.5-flash";
 
-function spreadPages(pages: number[], limit: number) {
-  if (limit <= 0 || pages.length === 0) return [];
-  if (pages.length <= limit) return pages;
-  if (limit <= 1) return [pages[0]];
-  const selected = new Set<number>();
-  for (let index = 0; index < limit; index++) {
-    selected.add(pages[Math.round(index * (pages.length - 1) / (limit - 1))]);
-  }
-  return [...selected];
-}
-
 const terms: Array<[RegExp, number, string]> = [
   [/door\s+schedule|opening\s+schedule/i, 12, "Door / opening schedule"],
   [/hardware\s+schedule|hardware\s+group/i, 12, "Hardware schedule"],
   [/wall\s+(type|schedule)|partition\s+type/i, 10, "Wall type / wall schedule"],
   [/division\s+08|08\s+\d{2}\s+\d{2}|hollow\s+metal\s+(doors|frames)|flush\s+wood\s+doors/i, 9, "Division 08 specifications"],
-  [/main\s+floor\s+plan|architectural\s+floor\s+plan|door\s+mark|door\s+number/i, 5, "Floor plan / opening marks"],
+  [/\b(?:overall\s+)?(?:main|first|second|third|ground)\s+(?:level\s+)?floor\s+plan\b|architectural\s+floor\s+plan|door\s+mark|door\s+number/i, 5, "Floor plan / opening marks"],
   [/egress\s+plan|egress\s+door|exit\s+door\s+width|occupancy\s+schedule/i, 7, "Egress plan / door count"],
   [/interior\s+window\s+schedule|sidelight|borrowed\s+light/i, 6, "Window / sidelight schedule"],
   [/manufacturer|acceptable\s+manufacturer|products\s+may\s+be|not\s+limited\s+to/i, 3, "Specifications / manufacturers"],
@@ -95,7 +85,7 @@ export async function POST(request: Request) {
     // the original bytes remain available for pdf-lib below.
     const pdf = await pdfjs.getDocument({ data: pdfBytes.slice(), useSystemFonts: true, disableFontFace: true }).promise;
     if (pdf.numPages > 2500) throw new Error("This PDF has more than 2,500 pages. Split it into smaller files before analysis.");
-    const pages: Array<{ page: number; text: string; score: number; labels: string[] }> = [];
+    const allPages: IndexedDrawingPage[] = [];
     const scannedPageNumbers: number[] = [];
     let searchablePageCount = 0;
     for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
@@ -106,25 +96,19 @@ export async function POST(request: Request) {
       else scannedPageNumbers.push(pageNo);
       const labels = terms.filter(([pattern]) => pattern.test(text)).map(([, , label]) => label);
       const score = terms.reduce((sum, [pattern, weight]) => sum + (pattern.test(text) ? weight : 0), 0);
-      if (score > 0) pages.push({ page: pageNo, text, score, labels });
+      const indexedPage = { page: pageNo, text, score, labels };
+      allPages.push(indexedPage);
     }
     const requestedPages = [...new Set((Array.isArray(body.manualPages) ? body.manualPages : []).map(Number))];
     if (requestedPages.length > 36 || requestedPages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.numPages)) {
       return Response.json({ error: `Choose up to 36 valid page numbers from this ${pdf.numPages}-page PDF.` }, { status: 400 });
     }
-    const manual = requestedPages.map((page) => ({ page, text: pages.find((candidate) => candidate.page === page)?.text || "", score: Number.MAX_SAFE_INTEGER, labels: ["Manually selected page"] }));
-    const availableSlots = Math.max(0, Math.min(MAX_AUTOMATICALLY_SELECTED_PAGES, 36 - manual.length));
-    // Reserve slots for scanned/image-only sheets. Text relevance alone misses these pages.
-    const selectedScannedPages = spreadPages(
-      scannedPageNumbers.filter((page) => !requestedPages.includes(page)),
-      Math.min(MAX_VISUALLY_SCREENED_SCANNED_PAGES, availableSlots),
+    // Reserve slots for scanned/image-only sheets and inspect every page in
+    // short plan PDFs, even if the title block does not match search terms.
+    const { ranked, visuallyReviewedScannedPages } = selectDrawingPages(
+      allPages, scannedPageNumbers, requestedPages, pdf.numPages,
+      MAX_AUTOMATICALLY_SELECTED_PAGES, MAX_VISUALLY_SCREENED_SCANNED_PAGES,
     );
-    const scanned = selectedScannedPages.map((page) => ({ page, text: "", score: 0, labels: ["Scanned page · visual review"] }));
-    const automatic = pages.sort((a, b) => b.score - a.score)
-      .filter((page) => !requestedPages.includes(page.page) && !selectedScannedPages.includes(page.page))
-      .slice(0, Math.max(0, availableSlots - scanned.length));
-    const ranked = [...manual, ...scanned, ...automatic].sort((a, b) => a.page - b.page);
-    const visuallyReviewedScannedPages = new Set([...selectedScannedPages, ...requestedPages.filter((page) => scannedPageNumbers.includes(page))]).size;
     await supabase.from("project_documents").update({ page_count: pdf.numPages, phase_id: body.phaseId, status: "indexed" }).eq("id", document.id);
     if (!ranked.length) {
       const analysis = { relevantPages: [], walls: [], doorTypes: [], openings: [], doorwayObservations: [], hardwareGroups: [], specFindings: [], uncertainties: ["No searchable schedule text was found. Select key pages manually or upload an OCR PDF."], indexedPageCount: pdf.numPages, scannedPageCount: pdf.numPages - searchablePageCount, candidatePageCount: 0, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages: 0, unreviewedScannedPages: scannedPageNumbers.length } };
@@ -142,9 +126,9 @@ export async function POST(request: Request) {
     const result = await generateText({
       model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
       output: Output.object({ schema: extractionSchema }),
-      system: "You assist Fortified Doorworks with preliminary construction-plan takeoffs. Inspect both selectable text and the visual content of every supplied PDF page, including scanned drawings. Find page regions that show door/opening schedules, floor plans with doorway symbols or door tags, hardware schedules, wall types, and Division 08 specifications. For each clearly visible doorway symbol on a floor plan, return one doorwayObservations entry with a tight normalized bounding box for the doorway symbol on the original page (x,y,width,height; top-left origin; all values 0–1), hinge side, swing toward/away from the reference side, and the supported hand. Do not include schedule row boxes as doorway symbols. If the tag, hinge side, swing, or reference side is unclear, mark it unknown and leave handing empty/unclear. Only use original-page evidence; do not estimate boxes from OCR text. Extract only evidence visible in the supplied PDF pages or text. Never invent dimensions, handing, brands, wall construction, fire ratings, or hardware quantities. When interpreting handing, use the traditional convention viewed from the outside/key side: hinges on left/right establish LH/RH; if the door swings toward that observer, mark the reverse hand (LHR/RHR). Apply this only when the reference side, hinge, and swing are clearly visible; otherwise leave handing empty and state why in uncertainties. Keep unknown values empty. Cite original PDF page numbers, not subset page numbers. Evidence must be a short literal excerpt or concise drawing/table description. Distinguish HM hollow metal, wood, aluminum/storefront, and out-of-scope types. These are provisional candidates for human review; preserve uncertainty.",
+      system: "You assist Fortified Doorworks with preliminary construction-plan takeoffs. First priority: count every distinct doorway symbol visible on each supplied floor-plan sheet and report each opening's readable door mark and hand. Inspect the complete visual content of every supplied page, including scanned drawings; do not rely only on searchable text or title-block matches. Return one doorwayObservations entry for every clearly visible individual doorway symbol, with a tight normalized bounding box around the symbol on the original page (x,y,width,height; top-left origin; all values 0–1), hinge side, swing toward/away from the reference side, and supported hand. Do not return a sample or representative subset. Avoid counting room labels, dimension marks, glazing, or schedule rows as doors. If the mark, hinge, swing, or reference side is unclear, mark it unknown and leave handing empty/unclear. Never infer missing marks or handing. When interpreting handing, use the traditional convention viewed from the outside/key side: hinges on left/right establish LH/RH; if the door swings toward that observer, mark the reverse hand (LHR/RHR). Apply only when the reference side, hinge, and swing are clear. Cite original PDF page numbers, not subset page numbers. Evidence must be a concise drawing description. Keep all findings provisional for human review. Other schedules may be extracted when present, but do not let that distract from the door count and handing scan.",
       messages: [{ role: "user", content: [
-        { type: "text", text: `Find the pages relevant to Fortified Doorworks and extract candidate schedules, wall construction/thickness, opening marks and dimensions/handing, door types, hardware group components/quantities, and Division 08 specification restrictions. Do not approve or invent missing values.\n\nPage map and extracted text:\n${pageMap}` },
+        { type: "text", text: `Scan every supplied floor-plan page for all door symbols. Count distinct openings per sheet, capture each legible door number/mark and determine hand only where the traditional outside/key-side reference, hinge side, and swing are visually supported. Report uncertain marks/handings as unknown. Also extract other relevant schedules only when actually present. Do not approve or invent missing values.\n\nPage map and extracted text:\n${pageMap}` },
         { type: "file", mediaType: "application/pdf", data: await subset.save(), filename: document.file_name },
       ] }],
       abortSignal: AbortSignal.timeout(105_000),

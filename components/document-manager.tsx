@@ -16,7 +16,7 @@ type Analysis = {
   walls?: Array<Record<string, unknown>>; doorTypes?: Array<Record<string, unknown>>;
   openings?: Array<Record<string, unknown>>; hardwareGroups?: Array<Record<string, unknown>>;
   specFindings?: Array<Record<string, unknown>>; uncertainties?: string[];
-  indexedPageCount?: number; scannedPageCount?: number;
+  indexedPageCount?: number; scannedPageCount?: number; candidatePageCount?: number;
 };
 const categories: Array<{ key: keyof Analysis; label: string; kind: Kind }> = [
   { key: "openings", label: "Openings", kind: "openings" },
@@ -32,6 +32,11 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
 }) {
   const current = document;
   const analysis = current.analysis as Analysis | null;
+  const doorwayHandCounts = (analysis?.matchedDoorways || []).reduce<Record<string, number>>((counts, doorway) => {
+    const hand = ["LH", "RH", "LHR", "RHR"].includes(doorway.handing) ? doorway.handing : "Needs review";
+    counts[hand] = (counts[hand] || 0) + 1;
+    return counts;
+  }, {});
   const [busyAction, setBusyAction] = useState<"analysis" | null>(null);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -110,9 +115,10 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
   return <section className="panel doc-intake">
       {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" disabled={busy} onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy || !phaseId} onClick={() => void analyze()}>{busyAction === "analysis" ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busyAction === "analysis" ? "Finding pages & extracting…" : analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
         {busyAction === "analysis" && <p className="document-progress" role="status" aria-live="polite"><LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> Checking the PDF pages and extracting draft rows for {phaseName}. Larger plan sets can take up to about two minutes.</p>}
-        <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you know where a schedule is. Up to 36 total pages are analyzed; automatic selection includes up to 10 pages and samples scanned pages across the file.</small></label>
+        <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you know where a schedule is. Up to 36 total pages are analyzed; PDFs with 10 pages or fewer are scanned in full, and longer files auto-select up to 10 pages.</small></label>
         {analysis && <>
-          <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>
+          <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; visually analyzed {analysis.candidatePageCount ?? analysis.relevantPages?.length ?? 0}; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>
+          {analysis.matchedDoorways && <p className="printing-note"><strong>Door scan:</strong> {analysis.matchedDoorways.length} doorway symbols detected across the analyzed sheets. Handing: {Object.entries(doorwayHandCounts).map(([hand, count]) => `${hand} ${count}`).join(" · ") || "not determined"}. Counts are plan-symbol detections; verify the marks and handings before use.</p>}
           {!!analysis.pageCoverage?.totalScannedPages && <p className="printing-note">Visual review screened {analysis.pageCoverage.visuallyReviewedScannedPages} of {analysis.pageCoverage.totalScannedPages} scanned pages{analysis.pageCoverage.unreviewedScannedPages ? `; ${analysis.pageCoverage.unreviewedScannedPages} scanned pages remain unscreened. Add their page numbers above and analyze again.` : "."}</p>}
           {!!analysis.relevantPages?.length && <div className="relevant-pages"><h4>Relevant page index</h4>{analysis.relevantPages.map((item, index) => <button key={`${item.page}:${index}`} className="page-citation" onClick={() => void openPage(item.page)}><strong>p. {item.page}</strong><span>{item.section}</span><small>{item.reason} · {Math.round(item.confidence * 100)}%</small><ExternalLink size={14}/></button>)}</div>}
           {!!analysis.matchedDoorways?.length && <div className="relevant-pages"><h4>Detected door symbols · matched to schedule</h4>{analysis.matchedDoorways.map((item, index) => <div className="spec-finding" key={`${item.sourcePage}:${item.mark}:${index}`}><span><strong>{item.mark ? `Door ${item.mark}` : "Unlabeled doorway"}</strong><small>Plan p. {item.sourcePage} · schedule {item.schedulePage ? `p. ${item.schedulePage}` : "unmatched"}{item.width || item.height ? ` · ${item.width || "?"} × ${item.height || "?"}` : ""} · ${Math.round(item.confidence * 100)}%</small><small>{item.hingeSide} hinge · swings ${item.swingDirection.replaceAll("_", " ")} · hand ${item.handing || "needs review"}</small>{item.handingEvidence && <small>Handing evidence: “{item.handingEvidence}”</small>}<small>Drawing evidence: “{item.evidence || "No symbol evidence supplied"}”</small>{item.scheduleEvidence && <small>Schedule evidence: “{item.scheduleEvidence}”</small>}{!!item.reviewReasons.length && <small>Review: {item.reviewReasons.join(" · ")}</small>}<small>Page region: {Math.round(item.boundingBox.x * 100)}%, {Math.round(item.boundingBox.y * 100)}%, {Math.round(item.boundingBox.width * 100)}% × {Math.round(item.boundingBox.height * 100)}%</small></span><button type="button" className="inline-link" onClick={() => void openPage(item.sourcePage)}>Open p. {item.sourcePage}</button></div>)}</div>}
