@@ -14,3 +14,15 @@ export function catalogFieldValue(field: CatalogField, value: string) {
 export function applyCatalogField(rows: Catalog[], id: string, field: CatalogField, value: string): Catalog[] {
   return rows.map((row) => row.id === id ? { ...row, [field]: value } : row);
 }
+
+export function filterCatalogs(rows: Catalog[], category: string, query: string): Catalog[] {
+  const term = query.trim().toLocaleLowerCase();
+  return rows.filter((row) => row.category === category &&
+    (!term || row.value.toLocaleLowerCase().includes(term) || (row.description || "").toLocaleLowerCase().includes(term)));
+}
+
+export function hardwareBrandId(rows: Catalog[], value: string): string {
+  const brand = rows.find((row) => row.category === "Hardware brands" && row.value === value.trim());
+  if (!brand) throw new Error("Choose a brand from Hardware brands in Settings.");
+  return brand.id;
+}

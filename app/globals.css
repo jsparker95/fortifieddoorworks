@@ -2447,3 +2447,16 @@ th,
   .production-card { padding: 14px; }
   .production-login { padding: 22px; }
 }
+
+.hardware-settings-search { display: flex; align-items: center; gap: 16px; padding: 0 20px 18px; flex-wrap: wrap; }
+.hardware-settings-search .search { flex: 1; max-width: 480px; flex-direction: row; }
+.hardware-settings-search > span { color: var(--muted); font-size: 12px; }
+.hardware-brand-cell { min-width: 160px; }
+.hardware-brand-cell select { width: 100%; max-width: 220px; }
+.hardware-document-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 160px; max-width: 260px; }
+.hardware-document-view { display: flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; text-align: left; overflow-wrap: anywhere; }
+.hardware-document-view svg { flex-shrink: 0; }
+.hardware-document-upload { position: relative; display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--muted); }
+.hardware-document-upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.hardware-document-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.hardware-document-upload.is-busy { opacity: .6; }

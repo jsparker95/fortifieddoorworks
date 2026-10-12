@@ -55,7 +55,7 @@ export function Editor({
           </button>
         </header>
         <div className={`form-grid${singleColumn ? " form-grid-single-column" : ""}`}>
-          {fields.map((f) => (
+          {fields.filter((f) => !f.visibleWhen || row[f.visibleWhen.key] === f.visibleWhen.value).map((f) => (
             <label key={f.key} className={f.type === "textarea" ? "wide" : ""}>
               <span>
                 {f.label}

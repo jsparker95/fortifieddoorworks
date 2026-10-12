@@ -32,11 +32,12 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import SettingCell from "./setting-cell";
+import { HardwareComponentBrand, HardwareComponentDocument } from "./hardware-component-settings";
 import { DeleteTargetDialog, DeletionCleanup } from "./delete-target";
 import { cleanupDeletedFiles, pendingDeletionFiles } from "@/lib/deletion";
 import { AccessManagement } from "./access-management";
 import { canManageProduction, isWorkspaceRole, roleLabels, type WorkspaceRole } from "@/lib/access";
-import { applyCatalogField, catalogFieldValue, type CatalogField } from "@/lib/catalog-settings";
+import { applyCatalogField, catalogFieldValue, filterCatalogs, hardwareBrandId, type CatalogField } from "@/lib/catalog-settings";
 import {
   Project,
   ProjectData,
@@ -307,6 +308,12 @@ export default function Workspace() {
     [tableQuery, setTableQuery] = useState(""),
     [page, setPage] = useState(0),
     [cat, setCat] = useState("Door brands");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const hardwareBrands = catalogs.filter((row) => row.category === "Hardware brands");
+  const visibleCatalogs = filterCatalogs(catalogs, cat, cat === "Hardware components" ? catalogQuery : "");
+  function updateCatalog(row: Pick<Catalog, "id"> & Partial<Catalog>) {
+    setCatalogs((rows) => rows.map((existing) => existing.id === row.id ? { ...existing, ...row } : existing));
+  }
   const [inlineDrafts, setInlineDrafts] = useState<Record<string, Row>>({});
   const [labelKind, setLabelKind] = useState("Doors"),
     [selected, setSelected] = useState<string[]>([]),
@@ -1505,6 +1512,7 @@ export default function Workspace() {
             },
             { key: "value", label: "Value", required: true },
             { key: "description", label: "Description", type: "textarea" },
+            { key: "brand", label: "Brand", options: hardwareBrands.map((brand) => brand.value), required: true, visibleWhen: { key: "category", value: "Hardware components" } },
           ];
     setEdit({
       title: row
@@ -1513,7 +1521,7 @@ export default function Workspace() {
           ? "Add contractor"
           : "Add setting",
       fields: fs,
-      initial: (row || {
+      initial: (row ? { ...row, brand: hardwareBrands.find((brand) => brand.id === (row as Catalog).brand_id)?.value || "" } : {
         id: crypto.randomUUID(),
         category: cat,
       }) as unknown as Row,
@@ -1522,9 +1530,14 @@ export default function Workspace() {
         operation.current = true;
         setBusy(true);
         try {
-          const payload = Object.fromEntries(
-            ["id", ...fs.map((f) => f.key)].map((k) => [k, r[k] || ""]),
+          const payload: Record<string, unknown> = Object.fromEntries(
+            ["id", ...fs.filter((f) => f.key !== "brand").map((f) => f.key)].map((k) => [k, r[k] || ""]),
           );
+          if (type === "catalogs") {
+            payload.value = catalogFieldValue("value", String(payload.value));
+            payload.brand_id = r.category === "Hardware components" ? hardwareBrandId(catalogs, String(r.brand || "")) : null;
+            if ((row as Catalog | undefined)?.document_path && r.category !== "Hardware components") throw new Error("Keep this component in Hardware components while it has an attached document.");
+          }
           if (!demo) {
             const result = await supabase
               .from(type)
@@ -1539,10 +1552,9 @@ export default function Workspace() {
               payload as Contractor,
             ]);
           else
-            setCatalogs((a) => [
-              ...a.filter((x) => x.id !== r.id),
-              payload as Catalog,
-            ]);
+            setCatalogs((rows) => rows.some((existing) => existing.id === r.id)
+              ? rows.map((existing) => existing.id === r.id ? { ...existing, ...payload } as Catalog : existing)
+              : [...rows, payload as Catalog]);
           setEdit(null);
           setNotice("Setting saved.");
         } catch (e) {
@@ -1572,9 +1584,12 @@ export default function Workspace() {
         throw new Error(
           "This contractor is used by a project. Reassign the projects first.",
         );
+      if (type === "catalogs" && catalogs.some((component) => component.brand_id === row.id)) throw new Error("This brand is used by hardware components. Reassign their brands first.");
       if (!demo) {
         const r = await supabase.from(type).delete().eq("id", row.id);
         if (r.error) throw r.error;
+        const path = (row as Catalog).document_path;
+        if (type === "catalogs" && path) await supabase.storage.from("hardware-component-documents").remove([path]);
       }
       if (type === "contractors")
         setContractors((x) => x.filter((v) => v.id !== row.id));
@@ -2466,21 +2481,26 @@ export default function Workspace() {
                     <div>
                       <h2>{cat}</h2>
                       <p>Edit any value or description. Changes save when you leave the field.</p>
+                      {cat === "Hardware components" && <p>Choose a brand for each component and attach its reference document.</p>}
                     </div>
                   </div>
+                  {cat === "Hardware components" && <div className="hardware-settings-search">
+                    <label className="search"><Search size={16} /><input type="search" aria-label="Search hardware components by value or description" placeholder="Search value or description…" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} /></label>
+                    <span role="status">{visibleCatalogs.length} of {catalogs.filter((row) => row.category === cat).length} components</span>
+                  </div>}
                   <div className="table-scroll">
                     <table>
                       <thead>
                         <tr>
                           <th>Value</th>
+                          {cat === "Hardware components" && <th>Brand</th>}
                           <th>Description</th>
+                          {cat === "Hardware components" && <th>Document</th>}
                           <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {catalogs
-                          .filter((c) => c.category === cat)
-                          .map((c) => (
+                        {visibleCatalogs.map((c) => (
                             <tr key={c.id}>
                               <td className="strong">
                                 <SettingCell
@@ -2490,6 +2510,7 @@ export default function Workspace() {
                                   onSave={(value) => saveCatalogField(c.id, "value", value)}
                                 />
                               </td>
+                              {cat === "Hardware components" && <td><HardwareComponentBrand component={c} brands={hardwareBrands} demo={demo} onChange={updateCatalog} /></td>}
                               <td>
                                 <SettingCell
                                   value={c.description || ""}
@@ -2498,6 +2519,7 @@ export default function Workspace() {
                                   onSave={(value) => saveCatalogField(c.id, "description", value)}
                                 />
                               </td>
+                              {cat === "Hardware components" && <td><HardwareComponentDocument component={c} demo={demo} onChange={updateCatalog} /></td>}
                               <td>
                                 <button
                                   className="icon-button"
@@ -2516,6 +2538,7 @@ export default function Workspace() {
                               </td>
                             </tr>
                           ))}
+                        {!visibleCatalogs.length && <tr><td colSpan={cat === "Hardware components" ? 5 : 3}>{catalogQuery && cat === "Hardware components" ? "No components match your search." : "No options yet."}</td></tr>}
                       </tbody>
                     </table>
                   </div>
