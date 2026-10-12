@@ -1742,10 +1742,6 @@ export default function Workspace() {
     const saveDraft = () => {
       if (!kind || !active || !draft || !draftKey) return false;
       const candidate: Row = { ...draft, id: crypto.randomUUID() };
-      if (kind === "hardware" && candidate.veSelected && (!candidate.veBrand || !candidate.veComponent)) {
-        setError("Choose both an alternate brand and component.");
-        return false;
-      }
       for (const field of draftFields) {
         if (field.options?.length && candidate[field.key] && !field.options.includes(str(candidate[field.key]))) {
           setError(`Choose an existing ${field.label.toLowerCase()}, or add it in Settings first.`);
@@ -1917,11 +1913,7 @@ export default function Workspace() {
                 </tr>
               ))}
               {kind && draft && (
-                <tr className="inline-add-row" aria-label="New row" onBlur={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                    if (draftHasValue) saveDraft();
-                  }
-                }}>
+                <tr className="inline-add-row" aria-label="New row">
                   {columns.map((column, index) => {
                     const fieldKey = column.key === "selectedBrand" ? (draft.veSelected ? "veBrand" : "brand") : column.key === "selectedComponent" ? (draft.veSelected ? "veComponent" : "component") : column.key;
                     const field = draftFields.find((item) => item.key === fieldKey);
@@ -1929,14 +1921,14 @@ export default function Workspace() {
                     const value = draft[fieldKey];
                     const listId = `inline-${kind}-${fieldKey}`;
                     return <td key={column.key} className={`inline-draft-cell${index === 0 ? " strong" : ""}`}>
-                      {field.type === "checkbox" ? <input aria-label={field.label} type="checkbox" checked={!!value} disabled={busy} onChange={(event) => updateDraft(fieldKey, event.target.checked)} /> : <>
-                        <input aria-label={field.label} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step="any" list={field.options ? listId : undefined} value={String(value ?? "")} disabled={busy} onChange={(event) => updateDraft(fieldKey, field.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && draftHasValue) { event.preventDefault(); saveDraft(); } }} />
+                      {field.type === "checkbox" ? <input aria-label={field.label} type="checkbox" checked={!!value} disabled={busy} onChange={(event) => updateDraft(fieldKey, event.target.checked)} onBlur={() => { if (draftHasValue) saveDraft(); }} /> : <>
+                        <input aria-label={field.label} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step="any" list={field.options ? listId : undefined} value={String(value ?? "")} disabled={busy} onChange={(event) => updateDraft(fieldKey, field.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)} onBlur={() => { if (draftHasValue) saveDraft(); }} />
                         {field.options && <datalist id={listId}>{field.options.map((option) => <option key={option} value={option} />)}</datalist>}
                       </>}
                     </td>;
                   })}
                   {showLeadTime && <td><span className="faint">—</span></td>}
-                  <td><button type="button" className="button secondary inline-save-button" disabled={busy || !draftHasValue} onClick={saveDraft}>Save row</button></td>
+                  <td className="inline-draft-actions" />
                 </tr>
               )}
             </tbody>
