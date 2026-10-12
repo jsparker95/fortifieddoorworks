@@ -37,6 +37,6 @@ export function InstallationEstimator({ data, onChange }: { data: ProjectData; o
       {categories.map((name) => <tr key={name}><td>{name}</td><td>{counts[name]}</td><td><input aria-label={`${name} labor hours per unit`} type="number" min="0" step="0.05" value={rates[name]?.hours || 0} onChange={(event) => changeRate(name, "hours", Number(event.target.value))}/></td><td><input aria-label={`${name} sell price per unit`} type="number" min="0" step="0.01" value={rates[name]?.price || 0} onChange={(event) => changeRate(name, "price", Number(event.target.value))}/></td><td>{(counts[name] * Number(rates[name]?.hours || 0)).toFixed(2)}</td><td>${(counts[name] * Number(rates[name]?.price || 0)).toFixed(2)}</td></tr>)}
       <tr className="install-total"><td>Total</td><td>{Object.values(counts).reduce((a, b) => a + b, 0)}</td><td colSpan={2}>Optional package estimate</td><td>{totalHours.toFixed(2)} hrs</td><td>${totalPrice.toFixed(2)}</td></tr>
     </tbody></table></div>
-    <p className="printing-note">Double counts include openings wider than 4 feet or marked as pairs. Hardware quantities come from the schedule and must be categorized explicitly. Save this project phase to retain rate changes.</p>
+    <p className="printing-note">Double counts include openings wider than 4 feet or marked as pairs. Hardware quantities come from the schedule and must be categorized explicitly. Rate changes save automatically.</p>
   </section>;
 }

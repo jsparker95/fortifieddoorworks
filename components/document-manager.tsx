@@ -74,7 +74,7 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
       (byKind[category.kind] ||= []).push(mapped);
     });
     if (!Object.keys(byKind).length) return;
-    onApply(byKind); setSelected(new Set()); setNotice(`Added ${Object.values(byKind).reduce((sum, rows) => sum + (rows?.length || 0), 0)} reviewed candidate(s). Save project changes to keep these additions. Verify dimensions, handing, scope, and hardware before issuing takeoff.`);
+    onApply(byKind); setSelected(new Set()); setNotice(`Added ${Object.values(byKind).reduce((sum, rows) => sum + (rows?.length || 0), 0)} reviewed candidate(s). Saving automatically. Verify dimensions, handing, scope, and hardware before issuing takeoff.`);
   }
   function toggle(id: string) { setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 
