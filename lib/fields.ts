@@ -5,6 +5,7 @@ export type Field = {
   type?: "number" | "checkbox" | "date" | "textarea";
   options?: string[];
   required?: boolean;
+  visibleWhen?: { key: string; value: string };
 };
 export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor[] = []): Field[] {
   const options = (category: string) =>
