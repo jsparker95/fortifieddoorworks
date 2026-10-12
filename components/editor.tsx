@@ -11,6 +11,7 @@ export function Editor({
   onClose,
   externalError,
   busy,
+  singleColumn = false,
 }: {
   title: string;
   fields: Field[];
@@ -19,6 +20,7 @@ export function Editor({
   onClose: () => void;
   externalError?: string;
   busy?: boolean;
+  singleColumn?: boolean;
 }) {
   const [row, setRow] = useState(initial),
     [error, setError] = useState("");
@@ -52,7 +54,7 @@ export function Editor({
             <X size={20} />
           </button>
         </header>
-        <div className="form-grid">
+        <div className={`form-grid${singleColumn ? " form-grid-single-column" : ""}`}>
           {fields.map((f) => (
             <label key={f.key} className={f.type === "textarea" ? "wide" : ""}>
               <span>
