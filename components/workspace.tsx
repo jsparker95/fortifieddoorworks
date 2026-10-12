@@ -301,6 +301,7 @@ export default function Workspace() {
       fields: Field[];
       initial: Row;
       save: (r: Row) => void;
+      singleColumn?: boolean;
     } | null>(null);
   const [mobile, setMobile] = useState(false),
     [tableQuery, setTableQuery] = useState(""),
@@ -1094,6 +1095,7 @@ export default function Workspace() {
   function projectEditor(p: Project, create = false) {
     setEdit({
       title: create ? "Create project" : "Project details",
+      singleColumn: true,
       fields: create
         ? [
             ...projectFields,
@@ -3371,6 +3373,7 @@ export default function Workspace() {
           onSave={edit.save}
           externalError={error}
           busy={busy}
+          singleColumn={edit.singleColumn}
           onClose={() => setEdit(null)}
         />
       )}

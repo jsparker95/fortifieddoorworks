@@ -1653,6 +1653,12 @@ tbody tr:hover {
   gap: 19px;
   padding: 24px 26px;
 }
+.form-grid-single-column {
+  grid-template-columns: 1fr;
+}
+.form-grid-single-column .wide {
+  grid-column: auto;
+}
 .form-grid label {
   font-size: 12px;
   color: #6b7783;
