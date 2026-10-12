@@ -1272,11 +1272,6 @@ tbody tr:hover {
   outline: 2px solid #ef6a32;
   outline-offset: -2px;
 }
-.inline-save-button {
-  min-height: 32px;
-  padding: 5px 9px;
-  white-space: nowrap;
-}
 .hardware-fit-table .inline-add-row input:not([type="checkbox"]) {
   min-width: 0;
   min-height: 42px;
