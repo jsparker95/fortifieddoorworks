@@ -1149,6 +1149,9 @@ td {
   max-width: 500px;
   min-width: 60px;
 }
+.record-entry-table tbody td + td {
+  border-left: 1px solid #f0f1f3;
+}
 .hardware-fit-scroll {
   overflow-x: hidden;
 }
@@ -1235,10 +1238,10 @@ tbody tr:hover {
   background: #fcfcfd;
 }
 .inline-add-row {
-  background: #fbfcfd;
+  background: #fff;
 }
 .inline-add-row:hover {
-  background: #f7f9fb;
+  background: #fff;
 }
 .inline-add-row td {
   padding: 0;
