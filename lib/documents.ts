@@ -4,7 +4,7 @@ import { activePhase } from "./phases";
 import { Catalog, Project, stages } from "./types";
 import QRCode from "qrcode";
 import { productionLabels } from "./labels";
-import { submittalOpenings } from "./submittal";
+import { drawSubmittal } from "./submittal-layout";
 import { appendHardwareDocuments, submittalHardwareDocuments, type HardwareDocumentLoader } from "./submittal-hardware-documents";
 const clean = (s: unknown) =>
   str(s)
@@ -349,7 +349,9 @@ export async function makeDocument(
     bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const d = derive(project.data);
   const phase = activePhase(project.data);
-  if (type === "labels") {
+  if (type === "Submittal") {
+    drawSubmittal(pdf, project, { regular: font, bold }, opts.contractor);
+  } else if (type === "labels") {
     const labelKind = opts.labelKind || "Doors";
     const contractor = opts.contractor || "";
     if (labelKind === "Frames" || labelKind === "Doors") {
@@ -427,28 +429,7 @@ export async function makeDocument(
       `PM: ${project.pm || "-"} | Start date: ${project.start_date || "-"} | Status: ${project.status}`,
     );
     write(`Generated ${new Date().toISOString().slice(0, 10)}`);
-    if (type === "Submittal") {
-      write("Project scope", 14, true);
-      write(project.scope || "Not entered");
-      if (project.cuts) write("Cuts: " + project.cuts);
-      write("Document references", 14, true);
-      project.data.references.forEach((r) =>
-        write(`${r.name} | Page: ${r.page || "-"} | ${r.selection || ""}`),
-      );
-      write("Door schedule", 14, true);
-      project.data.doorTypes.forEach((t) =>
-        write(
-          `${t.name}: ${t.brand} | ${t.material} | ${t.window || "No window"} | ${t.fire || "No rating entered"} | ${t.pr || ""}`,
-        ),
-      );
-      write("Doorways", 14, true);
-      for (const opening of submittalOpenings(phase.data)) {
-        write(`${opening.name}:`, 12, true);
-        opening.items.forEach((item) => write(item));
-        y -= 6;
-      }
-    }
-    if (type === "Takeoff" || type === "Submittal") {
+    if (type === "Takeoff") {
       write("Frame takeoff", 14, true);
       d.frameTakeoff
         .filter(
