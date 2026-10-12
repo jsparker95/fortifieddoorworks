@@ -1847,7 +1847,7 @@ export default function Workspace() {
           )}
         </div>
         <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : "table-scroll"}>
-          <table className={kind === "hardware" ? "hardware-fit-table" : undefined}>
+          <table className={[kind ? "record-entry-table" : "", kind === "hardware" ? "hardware-fit-table" : ""].filter(Boolean).join(" ") || undefined}>
             <thead>
               <tr>
                 {columns.map((c) => (
