@@ -1155,27 +1155,33 @@ td {
 .hardware-fit-scroll {
   overflow-x: hidden;
 }
-.hardware-fit-table {
-  width: 100%;
-  min-width: 0;
-  table-layout: fixed;
+.compact-record-table {
   font-size: 11px;
 }
-.hardware-fit-table th,
-.hardware-fit-table td {
+.compact-record-table th,
+.compact-record-table td {
   min-width: 0;
   max-width: none;
   padding: 6px 3px;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.hardware-fit-table th {
+.compact-record-table th {
   font-size: 11px;
   line-height: 1.2;
 }
-.hardware-fit-table td {
+.compact-record-table td {
   font-size: 11px;
   line-height: 1.3;
+}
+.hardware-fit-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.hardware-fit-table th,
+.hardware-fit-table td {
+  max-width: none;
 }
 .hardware-sort {
   display: inline-flex;
@@ -1190,15 +1196,15 @@ td {
   cursor: pointer;
 }
 .hardware-sort span { color: #a2aab2; }
-.hardware-fit-table td input:not([type="checkbox"]),
-.hardware-fit-table td select {
+.compact-record-table td input:not([type="checkbox"]),
+.compact-record-table td select {
   width: 100%; min-width: 0; padding: 4px 3px; border: 1px solid transparent;
   border-radius: 4px; background: transparent; color: inherit; font: inherit;
 }
-.hardware-fit-table td input:not([type="checkbox"]):hover,
-.hardware-fit-table td select:hover { border-color: #dfe4e9; background: #fff; }
-.hardware-fit-table td input:not([type="checkbox"]):focus,
-.hardware-fit-table td select:focus { outline: 2px solid #ef6a32; background: #fff; }
+.compact-record-table td input:not([type="checkbox"]):hover,
+.compact-record-table td select:hover { border-color: #dfe4e9; background: #fff; }
+.compact-record-table td input:not([type="checkbox"]):focus,
+.compact-record-table td select:focus { outline: 2px solid #ef6a32; background: #fff; }
 .hardware-fit-table th:nth-child(1),
 .hardware-fit-table td:nth-child(1) { width: 6%; }
 .hardware-fit-table th:nth-child(2),
@@ -1272,7 +1278,7 @@ tbody tr:hover {
   outline: 2px solid #ef6a32;
   outline-offset: -2px;
 }
-.hardware-fit-table .inline-add-row input:not([type="checkbox"]) {
+.compact-record-table .inline-add-row input:not([type="checkbox"]) {
   min-width: 0;
   min-height: 42px;
   padding: 6px 4px;
