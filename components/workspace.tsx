@@ -1033,14 +1033,14 @@ export default function Workspace() {
     }, 650);
     return () => window.clearTimeout(timer);
   }, [active, phaseDetail, dirty, busy]);
-  async function saveHardwareCell(row: Row, columnKey: string, rawValue: string | boolean) {
+  async function saveGridCell(kind: Kind, row: Row, columnKey: string, rawValue: string | boolean) {
     if (!active || busy) return;
-    const sourceKey = columnKey === "selectedBrand"
+    const sourceKey = kind === "hardware" && columnKey === "selectedBrand"
       ? row.veSelected ? "veBrand" : "brand"
-      : columnKey === "selectedComponent"
+      : kind === "hardware" && columnKey === "selectedComponent"
         ? row.veSelected ? "veComponent" : "component"
         : columnKey;
-    const field = fields("hardware", active.data, catalogs, vendors).find((candidate) => candidate.key === sourceKey);
+    const field = fields(kind, active.data, catalogs, vendors).find((candidate) => candidate.key === sourceKey);
     let value: Row[string] = rawValue;
     if (field?.type === "number") {
       value = rawValue === "" ? "" : Number(rawValue);
@@ -1057,9 +1057,13 @@ export default function Workspace() {
       setError(`Choose an existing ${field.label.toLowerCase()}, or add it in Settings first.`);
       return;
     }
+    if (kind !== "hardware" && sourceKey === "name" && active.data[kind].some((item) => item.id !== row.id && str(item.name).toLowerCase() === String(value).toLowerCase())) {
+      setError("That name is already used in this project.");
+      return;
+    }
     const { frameCount: _frameCount, lineQty: _lineQty, selectedBrand: _selectedBrand, selectedComponent: _selectedComponent, ...sourceRow } = row;
     const nextRow: Row = { ...sourceRow, [sourceKey]: value };
-    if (sourceKey === "veSelected" && value && (!nextRow.veBrand || !nextRow.veComponent)) {
+    if (kind === "hardware" && sourceKey === "veSelected" && value && (!nextRow.veBrand || !nextRow.veComponent)) {
       setError("Choose both an alternate brand and component before using alternate hardware.");
       return;
     }
@@ -1067,12 +1071,12 @@ export default function Workspace() {
       ...active,
       data: persistActivePhase({
         ...active.data,
-        hardware: active.data.hardware.map((item) => item.id === row.id ? nextRow : item),
+        [kind]: active.data[kind].map((item) => item.id === row.id ? nextRow : item),
       }),
     };
     setError("");
     update(next);
-    setNotice("Saving hardware change…");
+    setNotice(`Saving ${kind === "doorTypes" ? "door type" : kind === "openings" ? "opening" : kind === "walls" ? "wall type" : "hardware"} change…`);
     await saveProject(next);
   }
   const projectFields: Field[] = [
@@ -1783,27 +1787,31 @@ export default function Workspace() {
           : comparison * (hardwareSort.direction === "asc" ? 1 : -1);
       }).map(({ row }) => row)
       : filtered;
-    const renderHardwareCell = (row: Row, key: string, label: string) => {
-      const sourceKey = key === "selectedBrand"
+    const renderEditableCell = (row: Row, key: string, label: string) => {
+      if (!kind || !active) return str(row[key]) || <span className="faint">—</span>;
+      const sourceKey = kind === "hardware" && key === "selectedBrand"
         ? row.veSelected ? "veBrand" : "brand"
-        : key === "selectedComponent"
+        : kind === "hardware" && key === "selectedComponent"
           ? row.veSelected ? "veComponent" : "component"
           : key;
-      const field = active && fields("hardware", active.data, catalogs, vendors).find((candidate) => candidate.key === sourceKey);
-      const value = sortValue(row, key);
-      if (["frameCount", "lineQty"].includes(key)) return str(value) || <span className="faint">—</span>;
-      if (!field || !active) return str(value) || <span className="faint">—</span>;
-      if (field.type === "checkbox") return <input type="checkbox" aria-label={`Edit ${label}`} checked={!!row[sourceKey]} disabled={busy} onChange={(event) => void saveHardwareCell(row, key, event.target.checked)} />;
+      const field = draftFields.find((candidate) => candidate.key === sourceKey);
+      const value = kind === "hardware"
+        ? sortValue(row, key)
+        : key === supplierKey && ["openings", "doorTypes"].includes(kind)
+          ? supplierFor(kind as "openings" | "doorTypes", row, active.data, vendors)?.name ?? row[sourceKey]
+          : row[sourceKey];
+      if (["frameCount", "lineQty"].includes(key) || !field) return str(value) || <span className="faint">—</span>;
+      if (field.type === "checkbox") return <input type="checkbox" aria-label={`Edit ${label}`} checked={!!row[sourceKey]} disabled={busy} onChange={(event) => void saveGridCell(kind, row, key, event.target.checked)} />;
       const editorProps = {
         "aria-label": `Edit ${label}`,
         disabled: busy,
         defaultValue: String(value ?? ""),
         onBlur: (event: FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
-          if (event.currentTarget.value !== String(value ?? "")) void saveHardwareCell(row, key, event.currentTarget.value);
+          if (event.currentTarget.value !== String(value ?? "")) void saveGridCell(kind, row, key, event.currentTarget.value);
         },
       };
       if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps}><option value="">—</option>{!field.options.includes(String(value)) && value ? <option value={String(value)}>{String(value)}</option> : null}{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
-      return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
+      return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
     };
     const max = Math.max(0, Math.ceil(filtered.length / 30) - 1),
       current = Math.min(page, max);
@@ -1852,7 +1860,7 @@ export default function Workspace() {
                 <tr key={r.id} className={r.deleted ? "excluded" : ""}>
                   {columns.map((c, i) => (
                     <td key={c.key} className={i === 0 ? "strong" : ""}>
-                      {kind === "hardware" ? renderHardwareCell(r, c.key, c.label) : typeof r[c.key] === "boolean"
+                      {kind ? renderEditableCell(r, c.key, c.label) : typeof r[c.key] === "boolean"
                         ? r[c.key]
                           ? "Yes"
                           : "No"
