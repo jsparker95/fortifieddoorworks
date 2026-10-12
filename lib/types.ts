@@ -113,6 +113,9 @@ export type ProductionWorkSession = {
   created_at: string;
 };
 export type ProjectData = PhaseContent & {
+  /** Project-level fulfillment scope; stored in the existing project JSON column. */
+  delivering?: boolean;
+  installing?: boolean;
   /** Peer phases. Each phase is independently splittable; no parent/child tree. */
   phases?: ProjectPhase[];
   activePhaseId?: string;
@@ -187,6 +190,8 @@ export const emptyData = (): ProjectData => {
   const data = emptyPhaseContent();
   return {
     ...data,
+    delivering: false,
+    installing: false,
     activePhaseId: id,
     phases: [{ id, name: "Phase 1", createdAt, data: structuredClone(data) }],
     phaseHistory: [],

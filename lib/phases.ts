@@ -51,6 +51,8 @@ export function normalizeProject(project: Project): Project {
     ...project,
     data: {
       ...(selected?.data || emptyPhaseContent()),
+      delivering: data.delivering === true,
+      installing: data.installing === true,
       phases,
       activePhaseId: selected?.id || "",
       phaseHistory: Array.isArray(data.phaseHistory) ? data.phaseHistory : [],
@@ -118,6 +120,8 @@ export function selectPhase(project: Project, phaseId: string): Project {
     ...project,
     data: {
       ...phase.data,
+      delivering: data.delivering === true,
+      installing: data.installing === true,
       phases: data.phases,
       activePhaseId: phase.id,
       phaseHistory: data.phaseHistory || [],
@@ -128,7 +132,7 @@ export function selectPhase(project: Project, phaseId: string): Project {
 /** Keep the selected phase's editable data and its persisted phase record in sync. */
 export function persistActivePhase(data: ProjectData): ProjectData {
   if (Array.isArray(data.phases) && data.phases.length === 0)
-    return { ...emptyPhaseContent(), phases: [], activePhaseId: "", phaseHistory: [] };
+    return { ...emptyPhaseContent(), delivering: data.delivering === true, installing: data.installing === true, phases: [], activePhaseId: "", phaseHistory: [] };
   const current = activePhase(data);
   const content = contentFrom(data);
   const phases = data.phases?.length
@@ -138,6 +142,8 @@ export function persistActivePhase(data: ProjectData): ProjectData {
     : [{ ...current, data: content }];
   return {
     ...content,
+    delivering: data.delivering === true,
+    installing: data.installing === true,
     phases,
     activePhaseId: current.id,
     phaseHistory: data.phaseHistory || [],
@@ -204,6 +210,8 @@ export function makeSplit(
     ...project,
     data: {
       ...second.data,
+      delivering: data.delivering === true,
+      installing: data.installing === true,
       phases,
       activePhaseId: second.id,
       phaseHistory: [...(data.phaseHistory || []), event],

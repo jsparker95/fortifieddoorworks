@@ -43,6 +43,8 @@ export function duplicateProject(source: Project): {
   const selected = activePhase(original);
   const duplicatedData: ProjectData = {
     ...content(selected.data, selected.id),
+    delivering: original.delivering === true,
+    installing: original.installing === true,
     phases,
     activePhaseId: phaseId(selected.id),
     phaseHistory: (original.phaseHistory || []).map((event) => {

@@ -67,6 +67,7 @@ import { ProjectFiles } from "./project-files";
 import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
 import { InstallationEstimator } from "./installation-estimator";
+import { ProductionSnapshot } from "./production-snapshot";
 import { AnchorPackage } from "./anchor-package";
 import { ElevationBuilder } from "./elevation-builder";
 import { DoorProductionForms } from "./door-production-forms";
@@ -1084,6 +1085,8 @@ export default function Workspace() {
     { key: "start_date", label: "Start date", type: "date" },
     { key: "pm", label: "Project manager" },
     { key: "jobsite", label: "Jobsite" },
+    { key: "delivering", label: "Are we delivering?", type: "checkbox" },
+    { key: "installing", label: "Are we installing?", type: "checkbox" },
     { key: "status", label: "Status", options: statuses, required: true },
     { key: "scope", label: "Scope of work", type: "textarea" },
     { key: "cuts", label: "Cuts / notes", type: "textarea" },
@@ -1105,6 +1108,8 @@ export default function Workspace() {
         ...p,
         contractor_id:
           contractors.find((c) => c.id === p.contractor_id)?.name || "",
+        delivering: p.data.delivering === true,
+        installing: p.data.installing === true,
         id: p.id,
       } as unknown as Row,
       save: async (r) => {
@@ -1118,12 +1123,17 @@ export default function Workspace() {
           setError("Choose a listed project status.");
           return;
         }
-        const { template, ...record } = r;
+        const { template, delivering, installing, ...record } = r;
         const next = {
           ...p,
           ...record,
           contractor_id: contractor?.id || null,
           start_date: r.start_date || null,
+          data: {
+            ...p.data,
+            delivering: delivering === true,
+            installing: installing === true,
+          },
         } as unknown as Project;
         if (create && template) {
           const source = projects.find((x) => x.name === template);
@@ -1135,6 +1145,8 @@ export default function Workspace() {
           const fresh = newProject().data;
           next.data = {
             ...templateData,
+            delivering: next.data.delivering,
+            installing: next.data.installing,
             openings: [],
             milestones: {},
             takeoffSelection: {},
@@ -2541,6 +2553,8 @@ export default function Workspace() {
                     <div><small>Contractor</small><strong>{contractors.find((item) => item.id === active.contractor_id)?.name || "Not assigned"}</strong></div>
                     <div><small>Project manager</small><strong>{active.pm || "Not assigned"}</strong></div>
                     <div><small>Start date</small><strong>{active.start_date || "Not scheduled"}</strong></div>
+                    <div><small>Delivering</small><strong>{active.data.delivering ? "Yes" : "No"}</strong></div>
+                    <div><small>Installing</small><strong>{active.data.installing ? "Yes" : "No"}</strong></div>
                     <div className="project-detail-wide"><small>Jobsite</small><strong>{active.jobsite || "No jobsite entered"}</strong></div>
                     {active.scope && <div className="project-detail-wide"><small>Scope of work</small><strong className="project-scope-text">{active.scope}</strong></div>}
                   </div>
@@ -2580,6 +2594,13 @@ export default function Workspace() {
                     if (!await saveProject(next)) throw new Error("Draft entries are in this page, but the project could not be saved. Resolve the save error before leaving.");
                   }} />
               </div>
+              <ProductionSnapshot
+                className="project-snapshot-panel"
+                title="Project Snapshot"
+                phases={active.data.phases || [activePhase(active.data)]}
+                delivering={active.data.delivering === true}
+                installing={active.data.installing === true}
+              />
             </>
           )}
           {active && derived && phaseDetail && (
@@ -2712,30 +2733,12 @@ export default function Workspace() {
                         ))}
                       </dl>
                     </section>
-                    <section className="panel">
-                      <div className="panel-heading">
-                        <h2>Production snapshot</h2>
-                      </div>
-                      <div className="stage-summary">
-                        {stages.map((s) => {
-                          const count = derived.frames.filter(
-                            (o) => active.data.milestones[o.id]?.[s],
-                          ).length;
-                          return (
-                            <div key={s}>
-                              <span>{s}</span>
-                              <progress
-                                max={derived.frames.length || 1}
-                                value={count}
-                              />
-                              <strong>
-                                {count}/{derived.frames.length}
-                              </strong>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
+                    <ProductionSnapshot
+                      title="Phase Snapshot"
+                      phases={[activePhase(active.data)]}
+                      delivering={active.data.delivering === true}
+                      installing={active.data.installing === true}
+                    />
                   </div>
                   {derived.warnings.length > 0 && (
                     <section className="panel review-panel">
