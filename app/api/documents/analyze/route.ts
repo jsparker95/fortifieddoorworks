@@ -30,6 +30,17 @@ const extractionSchema = z.object({
   uncertainties: z.array(z.string()).max(100),
 });
 
+const scheduleSearchSchema = z.object({
+  schedules: z.array(z.object({
+    kind: z.enum(["hardware", "door", "frame"]),
+    found: z.boolean(),
+    pages: z.array(z.number().int().positive()).max(36),
+    description: z.string().max(500),
+    evidence: z.string().max(1000),
+    confidence: z.number().min(0).max(1),
+  })).max(3),
+});
+
 const MAX_VISUALLY_SCREENED_SCANNED_PAGES = 8;
 const MAX_AUTOMATICALLY_SELECTED_PAGES = 10;
 const DEFAULT_EXTRACTION_MODEL = "google/gemini-2.5-flash";
@@ -37,6 +48,7 @@ const DEFAULT_EXTRACTION_MODEL = "google/gemini-2.5-flash";
 const terms: Array<[RegExp, number, string]> = [
   [/door\s+schedule|opening\s+schedule/i, 12, "Door / opening schedule"],
   [/hardware\s+schedule|hardware\s+group/i, 12, "Hardware schedule"],
+  [/frame\s+(?:type\s+)?schedule|frame\s+type\s+schedule/i, 12, "Frame schedule"],
   [/wall\s+(type|schedule)|partition\s+type/i, 10, "Wall type / wall schedule"],
   [/division\s+08|08\s+\d{2}\s+\d{2}|hollow\s+metal\s+(doors|frames)|flush\s+wood\s+doors/i, 9, "Division 08 specifications"],
   [/\b(?:overall\s+)?(?:main|first|second|third|ground)\s+(?:level\s+)?floor\s+plan\b|architectural\s+floor\s+plan|door\s+mark|door\s+number/i, 5, "Floor plan / opening marks"],
@@ -57,7 +69,9 @@ export async function POST(request: Request) {
 
   try {
     failureStage = "request validation";
-    const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string; manualPages?: number[] };
+    const body = await request.json() as { documentId?: string; projectId?: string; phaseId?: string; manualPages?: number[]; stage?: "locate" | "extract" };
+    const stage = body.stage || "extract";
+    if (stage !== "locate" && stage !== "extract") return Response.json({ error: "Choose a valid analysis step." }, { status: 400 });
     if (!body.documentId || !body.projectId || !body.phaseId) return Response.json({ error: "Document, project, and phase are required." }, { status: 400 });
     const { data: project, error: projectError } = await supabase.from("projects").select("data").eq("id", body.projectId).single();
     const phases = (project?.data as { phases?: Array<{ id: string }> } | undefined)?.phases || [];
@@ -66,6 +80,11 @@ export async function POST(request: Request) {
     if (readError || !document) return Response.json({ error: "Document not found or access denied." }, { status: 404 });
     verifiedDocumentId = document.id;
     verifiedProjectId = body.projectId;
+    const priorAnalysis = document.analysis && typeof document.analysis === "object" ? document.analysis as Record<string, unknown> : {};
+    const priorScheduleSearch = priorAnalysis.scheduleSearch as { completed?: boolean; pages?: number[] } | undefined;
+    if (stage === "extract" && !priorScheduleSearch?.completed) {
+      return Response.json({ error: "Complete the schedule page search before extracting phase data." }, { status: 409 });
+    }
     failureStage = "downloading stored PDF";
     const { data: file, error: downloadError } = await supabase.storage.from("project-documents").download(document.storage_path);
     if (downloadError || !file) throw new Error(downloadError?.message || "PDF could not be downloaded.");
@@ -99,19 +118,39 @@ export async function POST(request: Request) {
       const indexedPage = { page: pageNo, text, score, labels };
       allPages.push(indexedPage);
     }
-    const requestedPages = [...new Set((Array.isArray(body.manualPages) ? body.manualPages : []).map(Number))];
-    if (requestedPages.length > 36 || requestedPages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.numPages)) {
+    const manualPages = [...new Set((Array.isArray(body.manualPages) ? body.manualPages : []).map(Number))];
+    if (manualPages.length > 36 || manualPages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.numPages)) {
       return Response.json({ error: `Choose up to 36 valid page numbers from this ${pdf.numPages}-page PDF.` }, { status: 400 });
     }
+    const savedSchedulePages = stage === "extract" && Array.isArray(priorScheduleSearch?.pages) ? priorScheduleSearch.pages.map(Number).filter((page) => Number.isInteger(page) && page >= 1 && page <= pdf.numPages) : [];
+    const requestedPages = manualPages;
     // Reserve slots for scanned/image-only sheets and inspect every page in
     // short plan PDFs, even if the title block does not match search terms.
-    const { ranked, visuallyReviewedScannedPages } = selectDrawingPages(
+    const { ranked: selectedPages } = selectDrawingPages(
       allPages, scannedPageNumbers, requestedPages, pdf.numPages,
       MAX_AUTOMATICALLY_SELECTED_PAGES, MAX_VISUALLY_SCREENED_SCANNED_PAGES,
     );
+    const pageMapByNumber = new Map(selectedPages.map((page) => [page.page, page]));
+    if (stage === "extract") {
+      for (const pageNo of savedSchedulePages) {
+        if (pageMapByNumber.size >= 36 || pageMapByNumber.has(pageNo)) continue;
+        const page = allPages[pageNo - 1];
+        if (page) pageMapByNumber.set(pageNo, { ...page, labels: [...new Set([...page.labels, "Schedule located in step 1"])] });
+      }
+    }
+    const ranked = [...pageMapByNumber.values()].sort((a, b) => a.page - b.page);
+    const visuallyReviewedScannedPages = new Set(ranked.map((page) => page.page).filter((page) => scannedPageNumbers.includes(page))).size;
     await supabase.from("project_documents").update({ page_count: pdf.numPages, phase_id: body.phaseId, status: "indexed" }).eq("id", document.id);
     if (!ranked.length) {
-      const analysis = { relevantPages: [], walls: [], doorTypes: [], openings: [], doorwayObservations: [], hardwareGroups: [], specFindings: [], uncertainties: ["No searchable schedule text was found. Select key pages manually or upload an OCR PDF."], indexedPageCount: pdf.numPages, scannedPageCount: pdf.numPages - searchablePageCount, candidatePageCount: 0, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages: 0, unreviewedScannedPages: scannedPageNumbers.length } };
+      if (stage === "locate") {
+        const description = "Schedule search completed. No likely hardware, door, or frame schedule pages were found in the pages selected for review.";
+        const scheduleSearch = { completed: true, schedules: [], pages: [], summary: description, indexedAt: new Date().toISOString() };
+        const analysis = { ...priorAnalysis, scheduleSearch, indexedPageCount: pdf.numPages, candidatePageCount: 0, relevantPages: [] };
+        const { error: saveError } = await supabase.from("project_documents").update({ status: "indexed", analysis, description }).eq("id", document.id).eq("project_id", body.projectId);
+        if (saveError) throw new Error("Schedule search completed but the result could not be saved. Retry the search.");
+        return Response.json({ stage, analysis, description });
+      }
+      const analysis = { ...priorAnalysis, scheduleSearch: priorScheduleSearch, relevantPages: [], walls: [], doorTypes: [], openings: [], doorwayObservations: [], hardwareGroups: [], specFindings: [], uncertainties: ["No searchable schedule text was found. Select key pages manually or upload an OCR PDF."], indexedPageCount: pdf.numPages, scannedPageCount: pdf.numPages - searchablePageCount, candidatePageCount: 0, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages: 0, unreviewedScannedPages: scannedPageNumbers.length } };
       await supabase.from("project_documents").update({ status: "needs_review", analysis }).eq("id", document.id);
       return Response.json({ analysis });
     }
@@ -122,6 +161,36 @@ export async function POST(request: Request) {
     const copied = await subset.copyPages(sourcePdf, ranked.map((p) => p.page - 1));
     copied.forEach((p) => subset.addPage(p));
     const pageMap = ranked.map((p, index) => `PDF page ${index + 1} below corresponds to original PDF page ${p.page}. Likely section: ${p.labels.join(", ")}. Extracted text: ${p.text.slice(0, 5000)}`).join("\n\n");
+    if (stage === "locate") {
+      failureStage = "sending selected pages for schedule page search";
+      const result = await generateText({
+        model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
+        output: Output.object({ schema: scheduleSearchSchema }),
+        system: "You inspect construction plan PDFs and locate only schedule sheets. Determine whether hardware schedules, door/opening schedules, and frame schedules are present in the supplied pages. Cite original PDF page numbers only, using the page map. For each schedule, include a short description and direct visual/text evidence. Do not guess pages from nearby sheet numbering. If not visible or uncertain, set found false and return no pages. The findings remain provisional for human review.",
+        messages: [{ role: "user", content: [
+          { type: "text", text: `Find the page numbers of hardware, door/opening, and frame schedules in this PDF. Search both extracted text and the page images. Include only original PDF pages that actually show the schedule; distinguish door schedules from frame schedules. Page map:\n${pageMap}` },
+          { type: "file", mediaType: "application/pdf", data: await subset.save(), filename: document.file_name },
+        ] }],
+        abortSignal: AbortSignal.timeout(105_000),
+      });
+      const selectedPageNumbers = new Set(ranked.map((page) => page.page));
+      const schedules = result.output.schedules.map((schedule) => ({ ...schedule, pages: [...new Set(schedule.pages.filter((page) => selectedPageNumbers.has(page)))], found: schedule.pages.some((page) => selectedPageNumbers.has(page)) }))
+        .filter((schedule) => schedule.found);
+      const pages = [...new Set(schedules.flatMap((schedule) => schedule.pages))].sort((a, b) => a - b);
+      const labels = { hardware: "Hardware", door: "Door / opening", frame: "Frame" } as const;
+      const description = (["hardware", "door", "frame"] as const).map((kind) => {
+        const found = schedules.find((schedule) => schedule.kind === kind);
+        return found
+          ? `${labels[kind]} schedule found on PDF ${found.pages.length === 1 ? "page" : "pages"} ${found.pages.join(", ")}${found.description ? `: ${found.description}` : ""}.`
+          : `${labels[kind]} schedule not identified in the pages reviewed.`;
+      }).join(" ").slice(0, 1800);
+      const scheduleSearch = { completed: true, schedules, pages, summary: description, indexedAt: new Date().toISOString() };
+      const analysis = { ...priorAnalysis, scheduleSearch, indexedPageCount: pdf.numPages, candidatePageCount: ranked.length, relevantPages: ranked.filter((page) => schedules.some((schedule) => schedule.pages.includes(page.page))).map((page) => ({ page: page.page, section: page.labels.join(" · ") || "Schedule sheet", reason: "Schedule page identified during the first analysis step.", confidence: Math.max(...schedules.filter((schedule) => schedule.pages.includes(page.page)).map((schedule) => schedule.confidence)) })) };
+      failureStage = "saving schedule page search";
+      const { error: saveError } = await supabase.from("project_documents").update({ status: "indexed", phase_id: body.phaseId, page_count: pdf.numPages, analysis, description }).eq("id", document.id).eq("project_id", body.projectId);
+      if (saveError) throw new Error("Schedule search completed but the result could not be saved. Retry the search.");
+      return Response.json({ stage, analysis, description });
+    }
     failureStage = "sending selected pages for AI extraction";
     const result = await generateText({
       model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
@@ -230,7 +299,7 @@ export async function POST(request: Request) {
     if (!safeOutput.hardwareGroups.length) uncertainties.push("No hardware schedule groups were found in the selected pages. Hardware components and quantities were not inferred.");
     if (!safeOutput.doorTypes.length) uncertainties.push("No door type schedule was found in the selected pages.");
     if (visuallyReviewedScannedPages < scannedPageNumbers.length) uncertainties.push(`${scannedPageNumbers.length - visuallyReviewedScannedPages} scanned/image-only page(s) were not visually screened. Add their page numbers and analyze again if they contain relevant schedules or plans.`);
-    const analysis = { ...safeOutput, uncertainties: [...new Set(uncertainties)], openings: [...scheduledOpenings, ...unscheduledDoorCandidates], relevantPages, matchedDoorways, doorwayDetectionConflicts: deduplicated.conflicts.length, suppressedDuplicateDoorSymbols: deduplicated.suppressed.length,
+    const analysis = { ...safeOutput, scheduleSearch: priorScheduleSearch, uncertainties: [...new Set(uncertainties)], openings: [...scheduledOpenings, ...unscheduledDoorCandidates], relevantPages, matchedDoorways, doorwayDetectionConflicts: deduplicated.conflicts.length, suppressedDuplicateDoorSymbols: deduplicated.suppressed.length,
       unmatchedSchedule: matched.unmatchedSchedule.map((row) => ({ mark: row.mark, sourcePage: row.sourcePage, evidence: row.evidence })),
       indexedPageCount: pdf.numPages, candidatePageCount: ranked.length, scannedPageCount: pdf.numPages - searchablePageCount, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages, unreviewedScannedPages: Math.max(0, scannedPageNumbers.length - visuallyReviewedScannedPages) } };
     failureStage = "saving extracted results";

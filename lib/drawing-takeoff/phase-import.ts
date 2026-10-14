@@ -3,6 +3,10 @@ import type { Kind, Row } from "@/lib/types";
 type Candidate = Record<string, unknown>;
 type PhaseRows = Partial<Record<Kind, Row[]>>;
 
+export function phaseHasTakeoffData(data: Partial<Record<Kind, Row[]>> | undefined) {
+  return (["openings", "walls", "doorTypes", "hardware"] as Kind[]).some((kind) => (data?.[kind] || []).length > 0);
+}
+
 const stringValue = (value: unknown) => typeof value === "string" || typeof value === "number" ? String(value) : "";
 const sourcePage = (row: Candidate) => Math.max(1, Number(row.sourcePage) || 1);
 

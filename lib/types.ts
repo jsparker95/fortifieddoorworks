@@ -89,6 +89,7 @@ export type ProjectDocument = {
   storage_path: string;
   document_type: string;
   revision_label: string;
+  description: string;
   page_count: number | null;
   status: "uploaded" | "indexed" | "analyzed" | "needs_review" | "failed";
   analysis: Record<string, unknown> | null;

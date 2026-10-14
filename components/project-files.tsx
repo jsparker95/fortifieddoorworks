@@ -22,7 +22,7 @@ const ALLOWED_MIME_TYPES = new Set(Object.values(MIME_BY_EXTENSION));
 
 export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }: {
   projectId: string; demo: boolean; phases: ProjectPhase[]; activePhaseId: string;
-  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void | Promise<void>;
+  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
 }) {
   const [selectedDocument, setSelectedDocument] = useState<ProjectDocument | null>(null);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
@@ -111,7 +111,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }
                 <li key={document.id}>
                   <button type="button" onClick={() => setSelectedDocument(document)}>
                     <FileText size={17} />
-                    <span><strong>{document.file_name}</strong><small>{new Date(document.created_at).toLocaleDateString()} · {document.status}</small></span>
+                    <span><strong>{document.file_name}</strong><small>{new Date(document.created_at).toLocaleDateString()} · {document.status}</small>{document.description && <small className="project-file-description">{document.description}</small>}</span>
                     <ExternalLink size={15} />
                   </button>
                 </li>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "../lib/drawing-takeoff/phase-import";
+import { mapAnalysisToPhaseRows, mergePhaseCandidateRows, phaseHasTakeoffData } from "../lib/drawing-takeoff/phase-import";
 import type { Row } from "../lib/types";
 
 test("maps extracted schedule and hardware fields into phase tab rows as AI drafts", () => {
@@ -54,4 +54,12 @@ test("keeps the same mark from separate source sheets as separate candidates", (
   }).openings!;
   assert.notEqual(rows[0].sourceCandidateKey, rows[1].sourceCandidateKey);
   assert.equal(mergePhaseCandidateRows([], rows).length, 2);
+});
+
+test("allows automatic import only when all four takeoff tabs are empty", () => {
+  assert.equal(phaseHasTakeoffData({ openings: [], walls: [], doorTypes: [], hardware: [] }), false);
+  assert.equal(phaseHasTakeoffData(undefined), false);
+  for (const kind of ["openings", "walls", "doorTypes", "hardware"] as const) {
+    assert.equal(phaseHasTakeoffData({ openings: [], walls: [], doorTypes: [], hardware: [], [kind]: [{ id: "existing" }] }), true);
+  }
 });
