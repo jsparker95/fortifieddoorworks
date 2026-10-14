@@ -5,7 +5,7 @@ import { Catalog, Project, stages } from "./types";
 import QRCode from "qrcode";
 import { productionLabels } from "./labels";
 import { drawSubmittal } from "./submittal-layout";
-import { appendHardwareDocuments, submittalHardwareDocuments, type HardwareDocumentLoader } from "./submittal-hardware-documents";
+import { appendHardwareDocuments, submittalDocuments, type HardwareDocumentLoader } from "./submittal-hardware-documents";
 const clean = (s: unknown) =>
   str(s)
     .replace(/[\u2010-\u2015]/g, "-")
@@ -564,7 +564,7 @@ export async function makeDocument(
       });
   }
   if (type === "Submittal") {
-    await appendHardwareDocuments(pdf, submittalHardwareDocuments({ ...project.data, ...phase.data }, opts.catalogs || []), opts.loadHardwareDocument);
+    await appendHardwareDocuments(pdf, submittalDocuments({ ...project.data, ...phase.data }, opts.catalogs || []), opts.loadHardwareDocument);
   }
   pdf.setTitle(`${project.name} - ${type}`);
   pdf.setAuthor("Fortified Doorworks");

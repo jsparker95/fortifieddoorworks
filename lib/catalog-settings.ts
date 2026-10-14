@@ -1,4 +1,5 @@
 import type { Catalog } from "./types";
+import { catalogBrandCategory } from "./cutsheets";
 
 export type CatalogField = "value" | "description";
 
@@ -22,7 +23,12 @@ export function filterCatalogs(rows: Catalog[], category: string, query: string)
 }
 
 export function hardwareBrandId(rows: Catalog[], value: string): string {
-  const brand = rows.find((row) => row.category === "Hardware brands" && row.value === value.trim());
-  if (!brand) throw new Error("Choose a brand from Hardware brands in Settings.");
+  return catalogBrandId(rows, "Hardware components", value);
+}
+
+export function catalogBrandId(rows: Catalog[], category: string, value: string): string {
+  const brands = catalogBrandCategory(category);
+  const brand = rows.find((row) => row.category === brands && row.value === value.trim());
+  if (!brand) throw new Error(`Choose a brand from ${brands} in Settings.`);
   return brand.id;
 }

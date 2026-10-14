@@ -1,11 +1,13 @@
 export const settingsCategories = [
   "Door brands",
   "Door materials",
+  "Door cutsheets",
   "Windows",
   "Handing",
   "Fire ratings",
   "Frame brands",
   "Frame types",
+  "Frame cutsheets",
   "Anchors",
   "Hardware brands",
   "Hardware components",
