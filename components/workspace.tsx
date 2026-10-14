@@ -39,7 +39,7 @@ import { DeleteTargetDialog, DeletionCleanup } from "./delete-target";
 import { cleanupDeletedFiles, pendingDeletionFiles } from "@/lib/deletion";
 import { AccessManagement } from "./access-management";
 import { canManageProduction, isWorkspaceRole, roleLabels, type WorkspaceRole } from "@/lib/access";
-import { applyCatalogField, catalogFieldValue, filterCatalogs, catalogBrandId, type CatalogField } from "@/lib/catalog-settings";
+import { applyCatalogField, catalogFieldValue, filterCatalogs, sortCatalogs, catalogCreatedDate, catalogBrandId, type CatalogField, type CatalogSort } from "@/lib/catalog-settings";
 import {
   Project,
   ProjectData,
@@ -297,7 +297,8 @@ export default function Workspace() {
     [page, setPage] = useState(0),
     [cat, setCat] = useState<SettingsCategory>("Door brands");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const visibleCatalogs = filterCatalogs(catalogs, cat, hasCatalogDocuments(cat) ? catalogQuery : "");
+  const [catalogSort, setCatalogSort] = useState<CatalogSort>("value");
+  const visibleCatalogs = sortCatalogs(filterCatalogs(catalogs, cat, hasCatalogDocuments(cat) ? catalogQuery : ""), catalogSort);
   function updateCatalog(row: Pick<Catalog, "id"> & Partial<Catalog>) {
     setCatalogs((rows) => rows.map((existing) => existing.id === row.id ? { ...existing, ...row } : existing));
   }
@@ -1557,6 +1558,9 @@ export default function Workspace() {
               .select()
               .single();
             if (result.error) throw result.error;
+            Object.assign(payload, result.data);
+          } else if (type === "catalogs" && !row) {
+            payload.created_at = new Date().toISOString();
           }
           if (type === "contractors")
             setContractors((a) => [
@@ -2493,15 +2497,23 @@ export default function Workspace() {
                       {hasCatalogDocuments(cat) && <p>Attach the reference PDF for this product. Door and frame cutsheets can match a brand and material/type automatically, or be chosen when editing the schedule.</p>}
                     </div>
                   </div>
-                  {hasCatalogDocuments(cat) && <div className="hardware-settings-search">
-                    <label className="search"><Search size={16} /><input type="search" aria-label={`Search ${cat.toLowerCase()} by value or description`} placeholder="Search value or description…" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} /></label>
+                  <div className="hardware-settings-search">
+                    {hasCatalogDocuments(cat) && <label className="search"><Search size={16} /><input type="search" aria-label={`Search ${cat.toLowerCase()} by value or description`} placeholder="Search value or description…" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} /></label>}
+                    <label className="catalog-sort">Sort by
+                      <select value={catalogSort} onChange={(event) => setCatalogSort(event.target.value as CatalogSort)}>
+                        <option value="value">Value: A–Z</option>
+                        <option value="newest">Created: newest first</option>
+                        <option value="oldest">Created: oldest first</option>
+                      </select>
+                    </label>
                     <span role="status">{visibleCatalogs.length} of {catalogs.filter((row) => row.category === cat).length} records</span>
-                  </div>}
+                  </div>
                   <div className="table-scroll">
                     <table>
                       <thead>
                         <tr>
                           <th>Value</th>
+                          <th>Created</th>
                           {catalogBrandCategory(cat) && <th>Brand</th>}
                           {cutsheetMatchCategory(cat) && <th>Automatic match</th>}
                           <th>Description</th>
@@ -2519,6 +2531,11 @@ export default function Workspace() {
                                   required
                                   onSave={(value) => saveCatalogField(c.id, "value", value)}
                                 />
+                              </td>
+                              <td className="catalog-created-date">
+                                {catalogCreatedDate(c) === "Unknown"
+                                  ? <span title="This record was created before creation dates were tracked.">Unknown</span>
+                                  : <time dateTime={c.created_at!}>{catalogCreatedDate(c)}</time>}
                               </td>
                               {catalogBrandCategory(cat) && <td><HardwareComponentBrand component={c} brands={catalogs.filter((brand) => brand.category === catalogBrandCategory(cat))} demo={demo} onChange={updateCatalog} /></td>}
                               {cutsheetMatchCategory(cat) && <td><CutsheetMatch component={c} options={catalogs.filter((option) => option.category === cutsheetMatchCategory(cat)).map((option) => option.value)} demo={demo} onChange={updateCatalog} /></td>}
@@ -2549,7 +2566,7 @@ export default function Workspace() {
                               </td>
                             </tr>
                           ))}
-                        {!visibleCatalogs.length && <tr><td colSpan={3 + Number(Boolean(catalogBrandCategory(cat))) + Number(Boolean(cutsheetMatchCategory(cat))) + Number(hasCatalogDocuments(cat))}>{catalogQuery && hasCatalogDocuments(cat) ? "No records match your search." : "No options yet."}</td></tr>}
+                        {!visibleCatalogs.length && <tr><td colSpan={4 + Number(Boolean(catalogBrandCategory(cat))) + Number(Boolean(cutsheetMatchCategory(cat))) + Number(hasCatalogDocuments(cat))}>{catalogQuery && hasCatalogDocuments(cat) ? "No records match your search." : "No options yet."}</td></tr>}
                       </tbody>
                     </table>
                   </div>

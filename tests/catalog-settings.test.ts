@@ -1,11 +1,34 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyCatalogField, catalogFieldValue } from "../lib/catalog-settings";
+import { sortCatalogs, catalogCreatedDate } from "../lib/catalog-settings";
+import type { Catalog } from "../lib/types";
 
 const rows = [
   { id: "a", category: "Door brands", value: "DCI", description: "Original" },
   { id: "b", category: "Windows", value: "Glass", description: "" },
 ];
+
+test("creation sorting uses timestamps, puts unknowns last in both directions, and preserves input", () => {
+  const data: Catalog[] = [
+    { ...rows[0], id: "old", value: "Zulu", created_at: "2026-10-13T12:00:00Z" },
+    { ...rows[0], id: "unknown", value: "Alpha", created_at: null },
+    { ...rows[0], id: "new", value: "Bravo", created_at: "2026-10-14T12:00:00Z" },
+    { ...rows[0], id: "invalid", value: "Delta", created_at: "invalid" },
+    { ...rows[0], id: "tie", value: "Charlie", created_at: "2026-10-14T07:00:00-05:00" },
+  ];
+  assert.deepEqual(sortCatalogs(data, "newest").map((r) => r.id), ["new", "tie", "old", "unknown", "invalid"]);
+  assert.deepEqual(sortCatalogs(data, "oldest").map((r) => r.id), ["old", "new", "tie", "unknown", "invalid"]);
+  assert.deepEqual(sortCatalogs(data, "value").map((r) => r.id), ["unknown", "new", "tie", "invalid", "old"]);
+  assert.deepEqual(data.map((r) => r.id), ["old", "unknown", "new", "invalid", "tie"]);
+  assert.deepEqual(sortCatalogs(filterCatalogs(data, "Door brands", "bravo"), "newest").map((r) => r.id), ["new"]);
+});
+
+test("creation date displays unknown honestly and uses the workspace timezone", () => {
+  assert.equal(catalogCreatedDate(rows[0]), "Unknown");
+  assert.equal(catalogCreatedDate({ ...rows[0], created_at: "bad date" }), "Unknown");
+  assert.equal(catalogCreatedDate({ ...rows[0], created_at: "2026-10-14T02:00:00Z" }), "Oct 13, 2026");
+});
 
 test("required settings values are trimmed and blank values rejected", () => {
   assert.equal(catalogFieldValue("value", "  DKS  "), "DKS");

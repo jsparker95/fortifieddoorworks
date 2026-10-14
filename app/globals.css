@@ -2489,6 +2489,9 @@ th,
 .hardware-settings-search { display: flex; align-items: center; gap: 16px; padding: 0 20px 18px; flex-wrap: wrap; }
 .hardware-settings-search .search { flex: 1; max-width: 480px; flex-direction: row; }
 .hardware-settings-search > span { color: var(--muted); font-size: 12px; }
+.catalog-sort { display: flex; flex-direction: row; align-items: center; gap: 8px; white-space: nowrap; }
+.catalog-sort select { width: auto; }
+.catalog-created-date { white-space: nowrap; color: var(--muted); font-size: 12px; }
 .hardware-brand-cell { min-width: 160px; }
 .hardware-brand-cell select { width: 100%; max-width: 220px; }
 .hardware-document-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 160px; max-width: 260px; }
