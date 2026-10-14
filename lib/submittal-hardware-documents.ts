@@ -48,8 +48,8 @@ export function submittalDocuments(data: ProjectData, catalogs: Catalog[]): Cata
     if (matches[0]) documents.push(matches[0]);
   }
   const { doors, frames } = derive(data);
-  const types = new Map(data.doorTypes.map((type) => [componentKey(type.name), type]));
-  const walls = new Map(data.walls.map((wall) => [componentKey(wall.name), wall]));
+  const types = new Map(data.doorTypes.filter((type) => !type.deleted && type.reviewState !== "ai-draft").map((type) => [componentKey(type.name), type]));
+  const walls = new Map(data.walls.filter((wall) => !wall.deleted && wall.reviewState !== "ai-draft").map((wall) => [componentKey(wall.name), wall]));
   const usedDoors = new Set<string>();
   for (const door of doors) {
     if (same(door.doorType, "NA")) continue;
