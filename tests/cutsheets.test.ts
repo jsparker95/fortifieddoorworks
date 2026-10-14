@@ -58,3 +58,11 @@ test("legacy uploads without stored hashes still merge identical PDF content onc
   await appendHardwareDocuments(output, [pdf("one", "Hardware components", "Part one"), pdf("two", "Hardware components", "Part two")], async () => bytes);
   assert.equal(output.getPageCount(), 2);
 });
+
+
+test("unreviewed door types and wall brand fallbacks cannot add cutsheets to reviewed openings", () => {
+  const data = sample();
+  data.doorTypes[0].reviewState = "ai-draft";
+  data.walls[0].reviewState = "ai-draft";
+  assert.deepEqual(submittalDocuments(data, catalogs).map((c) => c.id), ["hinge"]);
+});
