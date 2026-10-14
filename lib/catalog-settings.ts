@@ -2,6 +2,33 @@ import type { Catalog } from "./types";
 import { catalogBrandCategory } from "./cutsheets";
 
 export type CatalogField = "value" | "description";
+export type CatalogSort = "value" | "newest" | "oldest";
+
+function createdTime(row: Catalog): number | null {
+  const time = row.created_at ? Date.parse(row.created_at) : NaN;
+  return Number.isFinite(time) ? time : null;
+}
+
+export function sortCatalogs(rows: Catalog[], sort: CatalogSort): Catalog[] {
+  return [...rows].sort((a, b) => {
+    if (sort !== "value") {
+      const first = createdTime(a), second = createdTime(b);
+      // Unknown historical dates belong at the end in either direction.
+      if (first === null && second !== null) return 1;
+      if (first !== null && second === null) return -1;
+      if (first !== null && second !== null && first !== second)
+        return sort === "newest" ? second - first : first - second;
+    }
+    return a.value.localeCompare(b.value) || a.id.localeCompare(b.id);
+  });
+}
+
+export function catalogCreatedDate(row: Catalog): string {
+  const time = createdTime(row);
+  return time === null ? "Unknown" : new Date(time).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric", timeZone: "America/Chicago",
+  });
+}
 
 export function catalogFieldValue(field: CatalogField, value: string) {
   if (field === "value") {
