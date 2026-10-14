@@ -61,7 +61,7 @@ import {
   selectPhase,
   resolvePhaseForOpening,
 } from "@/lib/phases";
-import { mergePhaseCandidateRows } from "@/lib/drawing-takeoff/phase-import";
+import { mergePhaseCandidateRows, phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
 import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
@@ -1417,6 +1417,7 @@ export default function Workspace() {
             storage_path: path,
             document_type: document.document_type,
             revision_label: document.revision_label,
+            description: document.description || "",
             page_count: document.page_count,
             status: document.status,
             analysis: document.analysis,
@@ -2617,8 +2618,11 @@ export default function Workspace() {
                 <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
                   phases={active.data.phases || [activePhase(active.data)]}
                   activePhaseId={activePhase(active.data).id}
-                  onApply={async (phaseId, rows) => {
+                  onApply={async (phaseId, rows, onlyIfEmpty) => {
                     const data = persistActivePhase(active.data);
+                    const targetPhase = (data.phases || []).find((phase) => phase.id === phaseId);
+                    if (!targetPhase) throw new Error("The selected phase could not be found.");
+                    if (onlyIfEmpty && phaseHasTakeoffData(targetPhase.data)) return false;
                     const phases = (data.phases || []).map((phase) => phase.id === phaseId ? {
                       ...phase, data: { ...phase.data, ...Object.fromEntries(Object.entries(rows).map(([kind, additions]) =>
                         [kind, mergePhaseCandidateRows(phase.data[kind as Kind] || [], additions || [])])) },
@@ -2627,6 +2631,7 @@ export default function Workspace() {
                     const next = { ...active, data: { ...data, ...(current?.data || {}), phases } };
                     update(next);
                     if (!await saveProject(next)) throw new Error("Draft entries are in this page, but the project could not be saved. Resolve the save error before leaving.");
+                    return true;
                   }} />
               </div>
               <ProductionSnapshot

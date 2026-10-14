@@ -9,18 +9,20 @@ import { DocumentManager } from "./document-manager";
 export function ProjectFileDialog({ document, phases, activePhaseId, onClose, onUpdated, onApply }: {
   document: ProjectDocument; phases: ProjectPhase[]; activePhaseId: string;
   onClose: () => void; onUpdated: (document: ProjectDocument) => void;
-  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>) => void | Promise<void>;
+  onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const latestDocument = useRef(document);
   useEffect(() => { latestDocument.current = document; }, [document]);
   const [name, setName] = useState(document.file_name);
+  const [description, setDescription] = useState(document.description || "");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [phaseId, setPhaseId] = useState(phases.some((phase) => phase.id === document.phase_id) ? document.phase_id! : activePhaseId);
   const phase = phases.find((item) => item.id === phaseId);
+  useEffect(() => { setDescription(document.description || ""); }, [document.description]);
   const extension = document.storage_path.split(".").pop()?.toLowerCase();
   const previewable = ["pdf", "png", "jpg", "jpeg", "txt"].includes(extension || "");
 
@@ -52,10 +54,10 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
     }
     setSaving(true); setError(""); setNotice("");
     try {
-      const { data, error } = await supabase.from("project_documents").update({ file_name: fileName })
+      const { data, error } = await supabase.from("project_documents").update({ file_name: fileName, description: description.trim() })
         .eq("id", document.id).eq("project_id", document.project_id).select("*").single();
       if (error) throw error;
-      onUpdated(data as ProjectDocument); setName(fileName); setNotice("File name saved.");
+      onUpdated(data as ProjectDocument); setName(fileName); setDescription(data.description || ""); setNotice("File details saved.");
     } catch (error) { setError(error instanceof Error ? error.message : "Could not rename this file."); }
     finally { setSaving(false); }
   }
@@ -67,7 +69,8 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
     </header>
     <form className="project-file-rename" onSubmit={(event) => { event.preventDefault(); void rename(); }}>
       <label>File name<input autoFocus value={name} maxLength={255} onChange={(event) => setName(event.target.value)} /></label>
-      <button className="button secondary" disabled={saving || name.trim() === document.file_name}>{saving ? "Saving…" : "Save name"}</button>
+      <label className="project-file-description-field">Document description<textarea value={description} maxLength={1800} rows={2} onChange={(event) => setDescription(event.target.value)} placeholder="AI schedule search findings will appear here." /></label>
+      <button className="button secondary" disabled={saving || (name.trim() === document.file_name && description.trim() === (document.description || ""))}>{saving ? "Saving…" : "Save details"}</button>
       {url && <a className="button secondary" href={url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Open in new tab</a>}
     </form>
     {error && <p className="error" role="alert">{error}</p>}
@@ -84,8 +87,8 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
         </select>
       </label>
       {phase ? <DocumentManager key={document.id} projectId={document.project_id} phaseId={phase.id} phaseName={phase.name}
-        document={document} onApply={(rows) => onApply(phase.id, rows)}
-        onAnalyzed={(analysis) => onUpdated({ ...latestDocument.current, phase_id: phase.id, analysis, status: "needs_review", page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
+        document={document} onApply={(rows, onlyIfEmpty) => onApply(phase.id, rows, onlyIfEmpty)}
+        onAnalyzed={(analysis, nextDescription, status) => onUpdated({ ...latestDocument.current, phase_id: phase.id, analysis, description: nextDescription, status, page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
         <p>Create a project phase before extracting openings.</p>}
     </>}
   </dialog>;

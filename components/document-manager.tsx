@@ -6,6 +6,7 @@ import type { Kind, ProjectDocument, Row } from "@/lib/types";
 import { mapAnalysisToPhaseRows, mapPhaseCandidate } from "@/lib/drawing-takeoff/phase-import";
 
 type Analysis = {
+  scheduleSearch?: { completed?: boolean; schedules?: Array<{ kind: "hardware" | "door" | "frame"; pages: number[]; description: string; evidence: string; confidence: number }>; pages?: number[]; summary?: string };
   relevantPages?: Array<{ page: number; section: string; reason: string; confidence: number }>;
   doorwayObservations?: Array<{ mark: string; sourcePage: number; boundingBox: { x: number; y: number; width: number; height: number }; hingeSide: string; swingDirection: string; handing: string; handingEvidence: string; symbolEvidence: string; confidence: number }>;
   matchedDoorways?: Array<{ mark: string; sourcePage: number; boundingBox: { x: number; y: number; width: number; height: number }; confidence: number; evidence: string; schedulePage: number | null; scheduleEvidence: string; scheduleMatches: number; width: string; height: string; hingeSide: string; swingDirection: string; handing: string; handingEvidence: string; reviewReasons: string[] }>;
@@ -27,8 +28,8 @@ const categories: Array<{ key: keyof Analysis; label: string; kind: Kind }> = [
 
 export function DocumentManager({ projectId, phaseId, phaseName, document, onApply, onAnalyzed }: {
   projectId: string; phaseId: string; phaseName: string; document: ProjectDocument;
-  onApply: (rows: Partial<Record<Kind, Row[]>>) => void | Promise<void>;
-  onAnalyzed: (analysis: Record<string, unknown>) => void;
+  onApply: (rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
+  onAnalyzed: (analysis: Record<string, unknown>, description: string, status: ProjectDocument["status"]) => void;
 }) {
   const current = document;
   const analysis = current.analysis as Analysis | null;
@@ -38,12 +39,15 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
     return counts;
   }, {});
   const [busyAction, setBusyAction] = useState<"analysis" | null>(null);
+  const [activeStep, setActiveStep] = useState<"locate" | "extract" | null>(null);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [manualPageInput, setManualPageInput] = useState("");
   const autoStarted = useRef(false);
   const recoveryImportStarted = useRef(false);
   const busy = busyAction !== null;
+  const scheduleSearchComplete = analysis?.scheduleSearch?.completed === true;
+  const extractionComplete = scheduleSearchComplete && current.status === "needs_review" && Array.isArray(analysis?.openings);
 
   const analyze = useCallback(async () => {
     if (!current) return;
@@ -61,19 +65,32 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
       if (!accessToken) throw new Error("Sign in again before analyzing this PDF.");
-      const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId, manualPages: [...manualPages] }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Analysis failed.");
-      const phaseRows = mapAnalysisToPhaseRows(current.id, result.analysis as Record<string, unknown>);
+      const analyzeStage = async (stage: "locate" | "extract") => {
+        setActiveStep(stage);
+        const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId, manualPages: [...manualPages], stage }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Analysis failed.");
+        return result as { analysis: Record<string, unknown>; description: string };
+      };
+      const search = await analyzeStage("locate");
+      const scheduleSearch = (search.analysis as Analysis).scheduleSearch;
+      if (!scheduleSearch?.completed) throw new Error("The schedule page search did not complete, so extraction was not started.");
+      onAnalyzed(search.analysis, search.description, "indexed");
+      setNotice(search.description || "Schedule page search completed.");
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
+      const result = await analyzeStage("extract");
+      const phaseRows = mapAnalysisToPhaseRows(current.id, result.analysis);
       const candidateCount = Object.values(phaseRows).reduce((sum, rows) => sum + (rows?.length || 0), 0);
       recoveryImportStarted.current = true;
-      if (candidateCount) await onApply(phaseRows);
-      setSelected(new Set()); onAnalyzed(result.analysis);
+      const imported = candidateCount ? await onApply(phaseRows, true) : false;
+      setSelected(new Set()); onAnalyzed(result.analysis, search.description, "needs_review");
       setNotice(candidateCount
-        ? `Extraction finished. ${candidateCount} AI draft item(s) were added to ${phaseName}; review them in the phase tabs before ordering or production.`
+        ? imported === false
+          ? `Extraction finished with ${candidateCount} draft candidate(s). ${phaseName} already has data in at least one of its Openings, Walls, Door types, or Hardware tabs, so nothing was added. Review the candidates below and select what you want to add.`
+          : `Extraction finished. ${candidateCount} AI draft item(s) were added to the empty ${phaseName} tabs; review them before ordering or production.`
         : "Extraction finished. No phase rows were found; review the page findings and extraction notes.");
     } catch (e) { setError(e instanceof Error ? e.message : "Analysis failed."); }
-    finally { setBusyAction(null); }
+    finally { setBusyAction(null); setActiveStep(null); }
   }, [current, manualPageInput, onAnalyzed, onApply, phaseId, phaseName, projectId]);
 
   useEffect(() => {
@@ -83,12 +100,17 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
   }, [analyze, current.status]);
 
   useEffect(() => {
-    if (!current.analysis || recoveryImportStarted.current) return;
+    if (!current.analysis || !(current.analysis as Analysis).scheduleSearch?.completed || recoveryImportStarted.current) return;
     recoveryImportStarted.current = true;
     const rows = mapAnalysisToPhaseRows(current.id, current.analysis);
     if (Object.values(rows).some((items) => items?.length)) {
       void (async () => {
-        try { await onApply(rows); setNotice(`Saved the existing extraction as AI draft rows in ${phaseName}. Review them in the phase tabs.`); }
+        try {
+          const imported = await onApply(rows, true);
+          setNotice(imported === false
+            ? `This phase already has data in at least one takeoff tab. Saved extraction candidates were left for review and were not added.`
+            : `Saved the existing extraction as AI draft rows in ${phaseName}. Review them in the phase tabs.`);
+        }
         catch (e) { setError(e instanceof Error ? e.message : "Could not add the saved extraction to this phase."); }
       })();
     }
@@ -113,8 +135,19 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
   function toggle(id: string) { setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 
   return <section className="panel doc-intake">
-      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>Searches long PDFs for Division 08, door/hardware/wall schedules, and relevant drawings. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" disabled={busy} onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy || !phaseId} onClick={() => void analyze()}>{busyAction === "analysis" ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busyAction === "analysis" ? "Finding pages & extracting…" : analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
-        {busyAction === "analysis" && <p className="document-progress" role="status" aria-live="polite"><LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> Checking the PDF pages and extracting draft rows for {phaseName}. Larger plan sets can take up to about two minutes.</p>}
+      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>AI page finding &amp; takeoff candidates</h3><p>First it finds hardware, door, and frame schedules. Then it extracts phase information. AI results stay provisional until you review them.</p></div><div className="doc-analysis-actions"><button className="button secondary" disabled={busy} onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy || !phaseId} onClick={() => void analyze()}>{busyAction === "analysis" ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busyAction === "analysis" ? activeStep === "locate" ? "Finding schedule pages…" : "Extracting phase data…" : analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
+        <ol className="document-analysis-steps" aria-label="Document analysis progress" aria-live="polite">
+          <li className={`${activeStep === "locate" ? "is-running" : scheduleSearchComplete ? "is-complete" : ""}`}>
+            <span className="document-step-icon">{activeStep === "locate" ? <LoaderCircle size={16} className="document-spinner"/> : scheduleSearchComplete ? <Check size={16} className="document-check"/> : <span>1</span>}</span>
+            <span><strong>Find hardware, door, and frame schedules</strong><small>{activeStep === "locate" ? "Searching page text and drawings…" : scheduleSearchComplete ? current.description || analysis?.scheduleSearch?.summary || "Schedule search completed." : "Waiting to search the PDF"}</small></span>
+          </li>
+          <li className={`${activeStep === "extract" ? "is-running" : extractionComplete ? "is-complete" : ""}`}>
+            <span className="document-step-icon">{activeStep === "extract" ? <LoaderCircle size={16} className="document-spinner"/> : extractionComplete ? <Check size={16} className="document-check"/> : <span>2</span>}</span>
+            <span><strong>Extract phase information</strong><small>{activeStep === "extract" ? `Reading schedules and relevant drawings for ${phaseName}…` : extractionComplete ? "Phase extraction completed." : scheduleSearchComplete ? "Schedule search is complete; extraction will start next." : "Starts after schedule pages are found"}</small></span>
+          </li>
+        </ol>
+        {scheduleSearchComplete && !!analysis?.scheduleSearch?.schedules?.length && <div className="schedule-search-results"><strong>Schedule pages found</strong>{analysis.scheduleSearch.schedules.map((schedule) => <p key={schedule.kind}><span>{schedule.kind === "door" ? "Door / opening" : schedule.kind[0].toUpperCase() + schedule.kind.slice(1)} schedule:</span> {schedule.pages.map((page, index) => <span key={page}>{index > 0 ? ", " : ""}<button type="button" className="inline-link" onClick={() => void openPage(page)}>p. {page}</button></span>)}{schedule.description ? ` · ${schedule.description}` : ""}{schedule.evidence ? <small className="schedule-search-evidence">Evidence: “{schedule.evidence}”</small> : null}</p>)}</div>}
+        {busyAction === "analysis" && <p className="document-progress" role="status" aria-live="polite"><LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> {activeStep === "locate" ? "Searching for schedule pages. Phase extraction will wait until this step is saved." : `Schedule search is complete. Now extracting draft rows for ${phaseName}.`}</p>}
         <label className="manual-page-selection">Include known PDF pages or ranges (optional)<input value={manualPageInput} onChange={(event) => setManualPageInput(event.target.value)} placeholder="e.g. 22, 45-49, 207-209"/><small>Useful for scanned pages or when you know where a schedule is. Up to 36 total pages are analyzed; PDFs with 10 pages or fewer are scanned in full, and longer files auto-select up to 10 pages.</small></label>
         {analysis && <>
           <p className="printing-note">Indexed {analysis.indexedPageCount || current.page_count || "?"} pages; visually analyzed {analysis.candidatePageCount ?? analysis.relevantPages?.length ?? 0}; {analysis.relevantPages?.length || 0} relevant pages detected; {analysis.scannedPageCount || 0} pages had no searchable text. PDF page numbering refers to the file’s page order.</p>

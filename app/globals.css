@@ -913,6 +913,7 @@ progress::-moz-progress-bar {
 .project-file-list button span { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .project-file-list button strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .project-file-list button small { color: #87919a; font-size: 10px; }
+.project-file-list button .project-file-description { display: -webkit-box; overflow: hidden; color: #667085; line-height: 1.4; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .project-files-empty { margin: 4px 0 2px; color: #87919a; font-size: 11px; line-height: 1.5; }
 .project-files-message { margin: 10px 0 0; color: #47705b; font-size: 11px; }
 .project-files-message.is-error { color: #a33c35; }
@@ -2251,6 +2252,26 @@ th,
   color: var(--muted, #64748b);
   font-size: 0.9rem;
 }
+
+.document-analysis-steps { display: grid; gap: 10px; padding: 0; margin: 8px 0 14px; list-style: none; }
+.document-analysis-steps li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.document-analysis-steps li.is-running { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, white); }
+.document-analysis-steps li.is-complete { border-color: #b7dfc2; background: #f2faf4; }
+.document-step-icon { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); font-size: 12px; }
+.is-running .document-step-icon { border: 0; color: var(--accent); }
+.is-complete .document-step-icon { border: 0; color: #16803c; }
+.document-check { animation: document-check-in 260ms ease-out both; }
+.document-analysis-steps li > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.document-analysis-steps small { color: var(--muted); line-height: 1.45; }
+.schedule-search-results { padding: 10px 12px; margin: 0 0 14px; border-radius: 8px; background: #f7f8fa; }
+.schedule-search-results p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.schedule-search-results p > span:first-child { color: var(--ink); font-weight: 600; }
+.project-file-description-field { flex-basis: 100%; }
+.project-file-rename textarea { width: 100%; min-height: 56px; resize: vertical; border: 1px solid #d8dfe8; border-radius: 6px; padding: 10px; background: white; color: #172333; font: inherit; }
+.project-file-rename { flex-wrap: wrap; }
+.project-file-rename > label:not(.project-file-description-field) { flex: 1 1 280px; }
+.project-file-description-field { flex: 1 1 100%; }
+@keyframes document-check-in { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
 
 @keyframes document-spin {
   to { transform: rotate(360deg); }
