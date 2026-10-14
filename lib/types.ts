@@ -145,9 +145,11 @@ export type Contractor = {
   phone: string;
 };
 export type Catalog = {
+  match_value?: string | null;
   brand_id?: string | null;
   document_path?: string | null;
   document_name?: string | null;
+  document_sha256?: string | null;
   id: string;
   category: string;
   value: string;

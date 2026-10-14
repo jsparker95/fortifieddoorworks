@@ -29,6 +29,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
       { key: "window", label: "Window / louver", options: options("Windows") },
       { key: "fire", label: "Fire rating", options: options("Fire ratings") },
       { key: "pr", label: "P.R. / special requirements" },
+      { key: "cutsheet", label: "Door cutsheet (blank = automatic match)", options: options("Door cutsheets") },
     ];
   if (kind === "hardware")
     return [
@@ -81,6 +82,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     },
     { key: "handing", label: "Handing", options: options("Handing") },
     { key: "frameType", label: "Frame type", options: options("Frame types") },
+    { key: "frameCutsheet", label: "Frame cutsheet (blank = automatic match)", options: options("Frame cutsheets") },
     { key: "anchor", label: "Anchor", options: options("Anchors") },
     { key: "anchorQty", label: "Anchors per frame", type: "number" },
     { key: "qty", label: "Source quantity / note" },

@@ -33,12 +33,13 @@ import {
 import { supabase } from "@/lib/supabase";
 import { HARDWARE_DOCUMENT_BUCKET } from "@/lib/hardware-component-documents";
 import SettingCell from "./setting-cell";
-import { HardwareComponentBrand, HardwareComponentDocument } from "./hardware-component-settings";
+import { hasCatalogDocuments, catalogBrandCategory, cutsheetMatchCategory, documentCategories } from "@/lib/cutsheets";
+import { HardwareComponentBrand, HardwareComponentDocument, CutsheetMatch } from "./hardware-component-settings";
 import { DeleteTargetDialog, DeletionCleanup } from "./delete-target";
 import { cleanupDeletedFiles, pendingDeletionFiles } from "@/lib/deletion";
 import { AccessManagement } from "./access-management";
 import { canManageProduction, isWorkspaceRole, roleLabels, type WorkspaceRole } from "@/lib/access";
-import { applyCatalogField, catalogFieldValue, filterCatalogs, hardwareBrandId, type CatalogField } from "@/lib/catalog-settings";
+import { applyCatalogField, catalogFieldValue, filterCatalogs, catalogBrandId, type CatalogField } from "@/lib/catalog-settings";
 import {
   Project,
   ProjectData,
@@ -296,8 +297,7 @@ export default function Workspace() {
     [page, setPage] = useState(0),
     [cat, setCat] = useState<SettingsCategory>("Door brands");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const hardwareBrands = catalogs.filter((row) => row.category === "Hardware brands");
-  const visibleCatalogs = filterCatalogs(catalogs, cat, cat === "Hardware components" ? catalogQuery : "");
+  const visibleCatalogs = filterCatalogs(catalogs, cat, hasCatalogDocuments(cat) ? catalogQuery : "");
   function updateCatalog(row: Pick<Catalog, "id"> & Partial<Catalog>) {
     setCatalogs((rows) => rows.map((existing) => existing.id === row.id ? { ...existing, ...row } : existing));
   }
@@ -1521,7 +1521,8 @@ export default function Workspace() {
             },
             { key: "value", label: "Value", required: true },
             { key: "description", label: "Description", type: "textarea" },
-            { key: "brand", label: "Brand", options: hardwareBrands.map((brand) => brand.value), required: true, visibleWhen: { key: "category", value: "Hardware components" } },
+            ...documentCategories.filter((category) => catalogBrandCategory(category)).map((category) => ({ key: "brand", label: "Brand", options: catalogs.filter((brand) => brand.category === catalogBrandCategory(category)).map((brand) => brand.value), required: true, visibleWhen: { key: "category", value: category } })),
+            ...["Door cutsheets", "Frame cutsheets"].map((category) => ({ key: "match_value", label: category === "Door cutsheets" ? "Auto-match door material (optional)" : "Auto-match frame type (optional)", options: catalogs.filter((option) => option.category === cutsheetMatchCategory(category)).map((option) => option.value), visibleWhen: { key: "category", value: category } })),
           ];
     setEdit({
       title: row
@@ -1530,7 +1531,7 @@ export default function Workspace() {
           ? "Add contractor"
           : "Add setting",
       fields: fs,
-      initial: (row ? { ...row, brand: hardwareBrands.find((brand) => brand.id === (row as Catalog).brand_id)?.value || "" } : {
+      initial: (row ? { ...row, brand: catalogs.find((brand) => brand.id === (row as Catalog).brand_id)?.value || "" } : {
         id: crypto.randomUUID(),
         category: cat,
       }) as unknown as Row,
@@ -1544,8 +1545,9 @@ export default function Workspace() {
           );
           if (type === "catalogs") {
             payload.value = catalogFieldValue("value", String(payload.value));
-            payload.brand_id = r.category === "Hardware components" ? hardwareBrandId(catalogs, String(r.brand || "")) : null;
-            if ((row as Catalog | undefined)?.document_path && r.category !== "Hardware components") throw new Error("Keep this component in Hardware components while it has an attached document.");
+            payload.brand_id = catalogBrandCategory(String(r.category)) ? catalogBrandId(catalogs, String(r.category), String(r.brand || "")) : null;
+            payload.match_value = cutsheetMatchCategory(String(r.category)) ? r.match_value || null : null;
+            if ((row as Catalog | undefined)?.document_path && r.category !== (row as Catalog).category) throw new Error("Keep this record in its current category while it has an attached document.");
           }
           if (!demo) {
             const result = await supabase
@@ -1593,7 +1595,7 @@ export default function Workspace() {
         throw new Error(
           "This contractor is used by a project. Reassign the projects first.",
         );
-      if (type === "catalogs" && catalogs.some((component) => component.brand_id === row.id)) throw new Error("This brand is used by hardware components. Reassign their brands first.");
+      if (type === "catalogs" && catalogs.some((component) => component.brand_id === row.id)) throw new Error("This brand is used by components or cutsheets. Reassign their brands first.");
       if (!demo) {
         const r = await supabase.from(type).delete().eq("id", row.id);
         if (r.error) throw r.error;
@@ -2487,21 +2489,22 @@ export default function Workspace() {
                     <div>
                       <h2>{cat}</h2>
                       <p>Edit any value or description. Changes save when you leave the field.</p>
-                      {cat === "Hardware components" && <p>Choose a brand for each component and attach its reference document.</p>}
+                      {hasCatalogDocuments(cat) && <p>Attach the reference PDF for this product. Door and frame cutsheets can match a brand and material/type automatically, or be chosen when editing the schedule.</p>}
                     </div>
                   </div>
-                  {cat === "Hardware components" && <div className="hardware-settings-search">
-                    <label className="search"><Search size={16} /><input type="search" aria-label="Search hardware components by value or description" placeholder="Search value or description…" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} /></label>
-                    <span role="status">{visibleCatalogs.length} of {catalogs.filter((row) => row.category === cat).length} components</span>
+                  {hasCatalogDocuments(cat) && <div className="hardware-settings-search">
+                    <label className="search"><Search size={16} /><input type="search" aria-label={`Search ${cat.toLowerCase()} by value or description`} placeholder="Search value or description…" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} /></label>
+                    <span role="status">{visibleCatalogs.length} of {catalogs.filter((row) => row.category === cat).length} records</span>
                   </div>}
                   <div className="table-scroll">
                     <table>
                       <thead>
                         <tr>
                           <th>Value</th>
-                          {cat === "Hardware components" && <th>Brand</th>}
+                          {catalogBrandCategory(cat) && <th>Brand</th>}
+                          {cutsheetMatchCategory(cat) && <th>Automatic match</th>}
                           <th>Description</th>
-                          {cat === "Hardware components" && <th>Document</th>}
+                          {hasCatalogDocuments(cat) && <th>Document</th>}
                           <th>Actions</th>
                         </tr>
                       </thead>
@@ -2516,7 +2519,8 @@ export default function Workspace() {
                                   onSave={(value) => saveCatalogField(c.id, "value", value)}
                                 />
                               </td>
-                              {cat === "Hardware components" && <td><HardwareComponentBrand component={c} brands={hardwareBrands} demo={demo} onChange={updateCatalog} /></td>}
+                              {catalogBrandCategory(cat) && <td><HardwareComponentBrand component={c} brands={catalogs.filter((brand) => brand.category === catalogBrandCategory(cat))} demo={demo} onChange={updateCatalog} /></td>}
+                              {cutsheetMatchCategory(cat) && <td><CutsheetMatch component={c} options={catalogs.filter((option) => option.category === cutsheetMatchCategory(cat)).map((option) => option.value)} demo={demo} onChange={updateCatalog} /></td>}
                               <td>
                                 <SettingCell
                                   value={c.description || ""}
@@ -2525,7 +2529,7 @@ export default function Workspace() {
                                   onSave={(value) => saveCatalogField(c.id, "description", value)}
                                 />
                               </td>
-                              {cat === "Hardware components" && <td><HardwareComponentDocument component={c} demo={demo} onChange={updateCatalog} /></td>}
+                              {hasCatalogDocuments(cat) && <td><HardwareComponentDocument component={c} demo={demo} onChange={updateCatalog} /></td>}
                               <td>
                                 <button
                                   className="icon-button"
@@ -2544,7 +2548,7 @@ export default function Workspace() {
                               </td>
                             </tr>
                           ))}
-                        {!visibleCatalogs.length && <tr><td colSpan={cat === "Hardware components" ? 5 : 3}>{catalogQuery && cat === "Hardware components" ? "No components match your search." : "No options yet."}</td></tr>}
+                        {!visibleCatalogs.length && <tr><td colSpan={3 + Number(Boolean(catalogBrandCategory(cat))) + Number(Boolean(cutsheetMatchCategory(cat))) + Number(hasCatalogDocuments(cat))}>{catalogQuery && hasCatalogDocuments(cat) ? "No records match your search." : "No options yet."}</td></tr>}
                       </tbody>
                     </table>
                   </div>
