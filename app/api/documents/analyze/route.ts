@@ -5,30 +5,10 @@ import { z } from "zod";
 import { matchSchedule, type ScheduleOpening } from "@/lib/drawing-takeoff/matching";
 import { deduplicateDoors, normalizeMark, type DoorDetection } from "@/lib/drawing-takeoff/geometry";
 import { selectDrawingPages, type IndexedDrawingPage } from "@/lib/drawing-takeoff/page-selection";
+import { extractionSchema, sanitizeExtraction } from "@/lib/drawing-takeoff/extraction-schema";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const extractionSchema = z.object({
-  relevantPages: z.array(z.object({ page: z.number().int().positive(), section: z.string(), reason: z.string(), confidence: z.number().min(0).max(1) })).max(60),
-  walls: z.array(z.object({ code: z.string(), description: z.string(), finishedThickness: z.string(), layers: z.array(z.string()), sourcePage: z.number().int().positive(), evidence: z.string(), confidence: z.number().min(0).max(1) })).max(150),
-  doorTypes: z.array(z.object({ code: z.string(), description: z.string(), material: z.string(), manufacturer: z.string(), windowOrLouver: z.string(), fireRating: z.string(), width: z.string(), height: z.string(), sourcePage: z.number().int().positive(), evidence: z.string(), confidence: z.number().min(0).max(1) })).max(150),
-  openings: z.array(z.object({ mark: z.string(), room: z.string(), width: z.string(), height: z.string(), handing: z.string(), doorType: z.string(), frameType: z.string(), wallType: z.string(), hardwareGroup: z.string(), fireRating: z.string(), quantity: z.string(), sourcePage: z.number().int().positive(), evidence: z.string(), confidence: z.number().min(0).max(1) })).max(2000),
-  doorwayObservations: z.array(z.object({
-    mark: z.string(),
-    sourcePage: z.number().int().positive(),
-    boundingBox: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), width: z.number().positive().max(1), height: z.number().positive().max(1) }).refine((box) => box.x + box.width <= 1 && box.y + box.height <= 1, "Bounding box must fit inside the original page."),
-    hingeSide: z.enum(["left", "right", "unknown"]),
-    swingDirection: z.enum(["toward_reference_side", "away_from_reference_side", "unclear"]),
-    handing: z.enum(["LH", "RH", "LHR", "RHR", "", "unclear"]),
-    handingEvidence: z.string(),
-    symbolEvidence: z.string(),
-    confidence: z.number().min(0).max(1),
-  })).max(2000),
-  hardwareGroups: z.array(z.object({ group: z.string(), name: z.string(), brand: z.string(), component: z.string(), quantity: z.number().int().nonnegative(), frameModification: z.string(), doorModification: z.string(), doorPrep: z.string(), sourcePage: z.number().int().positive(), evidence: z.string(), confidence: z.number().min(0).max(1) })).max(500),
-  specFindings: z.array(z.object({ subject: z.string(), requirement: z.string(), allowedManufacturers: z.array(z.string()), restrictedManufacturers: z.array(z.string()), exclusive: z.boolean(), sourcePage: z.number().int().positive(), evidence: z.string(), confidence: z.number().min(0).max(1) })).max(150),
-  uncertainties: z.array(z.string()).max(100),
-});
 
 const scheduleSearchSchema = z.object({
   schedules: z.array(z.object({
@@ -203,24 +183,7 @@ export async function POST(request: Request) {
       abortSignal: AbortSignal.timeout(105_000),
     });
     const selectedPageNumbers = new Set(ranked.map((page) => page.page));
-    const hasSelectedCitation = (row: { sourcePage?: number }) => selectedPageNumbers.has(Number(row.sourcePage));
-    const safeOutput = {
-      ...result.output,
-      relevantPages: result.output.relevantPages.filter((page) => selectedPageNumbers.has(page.page)),
-      walls: result.output.walls.filter(hasSelectedCitation),
-      doorTypes: result.output.doorTypes.filter(hasSelectedCitation),
-      openings: result.output.openings.filter(hasSelectedCitation),
-      doorwayObservations: result.output.doorwayObservations.filter(hasSelectedCitation),
-      hardwareGroups: result.output.hardwareGroups.filter(hasSelectedCitation),
-      specFindings: result.output.specFindings.filter(hasSelectedCitation),
-    };
-    const rejectedCitations = result.output.relevantPages.length - safeOutput.relevantPages.length
-      + result.output.walls.length - safeOutput.walls.length
-      + result.output.doorTypes.length - safeOutput.doorTypes.length
-      + result.output.openings.length - safeOutput.openings.length
-      + result.output.doorwayObservations.length - safeOutput.doorwayObservations.length
-      + result.output.hardwareGroups.length - safeOutput.hardwareGroups.length
-      + result.output.specFindings.length - safeOutput.specFindings.length;
+    const safeOutput = sanitizeExtraction(result.output, selectedPageNumbers);
     const modelPages = new Map(safeOutput.relevantPages.map((page) => [page.page, page]));
     const relevantPages = ranked.flatMap((page) => {
       const found = modelPages.get(page.page);
@@ -294,7 +257,6 @@ export async function POST(request: Request) {
         handingEvidence: observation?.handingEvidence || "", planReviewReasons: [...new Set(group.flatMap(reviewReasonsFor))] };
     });
     const uncertainties = [...safeOutput.uncertainties];
-    if (rejectedCitations) uncertainties.push(`${rejectedCitations} extraction item(s) with page citations outside the pages sent to the model were discarded.`);
     if (!safeOutput.openings.length) uncertainties.push("No door/opening schedule rows were found in the selected pages. Plan symbols can still create count candidates, but schedule names, dimensions, types, and quantities need the missing schedule or manual review.");
     if (!safeOutput.hardwareGroups.length) uncertainties.push("No hardware schedule groups were found in the selected pages. Hardware components and quantities were not inferred.");
     if (!safeOutput.doorTypes.length) uncertainties.push("No door type schedule was found in the selected pages.");
