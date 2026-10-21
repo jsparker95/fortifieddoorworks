@@ -6,7 +6,7 @@ import { matchSchedule, type ScheduleOpening } from "@/lib/drawing-takeoff/match
 import { deduplicateDoors, normalizeMark, type DoorDetection } from "@/lib/drawing-takeoff/geometry";
 import { selectDrawingPages, selectExtractionPageGroups, type IndexedDrawingPage } from "@/lib/drawing-takeoff/page-selection";
 import { combineExtractionOutputs, planExtractionSchema, sanitizeExtraction, scheduleExtractionSchema } from "@/lib/drawing-takeoff/extraction-schema";
-import { reconcileHardwareWithPrintedSchedule, reconcileOpeningsWithPrintedSchedule } from "@/lib/drawing-takeoff/schedule-evidence";
+import { isNonSwingDoor, reconcileHardwareWithPrintedSchedule, reconcileOpeningsWithPrintedSchedule, resolveOpeningHanding } from "@/lib/drawing-takeoff/schedule-evidence";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -232,12 +232,12 @@ export async function POST(request: Request) {
     const matched = matchSchedule(deduplicated.doors, scheduleRows);
     const observationFor = (detection: DoorDetection) => safeOutput.doorwayObservations[Number(detection.id.split(":").at(-1))];
     const handingFor = (opening: typeof matched.openings[number]) => {
-      const visualHanding = observationFor(opening.detection)?.handing;
-      return opening.schedule?.handing || (visualHanding && visualHanding !== "unclear" ? visualHanding : "");
+      return resolveOpeningHanding(opening.schedule, observationFor(opening.detection)?.handing, safeOutput.doorTypes);
     };
     const reviewReasonsFor = (opening: typeof matched.openings[number]) => {
       const reasons = opening.reviewReasons.filter((reason) => !(reason.startsWith("Handing requires") && handingFor(opening)));
-      if (observationFor(opening.detection)?.handing && observationFor(opening.detection)?.handing !== "unclear") reasons.push("Handing read from the plan; verify the reference side before release.");
+      if (isNonSwingDoor(opening.schedule, safeOutput.doorTypes)) reasons.push("Conventional swing handing does not apply to the scheduled door type; plan hand observation was left for review.");
+      else if (observationFor(opening.detection)?.handing && observationFor(opening.detection)?.handing !== "unclear") reasons.push("Handing read from the plan; verify the reference side before release.");
       return [...new Set(reasons)];
     };
     const matchedDoorways = matched.openings.map((opening) => {
@@ -264,7 +264,7 @@ export async function POST(request: Request) {
       const planMatch = planMatches[0];
       const planCount = planCountByMark.get(normalizeMark(row.mark)) || 0;
       const observation = planMatch ? observationFor(planMatch.detection) : null;
-      return { ...row, handing: row.handing || (observation?.handing && observation.handing !== "unclear" ? observation.handing : ""),
+      return { ...row, handing: resolveOpeningHanding(row, observation?.handing, safeOutput.doorTypes),
         handingEvidence: observation?.handingEvidence || "", quantity: row.quantity || (planCount ? String(planCount) : ""), countSource: row.quantity ? "schedule" : planCount ? "plan symbols" : "unknown",
         ...(planMatch ? { planPage: planMatch.detection.page, planEvidence: planMatch.detection.evidence,
           planBoundingBox: planMatch.detection.box, planReviewReasons: [...new Set(planMatches.flatMap(reviewReasonsFor))] } : {}) };

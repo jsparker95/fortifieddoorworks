@@ -4,6 +4,10 @@ export const str = (v: unknown) =>
 export const same = (a: unknown, b: unknown) =>
   str(a).toLowerCase() === str(b).toLowerCase();
 export const eligible = (r: Row) => !r.deleted && r.reviewState !== "ai-draft" && !!str(r.name).trim();
+/** The Hardware tab includes drafts for review; production totals still use derive(). */
+export function hardwareReviewRows(data: Pick<ProjectData, "hardware">, computedHardware: Row[]): Row[] {
+  return [...computedHardware, ...data.hardware.filter((row) => row.reviewState === "ai-draft")];
+}
 export function derive(data: ProjectData) {
   const openings = data.openings.filter(eligible);
   const key = (v: unknown) => str(v).toLowerCase();

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { derive } from "../lib/production";
+import { derive, hardwareReviewRows } from "../lib/production";
 import { emptyData, Project } from "../lib/types";
 function sample() {
   const d = emptyData();
@@ -82,6 +82,11 @@ test("AI draft rows stay out of takeoff until reviewed", () => {
   assert.equal(r.frames.length, 0);
   assert.equal(r.doors.length, 0);
   assert.equal(r.hardwareTakeoff.length, 0);
+  assert.deepEqual(hardwareReviewRows(d, r.hardware).map((row) => row.id), ["h"]);
+  assert.equal(hardwareReviewRows(d, r.hardware)[0].reviewState, "ai-draft");
+  d.hardware[0].reviewState = "human-reviewed";
+  const reviewed = derive(d);
+  assert.deepEqual(hardwareReviewRows(d, reviewed.hardware).map((row) => row.id), ["h"]);
 });
 test("groups are not limited to 57 and progress follows stable opening ids", () => {
   const d = sample();
