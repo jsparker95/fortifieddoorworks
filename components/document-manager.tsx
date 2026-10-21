@@ -72,12 +72,17 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
         if (!response.ok) throw new Error(result.error || "Analysis failed.");
         return result as { analysis: Record<string, unknown>; description: string };
       };
-      const search = await analyzeStage("locate");
+      const reuseSavedSearch = scheduleSearchComplete && current.status !== "needs_review" && !manualPageInput.trim();
+      const search = reuseSavedSearch
+        ? { analysis: current.analysis as Record<string, unknown>, description: current.description || "" }
+        : await analyzeStage("locate");
       const scheduleSearch = (search.analysis as Analysis).scheduleSearch;
       if (!scheduleSearch?.completed) throw new Error("The schedule page search did not complete, so extraction was not started.");
-      onAnalyzed(search.analysis, search.description, "indexed");
-      setNotice(search.description || "Schedule page search completed.");
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
+      if (!reuseSavedSearch) {
+        onAnalyzed(search.analysis, search.description, "indexed");
+        setNotice(search.description || "Schedule page search completed.");
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
+      }
       const result = await analyzeStage("extract");
       const phaseRows = mapAnalysisToPhaseRows(current.id, result.analysis);
       const candidateCount = Object.values(phaseRows).reduce((sum, rows) => sum + (rows?.length || 0), 0);
@@ -91,7 +96,7 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
         : "Extraction finished. No phase rows were found; review the page findings and extraction notes.");
     } catch (e) { setError(e instanceof Error ? e.message : "Analysis failed."); }
     finally { setBusyAction(null); setActiveStep(null); }
-  }, [current, manualPageInput, onAnalyzed, onApply, phaseId, phaseName, projectId]);
+  }, [current, manualPageInput, onAnalyzed, onApply, phaseId, phaseName, projectId, scheduleSearchComplete]);
 
   useEffect(() => {
     if (current.status !== "uploaded" || autoStarted.current) return;

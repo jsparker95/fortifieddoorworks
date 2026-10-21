@@ -4,8 +4,9 @@ import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 import { matchSchedule, type ScheduleOpening } from "@/lib/drawing-takeoff/matching";
 import { deduplicateDoors, normalizeMark, type DoorDetection } from "@/lib/drawing-takeoff/geometry";
-import { selectDrawingPages, type IndexedDrawingPage } from "@/lib/drawing-takeoff/page-selection";
-import { extractionSchema, sanitizeExtraction } from "@/lib/drawing-takeoff/extraction-schema";
+import { selectDrawingPages, selectExtractionPageGroups, type IndexedDrawingPage } from "@/lib/drawing-takeoff/page-selection";
+import { combineExtractionOutputs, planExtractionSchema, sanitizeExtraction, scheduleExtractionSchema } from "@/lib/drawing-takeoff/extraction-schema";
+import { reconcileHardwareWithPrintedSchedule, reconcileOpeningsWithPrintedSchedule } from "@/lib/drawing-takeoff/schedule-evidence";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
       }
     }
     const ranked = [...pageMapByNumber.values()].sort((a, b) => a.page - b.page);
-    const visuallyReviewedScannedPages = new Set(ranked.map((page) => page.page).filter((page) => scannedPageNumbers.includes(page))).size;
+    let visuallyReviewedScannedPages = new Set(ranked.map((page) => page.page).filter((page) => scannedPageNumbers.includes(page))).size;
     await supabase.from("project_documents").update({ page_count: pdf.numPages, phase_id: body.phaseId, status: "indexed" }).eq("id", document.id);
     if (!ranked.length) {
       if (stage === "locate") {
@@ -171,21 +172,51 @@ export async function POST(request: Request) {
       if (saveError) throw new Error("Schedule search completed but the result could not be saved. Retry the search.");
       return Response.json({ stage, analysis, description });
     }
-    failureStage = "sending selected pages for AI extraction";
-    const result = await generateText({
-      model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
-      output: Output.object({ schema: extractionSchema }),
-      system: "You assist Fortified Doorworks with preliminary construction-plan takeoffs. First priority: count every distinct doorway symbol visible on each supplied floor-plan sheet and report each opening's readable door mark and hand. Inspect the complete visual content of every supplied page, including scanned drawings; do not rely only on searchable text or title-block matches. Return one doorwayObservations entry for every clearly visible individual doorway symbol, with a tight normalized bounding box around the symbol on the original page (x,y,width,height; top-left origin; all values 0–1), hinge side, swing toward/away from the reference side, and supported hand. Do not return a sample or representative subset. Avoid counting room labels, dimension marks, glazing, or schedule rows as doors. If the mark, hinge, swing, or reference side is unclear, mark it unknown and leave handing empty/unclear. Never infer missing marks or handing. When interpreting handing, use the traditional convention viewed from the outside/key side: hinges on left/right establish LH/RH; if the door swings toward that observer, mark the reverse hand (LHR/RHR). Apply only when the reference side, hinge, and swing are clear. Cite original PDF page numbers, not subset page numbers. Evidence must be a concise drawing description. Keep all findings provisional for human review. Other schedules may be extracted when present, but do not let that distract from the door count and handing scan.",
-      messages: [{ role: "user", content: [
-        { type: "text", text: `Scan every supplied floor-plan page for all door symbols. Count distinct openings per sheet, capture each legible door number/mark and determine hand only where the traditional outside/key-side reference, hinge side, and swing are visually supported. Report uncertain marks/handings as unknown. Also extract other relevant schedules only when actually present. Do not approve or invent missing values.\n\nPage map and extracted text:\n${pageMap}` },
-        { type: "file", mediaType: "application/pdf", data: await subset.save(), filename: document.file_name },
-      ] }],
-      abortSignal: AbortSignal.timeout(105_000),
-    });
-    const selectedPageNumbers = new Set(ranked.map((page) => page.page));
-    const safeOutput = sanitizeExtraction(result.output, selectedPageNumbers);
+    failureStage = "sending schedule and plan pages for AI extraction";
+    const { schedulePages, planPages } = selectExtractionPageGroups(ranked, savedSchedulePages, requestedPages);
+    const extractionPages = [...new Set([...schedulePages, ...planPages].map((page) => page.page))];
+    visuallyReviewedScannedPages = extractionPages.filter((page) => scannedPageNumbers.includes(page)).length;
+    const makeSubset = async (pages: IndexedDrawingPage[]) => {
+      const pdf = await PDFDocument.create();
+      const copied = await pdf.copyPages(sourcePdf, pages.map((page) => page.page - 1));
+      copied.forEach((page) => pdf.addPage(page));
+      return pdf.save();
+    };
+    const mapFor = (pages: IndexedDrawingPage[]) => pages.map((page, index) =>
+      `Supplied PDF page ${index + 1} is original PDF page ${page.page}. Extracted text: ${page.text.slice(0, 5000)}`).join("\n\n");
+    const [scheduleResult, planResult] = await Promise.all([
+      schedulePages.length ? generateText({
+        model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
+        output: Output.object({ schema: scheduleExtractionSchema }),
+        system: "Extract every visible door/opening schedule row, door type, hardware set component, and specification finding from the supplied construction schedule pages. Preserve printed marks, sizes, materials, group numbers, and manufacturer names. A pair and an overhead door are distinct types; never invent handing when the schedule says to refer to the floor plan. Use the page number within the supplied shortened PDF for sourcePage and relevantPages.page; the server maps it to the original PDF. Return empty arrays for categories not present. Cite concise evidence. All data is provisional.",
+        messages: [{ role: "user", content: [
+          { type: "text", text: `Extract all schedule rows and every hardware component, including sets shared by several door marks. sourcePage must be 1 through ${schedulePages.length}, the position in the supplied PDF. Page map:\n${mapFor(schedulePages)}` },
+          { type: "file", mediaType: "application/pdf", data: await makeSubset(schedulePages), filename: document.file_name },
+        ] }],
+        abortSignal: AbortSignal.timeout(105_000),
+      }) : Promise.resolve(null),
+      planPages.length ? generateText({
+        model: process.env.DOCUMENT_EXTRACTION_MODEL || DEFAULT_EXTRACTION_MODEL,
+        output: Output.object({ schema: planExtractionSchema }),
+        system: "Inspect construction floor plans for wall types and individual doorway symbols. Return one doorway observation only for a clearly visible door symbol, with a tight normalized bounding box (x,y,width,height; top-left origin, values 0–1). Do not treat detail callouts, room numbers, grids, or schedule rows as door marks. If the mark or outside/key-side reference is unclear, leave the mark or handing empty. Use traditional handing viewed from outside/key side: hinges left/right and swing toward the observer means LHR/RHR. Never assume a reference side. Use the page number within the supplied shortened PDF for sourcePage and relevantPages.page; the server maps it to the original PDF. Evidence must describe what is visible. All data is provisional.",
+        messages: [{ role: "user", content: [
+          { type: "text", text: `Scan the supplied floor-plan pages and extract wall types and clearly supported doorway observations. sourcePage must be 1 through ${planPages.length}, the position in the supplied PDF. Page map:\n${mapFor(planPages)}` },
+          { type: "file", mediaType: "application/pdf", data: await makeSubset(planPages), filename: document.file_name },
+        ] }],
+        abortSignal: AbortSignal.timeout(105_000),
+      }) : Promise.resolve(null),
+    ]);
+    const scheduleOutput = scheduleResult ? sanitizeExtraction(combineExtractionOutputs(scheduleResult.output, null), schedulePages.map((page) => page.page)) : null;
+    const planOutput = planResult ? sanitizeExtraction(combineExtractionOutputs(null, planResult.output), planPages.map((page) => page.page)) : null;
+    const safeOutput = combineExtractionOutputs(scheduleOutput, planOutput);
+    const verifiedSchedule = reconcileOpeningsWithPrintedSchedule(safeOutput.openings, schedulePages);
+    safeOutput.openings = verifiedSchedule.openings;
+    safeOutput.uncertainties.push(...verifiedSchedule.uncertainties);
+    const verifiedHardware = reconcileHardwareWithPrintedSchedule(safeOutput.hardwareGroups, schedulePages);
+    safeOutput.hardwareGroups = verifiedHardware.hardwareGroups;
+    safeOutput.uncertainties.push(...verifiedHardware.uncertainties);
     const modelPages = new Map(safeOutput.relevantPages.map((page) => [page.page, page]));
-    const relevantPages = ranked.flatMap((page) => {
+    const relevantPages = ranked.filter((page) => extractionPages.includes(page.page)).flatMap((page) => {
       const found = modelPages.get(page.page);
       if (found) return [found];
       if (requestedPages.includes(page.page)) return [{ page: page.page, section: "Manually selected", reason: "Included at your request for visual review.", confidence: 1 }];
@@ -234,7 +265,7 @@ export async function POST(request: Request) {
       const planCount = planCountByMark.get(normalizeMark(row.mark)) || 0;
       const observation = planMatch ? observationFor(planMatch.detection) : null;
       return { ...row, handing: row.handing || (observation?.handing && observation.handing !== "unclear" ? observation.handing : ""),
-        handingEvidence: observation?.handingEvidence || "", quantity: planCount ? String(planCount) : row.quantity, countSource: planCount ? "plan symbols" : row.quantity ? "schedule" : "unknown",
+        handingEvidence: observation?.handingEvidence || "", quantity: row.quantity || (planCount ? String(planCount) : ""), countSource: row.quantity ? "schedule" : planCount ? "plan symbols" : "unknown",
         ...(planMatch ? { planPage: planMatch.detection.page, planEvidence: planMatch.detection.evidence,
           planBoundingBox: planMatch.detection.box, planReviewReasons: [...new Set(planMatches.flatMap(reviewReasonsFor))] } : {}) };
     });
@@ -249,7 +280,7 @@ export async function POST(request: Request) {
       const observation = observationFor(opening.detection);
       return { mark: opening.detection.mark || "", room: "", width: "", height: "",
         doorType: "", frameType: "", wallType: "", hardwareGroup: "", fireRating: "", quantity: String(group.length),
-        countSource: "plan symbols", sourcePage: opening.detection.page,
+        countSource: "plan symbols", autoImportEligible: false, sourcePage: opening.detection.page,
         evidence: group.map((item) => item.detection.evidence).filter(Boolean).join("; "),
         confidence: Math.min(...group.map((item) => item.detection.confidence)),
         planBoundingBox: opening.detection.box,
@@ -263,7 +294,7 @@ export async function POST(request: Request) {
     if (visuallyReviewedScannedPages < scannedPageNumbers.length) uncertainties.push(`${scannedPageNumbers.length - visuallyReviewedScannedPages} scanned/image-only page(s) were not visually screened. Add their page numbers and analyze again if they contain relevant schedules or plans.`);
     const analysis = { ...safeOutput, scheduleSearch: priorScheduleSearch, uncertainties: [...new Set(uncertainties)], openings: [...scheduledOpenings, ...unscheduledDoorCandidates], relevantPages, matchedDoorways, doorwayDetectionConflicts: deduplicated.conflicts.length, suppressedDuplicateDoorSymbols: deduplicated.suppressed.length,
       unmatchedSchedule: matched.unmatchedSchedule.map((row) => ({ mark: row.mark, sourcePage: row.sourcePage, evidence: row.evidence })),
-      indexedPageCount: pdf.numPages, candidatePageCount: ranked.length, scannedPageCount: pdf.numPages - searchablePageCount, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages, unreviewedScannedPages: Math.max(0, scannedPageNumbers.length - visuallyReviewedScannedPages) } };
+      indexedPageCount: pdf.numPages, candidatePageCount: extractionPages.length, scannedPageCount: pdf.numPages - searchablePageCount, pageCoverage: { totalScannedPages: scannedPageNumbers.length, visuallyReviewedScannedPages, unreviewedScannedPages: Math.max(0, scannedPageNumbers.length - visuallyReviewedScannedPages) } };
     failureStage = "saving extracted results";
     const { error: saveError } = await supabase.from("project_documents").update({ status: "needs_review", phase_id: body.phaseId, page_count: pdf.numPages, analysis }).eq("id", document.id).eq("project_id", body.projectId);
     if (saveError) throw new Error("Analysis succeeded but results could not be saved. Retry analysis.");

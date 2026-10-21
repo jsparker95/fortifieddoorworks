@@ -22,6 +22,27 @@ export const extractionSchema = z.object({
 });
 
 type Extraction = z.infer<typeof extractionSchema>;
+export const scheduleExtractionSchema = extractionSchema.pick({
+  relevantPages: true, doorTypes: true, openings: true, hardwareGroups: true,
+  specFindings: true, uncertainties: true,
+});
+export const planExtractionSchema = extractionSchema.pick({
+  relevantPages: true, walls: true, doorwayObservations: true, uncertainties: true,
+});
+
+export function combineExtractionOutputs(
+  schedule: z.infer<typeof scheduleExtractionSchema> | null,
+  plan: z.infer<typeof planExtractionSchema> | null,
+): Extraction {
+  return {
+    relevantPages: [...(schedule?.relevantPages || []), ...(plan?.relevantPages || [])],
+    walls: plan?.walls || [],
+    doorTypes: schedule?.doorTypes || [], openings: schedule?.openings || [],
+    doorwayObservations: plan?.doorwayObservations || [],
+    hardwareGroups: schedule?.hardwareGroups || [], specFindings: schedule?.specFindings || [],
+    uncertainties: [...(schedule?.uncertainties || []), ...(plan?.uncertainties || [])],
+  };
+}
 
 const rowLimits = {
   relevantPages: 60, walls: 150, doorTypes: 150, openings: 2000,
@@ -37,17 +58,42 @@ function confidence(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 }
 
-export function sanitizeExtraction(output: Extraction, selectedPageNumbers: ReadonlySet<number>) {
-  const onSelectedPage = (row: { sourcePage: number }) => selectedPageNumbers.has(row.sourcePage);
+function traditionalHanding(row: Extraction["doorwayObservations"][number]): Extraction["doorwayObservations"][number]["handing"] {
+  const evidence = row.handingEvidence;
+  if (/\b(?:assum\w*|guess\w*|presum\w*|infer\w*)\b/i.test(evidence)
+    || !/\b(?:outside|exterior|key(?:ed)? side|corridor side)\b/i.test(evidence)
+    || row.hingeSide === "unknown" || row.swingDirection === "unclear") return "";
+  if (row.hingeSide === "left") return row.swingDirection === "toward_reference_side" ? "LHR" : "LH";
+  return row.swingDirection === "toward_reference_side" ? "RHR" : "RH";
+}
+
+export function sanitizeExtraction(output: Extraction, selectedPages: ReadonlySet<number> | readonly number[]) {
+  // The model sees a shortened PDF. Resolve its page numbers to the original
+  // document before filtering citations or saving them to the phase.
+  const ordered: number[] = Array.isArray(selectedPages) ? [...selectedPages] : [...selectedPages].sort((a, b) => a - b);
+  const selectedPageNumbers = new Set(ordered);
+  const resolvePage = (page: number) => {
+    if (!Number.isInteger(page)) return null;
+    if (Array.isArray(selectedPages) && page >= 1 && page <= ordered.length) return ordered[page - 1];
+    return selectedPageNumbers.has(page) ? page : null;
+  };
   const cited = <T extends { sourcePage: number; confidence: number }>(rows: T[], limit: number) =>
-    rows.filter(onSelectedPage).slice(0, limit).map((row) => ({ ...row, confidence: confidence(row.confidence) }));
+    rows.flatMap((row) => {
+      const sourcePage = resolvePage(row.sourcePage);
+      return sourcePage ? [{ ...row, sourcePage, confidence: confidence(row.confidence) }] : [];
+    }).slice(0, limit);
+  const citedDoorways = cited(output.doorwayObservations.filter((row) => validBox(row.boundingBox)), rowLimits.doorwayObservations);
+  const doorwayObservations = citedDoorways
+    .map((row) => ({ ...row, handing: traditionalHanding(row) }));
   const safeOutput = {
-    relevantPages: output.relevantPages.filter((row) => selectedPageNumbers.has(row.page))
-      .slice(0, rowLimits.relevantPages).map((row) => ({ ...row, confidence: confidence(row.confidence) })),
+    relevantPages: output.relevantPages.flatMap((row) => {
+      const page = resolvePage(row.page);
+      return page ? [{ ...row, page, confidence: confidence(row.confidence) }] : [];
+    }).slice(0, rowLimits.relevantPages),
     walls: cited(output.walls, rowLimits.walls).map((row) => ({ ...row, layers: row.layers.slice(0, 100) })),
     doorTypes: cited(output.doorTypes, rowLimits.doorTypes),
     openings: cited(output.openings, rowLimits.openings),
-    doorwayObservations: cited(output.doorwayObservations.filter((row) => validBox(row.boundingBox)), rowLimits.doorwayObservations),
+    doorwayObservations,
     hardwareGroups: cited(output.hardwareGroups, rowLimits.hardwareGroups).map((row) => ({ ...row, quantity: Number.isFinite(row.quantity) ? Math.max(0, Math.floor(row.quantity)) : 0 })),
     specFindings: cited(output.specFindings, rowLimits.specFindings).map((row) => ({ ...row, allowedManufacturers: row.allowedManufacturers.slice(0, 100), restrictedManufacturers: row.restrictedManufacturers.slice(0, 100) })),
     uncertainties: output.uncertainties.slice(0, 100),
@@ -55,5 +101,7 @@ export function sanitizeExtraction(output: Extraction, selectedPageNumbers: Read
   const rejectedCount = (Object.keys(rowLimits) as Array<keyof typeof rowLimits>)
     .reduce((sum, key) => sum + output[key].length - safeOutput[key].length, 0);
   if (rejectedCount) safeOutput.uncertainties.push(`${rejectedCount} extraction item(s) with invalid citations, geometry, or excessive result counts were discarded.`);
+  const withheldHandings = doorwayObservations.filter((row, index) => row.handing !== citedDoorways[index].handing).length;
+  if (withheldHandings) safeOutput.uncertainties.push(`${withheldHandings} doorway hand(s) were corrected or left undetermined because the reported hinge, swing, and reference side did not support the model's hand.`);
   return safeOutput;
 }

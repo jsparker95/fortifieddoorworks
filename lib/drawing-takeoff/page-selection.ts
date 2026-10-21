@@ -5,6 +5,33 @@ export type IndexedDrawingPage = {
   labels: string[];
 };
 
+export function looksLikeFloorPlanSheet(text: string) {
+  if (/\bfloor\s+plan\s+scale\b/i.test(text)) return true;
+  const titles = text.matchAll(/\b(?:architectural\s+floor\s+plan|overall\s+(?:(?:main|first|second|third|ground)\s+(?:level\s+)?)?floor\s+plan|(?:main|first|second|third|ground)\s+(?:level\s+)?floor\s+plan|level\s+\d+\s+floor\s+plan)\b/gi);
+  for (const title of titles) {
+    const preceding = text.slice(Math.max(0, (title.index || 0) - 18), title.index);
+    if (!/\b(?:refer\s+to|ref\.?|see)\s*$/i.test(preceding)) return true;
+  }
+  return false;
+}
+
+export function selectExtractionPageGroups(
+  ranked: IndexedDrawingPage[], savedSchedulePages: number[], requestedPages: number[],
+) {
+  const saved = new Set(savedSchedulePages);
+  const requested = new Set(requestedPages);
+  const hasScheduleHeading = (text: string) => /door\s+schedule|hardware\s+schedule|frame\s+(?:type\s+)?schedule/i.test(text);
+  const schedulePages = ranked.filter((page) => saved.has(page.page)
+    || (requested.has(page.page) && !looksLikeFloorPlanSheet(page.text))
+    || (!saved.size && hasScheduleHeading(page.text))).slice(0, 8);
+  const scheduleSet = new Set(schedulePages.map((page) => page.page));
+  const planPages = ranked.filter((page) => looksLikeFloorPlanSheet(page.text)
+    || (requested.has(page.page) && !saved.has(page.page) && !hasScheduleHeading(page.text)))
+    .filter((page) => !scheduleSet.has(page.page) || requested.has(page.page)).slice(0, 12);
+  if (!planPages.length) planPages.push(...ranked.filter((page) => !scheduleSet.has(page.page)).slice(0, 4));
+  return { schedulePages, planPages };
+}
+
 function spreadPages(pages: number[], limit: number) {
   if (limit <= 0 || pages.length === 0) return [];
   if (pages.length <= limit) return pages;

@@ -85,7 +85,8 @@ export function mapAnalysisToPhaseRows(documentId: string, analysis: Record<stri
   ];
   for (const [kind, key] of keys) {
     const candidates = Array.isArray(analysis[key]) ? analysis[key] as Candidate[] : [];
-    rows[kind] = candidates.map((candidate, index) => mapPhaseCandidate(documentId, kind, candidate, index));
+    rows[kind] = candidates.flatMap((candidate, index) => candidate.autoImportEligible === false
+      ? [] : [mapPhaseCandidate(documentId, kind, candidate, index)]);
   }
   return rows;
 }

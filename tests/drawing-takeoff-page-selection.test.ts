@@ -1,6 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectDrawingPages } from "../lib/drawing-takeoff/page-selection";
+import { looksLikeFloorPlanSheet, selectDrawingPages, selectExtractionPageGroups } from "../lib/drawing-takeoff/page-selection";
+
+test("distinguishes a floor plan title from detail-sheet references", () => {
+  assert.equal(looksLikeFloorPlanSheet("1 FLOOR PLAN SCALE: 1/8 inch = 1 foot"), true);
+  assert.equal(looksLikeFloorPlanSheet("A102 OVERALL SECOND LEVEL FLOOR PLAN"), true);
+  assert.equal(looksLikeFloorPlanSheet("Overall Main Level Floor Plan"), true);
+  assert.equal(looksLikeFloorPlanSheet("REFER TO OVERALL FLOOR PLAN FOR RESTROOM ORIENTATION"), false);
+  assert.equal(looksLikeFloorPlanSheet("DOOR, REFER TO FLOOR PLAN AND DOOR SCHEDULE"), false);
+});
+
+test("manual floor plan and schedule pages reach their respective extraction tasks", () => {
+  const ranked = [
+    { page: 1, text: "1 FLOOR PLAN SCALE: 1/8 inch", score: 5, labels: [] },
+    { page: 9, text: "DOOR SCHEDULE DOOR HARDWARE SCHEDULE", score: 12, labels: [] },
+  ];
+  const result = selectExtractionPageGroups(ranked, [9], [1, 9]);
+  assert.deepEqual(result.schedulePages.map((page) => page.page), [9]);
+  assert.deepEqual(result.planPages.map((page) => page.page), [1]);
+});
 
 test("analyzes every page in a short searchable plan PDF even without keyword matches", () => {
   const pages = [1, 2, 3].map((page) => ({
