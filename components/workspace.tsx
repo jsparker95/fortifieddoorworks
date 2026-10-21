@@ -63,7 +63,7 @@ import {
 } from "@/lib/phases";
 import { mergePhaseCandidateRows, phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
 import { duplicateProject } from "@/lib/duplicate-project";
-import { derive, str } from "@/lib/production";
+import { derive, hardwareReviewRows, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
 import { ProjectFiles } from "./project-files";
@@ -2826,7 +2826,7 @@ export default function Workspace() {
                 <section className="panel">
                   {table(
                     section === "Hardware"
-                      ? (derived.hardware as Row[])
+                      ? hardwareReviewRows(active.data, derived.hardware as Row[])
                       : active.data[kindNames[section]],
                     fields(kindNames[section], active.data, catalogs, vendors)
                       .filter(

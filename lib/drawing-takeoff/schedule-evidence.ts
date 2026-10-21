@@ -6,6 +6,26 @@ type Hardware = z.infer<typeof extractionSchema>["hardwareGroups"][number];
 type CitedOpening = Opening & { autoImportEligible?: boolean };
 type PrintedRow = { mark: string; width: string; height: string; doorType: string; hardwareGroup: string; sourcePage: number; evidence: string; handingUnspecified: boolean };
 
+/** Swing handing is undefined for these documented non-swing door mechanisms. */
+export function isNonSwingDoor(
+  opening: { evidence?: string; doorType?: string } | null | undefined,
+  doorTypes: Array<{ code: string; description: string }> = [],
+) {
+  if (!opening) return false;
+  const type = doorTypes.find((candidate) => candidate.code.trim().toUpperCase() === opening.doorType?.trim().toUpperCase());
+  const description = `${opening.evidence || ""} ${type?.description || ""}`;
+  return /\b(?:sectional\s+overhead|overhead\s+door|roll(?:ing|-?up)\s+door|coiling\s+door|sliding\s+door|bi[ -]?fold\s+door|revolving\s+door)\b/i.test(description);
+}
+
+export function resolveOpeningHanding(
+  opening: { evidence?: string; doorType?: string; handing?: string } | null | undefined,
+  visualHanding: string | undefined,
+  doorTypes: Array<{ code: string; description: string }> = [],
+) {
+  if (isNonSwingDoor(opening, doorTypes)) return "";
+  return opening?.handing || (visualHanding && visualHanding !== "unclear" ? visualHanding : "");
+}
+
 const openingSize = /\b([A-Z]?\d{1,5}[A-Z]?)\s+(\d+'\s*-\s*\d+(?:\s+\d+\/\d+)?")\s*[X×]\s*(\d+'\s*-\s*\d+(?:\s+\d+\/\d+)?")/gi;
 
 export function printedDoorScheduleRows(pages: Array<{ page: number; text: string }>): PrintedRow[] {
