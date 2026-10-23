@@ -4,7 +4,7 @@ import type { PageIndex } from "./indexing";
 export const ARTIFACT_BUCKET = "document-analysis";
 export const PIPELINE_VERSION = "3";
 export const MAX_AI_TASKS = 100;
-export type TaskInput = { pages: number[]; artifact?: string; text?: string; building?: string; inventory?: unknown[]; crop?: { x: number; y: number; width: number; height: number }; pageWidth?: number; pageHeight?: number };
+export type TaskInput = { pages: number[]; targetMark?: string; artifact?: string; text?: string; building?: string; inventory?: unknown[]; crop?: { x: number; y: number; width: number; height: number }; pageWidth?: number; pageHeight?: number };
 export type ExtractionTask = { id: string; job_id: string; task_key: string; kind: string; input: TaskInput; status: string; result: Record<string, unknown> | null; attempts: number; error?: Record<string, unknown> };
 
 export function workerClient() {

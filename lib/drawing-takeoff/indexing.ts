@@ -77,3 +77,15 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
       confidence: model ? Math.min(model.confidence, 0.95) : row.confidence };
   });
 }
+
+/** Locate printed known marks; the model must still verify the label is a door tag. */
+export function openingTagCrops(page: PageIndex, marks: string[], size = 800) {
+  const known = new Set(marks.map(mark => mark.trim().toUpperCase()));
+  return page.boxes.filter(box => known.has(box.text.trim().toUpperCase())).map((box, index) => {
+    const width = Math.min(size, page.width * 2), height = Math.min(size, page.height * 2);
+    return { id: `${page.page}:tag:${index}`, mark: box.text.trim(),
+      x: Math.max(0, Math.min(page.width * 2 - width, (box.x + box.width / 2) * 2 - width / 2)),
+      y: Math.max(0, Math.min(page.height * 2 - height, (box.y + box.height / 2) * 2 - height / 2)),
+      width, height, pageWidth: page.width * 2, pageHeight: page.height * 2 };
+  });
+}

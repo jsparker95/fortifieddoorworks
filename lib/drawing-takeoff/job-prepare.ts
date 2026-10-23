@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
-import { chunkRows, findPageContent, hardwareSections, type PageFinding } from "./indexing";
+import { chunkRows, findPageContent, hardwareSections, openingTagCrops, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
 import { addTasks, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
@@ -94,8 +94,11 @@ export async function prepareExtraction(jobId: string) {
     }
     for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text } });
     if (finding.kinds.includes("plan")) {
-      const tiles = planTiles(page.page, page.width * 2, page.height * 2, { tileSize: 1536, overlap: 256 });
+      const knownMarks = selected.flatMap(f => f.openingRows.map(row => row.mark));
+      const tags = openingTagCrops(page, knownMarks);
+      const tiles = tags.length ? tags : planTiles(page.page, page.width * 2, page.height * 2, { tileSize: 1024, overlap: 256 });
       for (const tile of tiles) tasks.push({ task_key: `plan:${tile.id}`, kind: "plan", input: { ...common,
+        targetMark: "mark" in tile ? tile.mark : undefined,
         text: `Sheet context: ${page.text}\nKnown opening marks: ${selected.flatMap(f => f.openingRows.map(r => r.mark)).join(", ")}`,
         crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
     }

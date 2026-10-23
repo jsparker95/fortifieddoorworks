@@ -25,3 +25,14 @@ test('index references are not actual schedule or plan pages', () => {
  const result = findPageContent({page:1,text:'SHEET INDEX A101 FLOOR PLAN A601 DOOR SCHEDULE HARDWARE SET 1 HINGE SET 2 CLOSER',lines:['A101 FLOOR PLAN'],boxes:[],width:100,height:100,rotation:0});
  assert.deepEqual(result.kinds, []);
 });
+
+test('known door tags get bounded focused crops without treating nearby room labels as known marks', async () => {
+ const { openingTagCrops } = await import('../lib/drawing-takeoff/indexing');
+ const crops = openingTagCrops({page:3,text:'',lines:[],width:1000,height:800,rotation:0,boxes:[
+  {text:'208A',x:1,y:1,width:22,height:10}, {text:'208',x:500,y:500,width:20,height:10},
+  {text:'210B',x:980,y:790,width:20,height:10},
+ ]},['208A','210B']);
+ assert.deepEqual(crops.map(c=>c.mark),['208A','210B']);
+ assert.equal(crops[0].x,0); assert.equal(crops[0].y,0);
+ assert.ok(crops.every(c=>c.x+c.width<=2000 && c.y+c.height<=1600));
+});
