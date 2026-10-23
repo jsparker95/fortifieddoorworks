@@ -292,6 +292,8 @@ export default function Workspace() {
       save: (r: Row) => void;
       singleColumn?: boolean;
     } | null>(null);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [mobile, setMobile] = useState(false),
     [tableQuery, setTableQuery] = useState(""),
     [page, setPage] = useState(0),
@@ -2635,6 +2637,17 @@ export default function Workspace() {
                 <ProjectFiles key={`${active.id}:${deletionRevision}`} projectId={active.id} demo={demo}
                   phases={active.data.phases || [activePhase(active.data)]}
                   activePhaseId={activePhase(active.data).id}
+                  onProgressSaved={async () => {
+                    const projectId = active.id;
+                    const before = activeRef.current;
+                    if (dirtyRef.current || !before || before.id !== projectId) return;
+                    const { data: fresh, error: refreshError } = await supabase.from("projects").select("*").eq("id", projectId).single();
+                    if (refreshError) throw refreshError;
+                    if (dirtyRef.current || activeRef.current !== before) return;
+                    const normalized = normalizeProject(fresh as Project);
+                    setProjects(items => items.map(item => item.id === projectId ? normalized : item));
+                    setActive(normalized);
+                  }}
                   onApply={async (phaseId, rows, onlyIfEmpty) => {
                     const data = persistActivePhase(active.data);
                     const targetPhase = (data.phases || []).find((phase) => phase.id === phaseId);

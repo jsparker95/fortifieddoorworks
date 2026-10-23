@@ -6,9 +6,10 @@ import { supabase } from "@/lib/supabase";
 import type { Kind, ProjectDocument, ProjectPhase, Row } from "@/lib/types";
 import { DocumentManager } from "./document-manager";
 
-export function ProjectFileDialog({ document, phases, activePhaseId, onClose, onUpdated, onApply }: {
+export function ProjectFileDialog({ document, phases, activePhaseId, onClose, onUpdated, onApply, onProgressSaved }: {
   document: ProjectDocument; phases: ProjectPhase[]; activePhaseId: string;
   onClose: () => void; onUpdated: (document: ProjectDocument) => void;
+  onProgressSaved?: () => Promise<void>;
   onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -86,8 +87,8 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
           {phases.map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}
         </select>
       </label>
-      {phase ? <DocumentManager key={document.id} projectId={document.project_id} phaseId={phase.id} phaseName={phase.name}
-        document={document} onApply={(rows, onlyIfEmpty) => onApply(phase.id, rows, onlyIfEmpty)}
+      {phase ? <DocumentManager key={`${document.id}:${phase.id}`} projectId={document.project_id} phaseId={phase.id} phaseName={phase.name}
+        document={document} onProgressSaved={onProgressSaved} onApply={(rows, onlyIfEmpty) => onApply(phase.id, rows, onlyIfEmpty)}
         onAnalyzed={(analysis, nextDescription, status) => onUpdated({ ...latestDocument.current, phase_id: phase.id, analysis, description: nextDescription, status, page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
         <p>Create a project phase before extracting openings.</p>}
     </>}

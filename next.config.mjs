@@ -1,11 +1,12 @@
+import { withWorkflow } from "workflow/next";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // PDF.js resolves its legacy worker relative to the package at runtime.
   // Keep the package external and include that worker in the Vercel function.
-  serverExternalPackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
   outputFileTracingIncludes: {
-    "/api/documents/analyze": ["./node_modules/pdfjs-dist/legacy/build/*.mjs"],
+    "/*": ["./node_modules/pdfjs-dist/legacy/build/*.mjs"],
   },
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

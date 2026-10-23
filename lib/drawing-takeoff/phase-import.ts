@@ -41,6 +41,7 @@ export function mapPhaseCandidate(
     sourceDocumentId: documentId,
     sourceCandidateKey: phaseCandidateKey(documentId, kind, row, index),
     sourcePage: sourcePage(row),
+    sourceBuilding: stringValue(row.sourceBuilding),
     sourceEvidence: stringValue(row.evidence),
     extractionConfidence: Number(row.confidence) || 0,
     reviewState,
