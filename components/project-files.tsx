@@ -20,8 +20,9 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 };
 const ALLOWED_MIME_TYPES = new Set(Object.values(MIME_BY_EXTENSION));
 
-export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }: {
+export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, onProgressSaved }: {
   projectId: string; demo: boolean; phases: ProjectPhase[]; activePhaseId: string;
+  onProgressSaved?: () => Promise<void>;
   onApply: (phaseId: string, rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
 }) {
   const [selectedDocument, setSelectedDocument] = useState<ProjectDocument | null>(null);
@@ -120,7 +121,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply }
           ) : !busy && <p className="project-files-empty">No files yet. Upload plans, contracts, or other shared project files.</p>}
         </>
       )}
-      {selectedDocument && <ProjectFileDialog document={selectedDocument} phases={phases} activePhaseId={activePhaseId}
+      {selectedDocument && <ProjectFileDialog onProgressSaved={onProgressSaved} document={selectedDocument} phases={phases} activePhaseId={activePhaseId}
         onClose={() => { setSelectedDocument(null); void refresh(); }} onApply={onApply}
         onUpdated={(document) => { setSelectedDocument(document); setDocuments((rows) => rows.map((row) => row.id === document.id ? document : row)); }} />}
       {error && <p className="project-files-message is-error" role="alert">{error}</p>}

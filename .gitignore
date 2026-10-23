@@ -9,3 +9,4 @@ discovery/
 local-data/
 docs/requirements.md
 .vercel
+/.swc
