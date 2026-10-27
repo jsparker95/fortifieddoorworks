@@ -1,7 +1,7 @@
 import { prepareIndex, prepareExtraction } from "@/lib/drawing-takeoff/job-prepare";
 import { extractTask } from "@/lib/drawing-takeoff/job-extract";
 import { publishProgress } from "@/lib/drawing-takeoff/job-publish";
-import { loadJob, updateJob, MAX_AI_TASKS } from "@/lib/drawing-takeoff/job-store";
+import { loadJob, updateJob, PIPELINE_VERSION } from "@/lib/drawing-takeoff/job-store";
 
 async function indexStep(jobId: string) { "use step"; return prepareIndex(jobId); }
 async function discoverStep(jobId: string) { "use step"; return prepareExtraction(jobId); }
@@ -17,12 +17,9 @@ async function pendingStep(jobId: string) {
   const { db, job } = await loadJob(jobId);
   const { data: screening, error: screeningError } = await db.from("document_extraction_tasks").select("id").eq("job_id", jobId).eq("kind", "classify").neq("status", "complete").limit(30);
   if (screeningError) throw screeningError;
-  if (screening?.length) return { classify: screening.map(task => task.id as string), tasks: null };
-  if (!job.analysis?.scheduleSearch?.completed) return null;
-  const { data, error } = await db.from("document_extraction_tasks").select("id").eq("job_id", jobId).neq("kind", "classify").neq("status", "complete").order("task_key").limit(MAX_AI_TASKS);
-  if (error) throw error;
-  await updateJob(jobId, { status: "extracting", error: null });
-  return { classify: [] as string[], tasks: (data || []).map(task => task.id as string) };
+  if (!job.index_path || job.analysis?.pipelineVersion !== PIPELINE_VERSION) return null;
+  await updateJob(jobId, { status: "locating", error: null });
+  return { classify: (screening || []).map(task => task.id as string), tasks: null as string[] | null };
 }
 
 export async function documentExtraction(jobId: string, resume = false) {
@@ -31,7 +28,7 @@ export async function documentExtraction(jobId: string, resume = false) {
     const pending = resume ? await pendingStep(jobId) : null;
     let tasks = pending?.tasks ?? null;
     if (!tasks) {
-      const classify = pending?.classify.length ? pending.classify : await indexStep(jobId);
+      const classify = pending ? pending.classify : await indexStep(jobId);
       for (let i = 0; i < classify.length; i += 2) await Promise.allSettled(classify.slice(i, i + 2).map(id => extractStep(id)));
       tasks = await discoverStep(jobId);
       await publishStep(jobId, false);

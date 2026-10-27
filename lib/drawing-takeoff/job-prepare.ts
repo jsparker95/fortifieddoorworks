@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
-import { chunkRows, findPageContent, hardwareSections, openingTagCrops, type PageFinding } from "./indexing";
+import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
 import { addTasks, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
@@ -21,11 +21,12 @@ export async function prepareIndex(jobId: string) {
   if (job.manual_pages.some((n: number) => n < 1 || n > pages.length)) throw new Error(`Manual pages must be between 1 and ${pages.length}.`);
   const source = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const findings = pages.map(findPageContent);
-  const uncertain = pages.filter(page => {
-    const finding = findings[page.page - 1];
-    return finding.kinds.some(kind => kind === "plan" || kind === "types" || kind === "walls") || page.text.trim().length < 30 || (job.manual_pages.includes(page.page) && !finding.kinds.length)
-      || (!finding.kinds.length && /\b(?:door|frame|hardware)\s+schedule\b/i.test(page.text) && !/sheet\s+index|index\s+of/i.test(page.text));
-  });
+  const { data: priorScreens, error: priorError } = await db.from("document_extraction_tasks").select("input,result").eq("job_id", jobId).eq("kind", "classify").eq("status", "complete");
+  if (priorError) throw priorError;
+  const alreadyScreened = new Set<number>((priorScreens || []).flatMap(task => (task.result?.pages || []).map((row: {page:number}) => task.input.pages[row.page - 1])));
+  // Diagram-only type sheets may have searchable text but no schedule keywords.
+  // Screen each non-index page once, retaining prior successful classifications.
+  const uncertain = pages.filter(page => !alreadyScreened.has(page.page) && findings[page.page - 1].evidence !== "Sheet index; references are not schedule tables.");
   const batches = chunkRows(uncertain, 6);
   const tasks = [];
   for (let i = 0; i < batches.length; i++) {
@@ -63,8 +64,10 @@ export async function prepareExtraction(jobId: string) {
   // before spending calls on tiles, including pages with incidental plan references.
   const screenPages = new Set((classified || []).flatMap(task => task.input.pages as number[]));
   const confirmed = new Map<number, PageFinding["kinds"]>();
-  for (const task of classified || []) if (task.status === "complete") for (const row of task.result?.pages || []) confirmed.set(task.input.pages[row.page - 1], row.kinds);
+  for (const task of classified || []) if (task.status === "complete") for (const row of task.result?.pages || []) confirmed.set(task.input.pages[row.page - 1], confirmedPageKinds(row.kinds, row.evidence));
   for (const finding of findings) if (screenPages.has(finding.page)) finding.kinds = [...new Set([...(finding.openingRows.length >= 2 ? ["door" as const] : []), ...(confirmed.get(finding.page) || [])])];
+  const scheduleBuildings = findings.filter(finding => finding.openingRows.length).map(finding => finding.building);
+  for (const finding of findings) finding.building = canonicalBuilding(finding.building, scheduleBuildings);
   const selected = findings.filter(finding => finding.kinds.length);
   const schedules = (["hardware", "door", "frame"] as const).map(kind => ({ kind,
     pages: selected.filter(f => f.kinds.includes(kind === "frame" ? "types" : kind)).map(f => f.page),
@@ -95,17 +98,17 @@ export async function prepareExtraction(jobId: string) {
     for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text } });
     if (finding.kinds.includes("plan")) {
       const knownMarks = selected.flatMap(f => f.openingRows.map(row => row.mark));
-      const tags = openingTagCrops(page, knownMarks);
+      const tags = groupedOpeningCrops(page, knownMarks);
       const tiles = tags.length ? tags : planTiles(page.page, page.width * 2, page.height * 2, { tileSize: 1024, overlap: 256 });
       for (const tile of tiles) tasks.push({ task_key: `plan:${tile.id}`, kind: "plan", input: { ...common,
-        targetMark: "mark" in tile ? tile.mark : undefined,
+        targetMarks: "marks" in tile ? tile.marks : undefined,
         text: `Sheet context: ${page.text}\nKnown opening marks: ${selected.flatMap(f => f.openingRows.map(r => r.mark)).join(", ")}`,
         crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
     }
   }
   // Schedules first; preserve every inventory row even if enrichment reaches the budget.
   tasks.sort((a, b) => Number(a.kind === "plan") - Number(b.kind === "plan"));
-  const remaining = Math.max(0, MAX_AI_TASKS - 30);
+  const remaining = Math.max(0, MAX_AI_TASKS - Math.min(30, classified?.length || 0));
   const queued = tasks.slice(0, remaining);
   await addTasks(jobId, tasks);
   const { data: pendingTasks, error: pendingError } = await db.from("document_extraction_tasks").select("id,task_key").eq("job_id", jobId).neq("kind", "classify").neq("status", "complete");
@@ -119,7 +122,7 @@ export async function prepareExtraction(jobId: string) {
     uncertainties: tasks.length > queued.length ? [`${tasks.length - queued.length} extraction sections remain unprocessed at the per-document AI call limit.`] : [],
   };
   await updateJob(jobId, { status: "extracting", description, analysis,
-    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Extracting ${queued.length} sections and plan regions.`, totalTasks: queued.length, completedTasks: 0, skippedTasks: 0, findings } });
+    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Extracting ${queued.length} sections and plan regions.`, totalTasks: queued.length, completedTasks: 0, skippedTasks: 0 } });
   const { error: saveError } = await db.from("project_documents").update({ description, analysis, status: "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
   return ids;

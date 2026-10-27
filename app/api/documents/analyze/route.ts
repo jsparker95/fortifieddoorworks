@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { start } from "workflow/api";
+import { start, getRun } from "workflow/api";
 import { documentExtraction } from "@/workflows/document-extraction";
 import { workerClient, updateJob } from "@/lib/drawing-takeoff/job-store";
 import { phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
@@ -43,7 +43,11 @@ export async function POST(request: Request) {
         created_by: user.id, actor_email: user.email, manual_pages: pages,
         import_enabled: !phaseHasTakeoffData(phase.data) || onlyThisDocumentDrafts }).select().single();
       if (result.error) {
-        if (result.error.code === "23505") return Response.json({ error: "Analysis already started. Refresh progress." }, { status: 409 });
+        if (result.error.code === "23505") {
+          const { data: running } = await db.from("document_extraction_jobs").select("*").eq("document_id", body.documentId).eq("phase_id", body.phaseId).in("status", ["queued", "indexing", "locating", "extracting"]).maybeSingle();
+          if (running) return Response.json({ job: running }, { status: 202 });
+          return Response.json({ error: "Analysis already started. Refresh progress." }, { status: 409 });
+        }
         throw result.error;
       }
       job = result.data;
@@ -76,4 +80,19 @@ export async function GET(request: Request) {
     if (error) throw error;
     return Response.json({ job }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not read analysis progress." }, { status: 400 }); }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { client } = await authorize(request, body.documentId, body.projectId, body.phaseId);
+    const { data: job, error } = await client.from("document_extraction_jobs").select("id,status,workflow_run_id")
+      .eq("document_id", body.documentId).eq("phase_id", body.phaseId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw error;
+    if (!job || !["queued", "indexing", "locating", "extracting"].includes(job.status)) return Response.json({ stopped: true });
+    if (!job.workflow_run_id) return Response.json({ error: "The job is starting. Try stopping it again in a moment." }, { status: 409 });
+    await getRun(job.workflow_run_id).cancel();
+    await updateJob(job.id, { status: "partial", error: "Processing stopped. Saved results are retained; resume whenever you are ready." });
+    return Response.json({ stopped: true });
+  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not stop extraction." }, { status: 400 }); }
 }

@@ -1,4 +1,6 @@
 import { combineExtractionOutputs } from "./extraction-schema";
+import { hardwareSetIdentifier, hardwareSetKey } from "./references";
+import { canonicalBuilding, referencedDoorTypes } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
@@ -18,7 +20,7 @@ export async function publishProgress(jobId: string, final = false) {
   for (const task of tasks) {
     if (!task.result) continue;
     const result = task.result as unknown as typeof output;
-    const building = task.input.building || "";
+    const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     for (const row of scoped(result.openings || [], building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
     output.doorTypes.push(...scoped(result.doorTypes || [], building));
     output.hardwareGroups.push(...scoped(result.hardwareGroups || [], building));
@@ -30,6 +32,7 @@ export async function publishProgress(jobId: string, final = false) {
     mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
   const kept = detected.doors.map(row => observations[Number(row.id)]);
   const rows = [...openings.values()];
+  output.doorTypes.push(...referencedDoorTypes(rows, output.doorTypes));
   const matchedDoorways = kept.map(door => {
     const matches = rows.filter(row => normalizeMark(row.mark) === normalizeMark(door.mark)
       && (!door.sourceBuilding || !row.sourceBuilding || door.sourceBuilding === row.sourceBuilding));
@@ -69,11 +72,18 @@ export async function publishProgress(jobId: string, final = false) {
   // Resolve references within a building, so identical type/set codes in separate
   // buildings cannot silently point at one another.
   const scopedReference = (building: string, value: string) => building && value && !value.startsWith(`${building} / `) ? `${building} / ${value}` : value;
+  const rawReference = (building: string, value: string) => building && value.startsWith(`${building} / `) ? value.slice(building.length + 3) : value;
+  const hardwareReference = (building: string, value: string) => {
+    const identifier = rawReference(building, value);
+    const match = output.hardwareGroups.find(group => ((group as typeof group & {sourceBuilding?:string}).sourceBuilding || "") === building && hardwareSetKey(group.group) === hardwareSetKey(identifier));
+    return scopedReference(building, hardwareSetIdentifier(match?.group || identifier));
+  };
   const phaseAnalysis = { ...analysis,
     openings: output.openings.map(row => { const building = (row as ScopedOpening).sourceBuilding || ""; return { ...row,
-      doorType: scopedReference(building, row.doorType), hardwareGroup: scopedReference(building, row.hardwareGroup) }; }),
+      wallType: scopedReference(building, row.wallType), doorType: scopedReference(building, row.doorType), hardwareGroup: hardwareReference(building, row.hardwareGroup) }; }),
+    walls: output.walls.map(row => ({ ...row, code: scopedReference((row as typeof row & { sourceBuilding?: string }).sourceBuilding || "", row.code) })),
     doorTypes: output.doorTypes.map(row => ({ ...row, code: scopedReference((row as typeof row & { sourceBuilding?: string }).sourceBuilding || "", row.code) })),
-    hardwareGroups: output.hardwareGroups.map(row => ({ ...row, group: scopedReference((row as typeof row & { sourceBuilding?: string }).sourceBuilding || "", row.group) })),
+    hardwareGroups: output.hardwareGroups.map(row => ({ ...row, group: scopedReference((row as typeof row & { sourceBuilding?: string }).sourceBuilding || "", hardwareSetIdentifier(row.group)) })),
   };
   if (job.import_enabled) {
     const additions = mapAnalysisToPhaseRows(document.id, phaseAnalysis);

@@ -36,3 +36,21 @@ test('known door tags get bounded focused crops without treating nearby room lab
  assert.equal(crops[0].x,0); assert.equal(crops[0].y,0);
  assert.ok(crops.every(c=>c.x+c.width<=2000 && c.y+c.height<=1600));
 });
+
+test('building aliases match schedule names and service plans stay excluded after visual screening', async () => {
+ const {canonicalBuilding,confirmedPageKinds}=await import('../lib/drawing-takeoff/indexing');
+ assert.equal(canonicalBuilding('DAYTON STATION RCFR',['DAYTON','FULKS RUN']),'DAYTON');
+ assert.equal(canonicalBuilding('RCFR FULKS RUN STATION',['DAYTON','FULKS RUN']),'FULKS RUN');
+ assert.equal(canonicalBuilding('Unknown',['DAYTON','FULKS RUN']),'Unknown');
+ assert.deepEqual(confirmedPageKinds(['plan'],'MAIN FLOOR SANITARY/STORM/AIR PLAN'),[]);
+ assert.deepEqual(confirmedPageKinds(['plan'],'MAIN FLOOR WATER/GAS PLAN'),[]);
+ assert.deepEqual(confirmedPageKinds(['plan','walls'],'Architectural overall floor plan and wall types'),['plan','walls']);
+});
+
+test('enrichment cannot invent a hand absent from the printed schedule', () => {
+ const page=JSON.parse(fs.readFileSync('tests/fixtures/schedules/hcso-90.json','utf8'));
+ const [row]=inventoryOpeningRows(page);
+ assert.equal(reconcileInventoriedRows([row],[{...row,handing:'RH'}])[0].handing,'');
+ const printed={...row,evidence:row.evidence+' RH'};
+ assert.equal(reconcileInventoriedRows([printed],[{...row,handing:'RH'}])[0].handing,'RH');
+});

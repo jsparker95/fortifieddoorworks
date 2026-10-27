@@ -41,7 +41,7 @@ export function findPageContent(page: PageIndex): PageFinding {
   const components = /\b(?:HINGE|DEADLATCH|DEADBOLT|LOCKSET|CLOSER|PANIC|THRESHOLD|GASKET)\b/i.test(text);
   if (openingRows.length >= 2) kinds.push("door");
   if (!index && hardwareSets.length >= 2 && components) kinds.push("hardware");
-  if (!index && /\b(?:DOOR|FRAME)\s+(?:ELEVATION\s+)?TYPES\b/i.test(text)) kinds.push("types");
+  if (!index && /\b(?:DOOR|FRAME)\s+(?:(?:ELEVATION\s+)?TYPES|ELEVATIONS)\b/i.test(text)) kinds.push("types");
   if (!index && /\b(?:WALL|PARTITION)\s+(?:TYPES|TYPE\s+SCHEDULE|ASSEMBLIES)\b/i.test(text)) kinds.push("walls");
   // Ignore index references and specification sentences; match actual drawing titles.
   const titleLines = page.lines.filter(line => line.length < 180 && !/\b(?:REFER|SEE|REFERENCE)\b/i.test(line));
@@ -74,6 +74,7 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
     const model = generated.find(candidate => candidate.mark.trim().toUpperCase() === row.mark.toUpperCase());
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
       sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence,
+      handing: model?.handing && ["LH", "RH", "LHR", "RHR"].includes(model.handing.toUpperCase()) && new RegExp(`\\b${model.handing}\\b`, "i").test(row.evidence) ? model.handing.toUpperCase() : "",
       confidence: model ? Math.min(model.confidence, 0.95) : row.confidence };
   });
 }
@@ -83,9 +84,58 @@ export function openingTagCrops(page: PageIndex, marks: string[], size = 800) {
   const known = new Set(marks.map(mark => mark.trim().toUpperCase()));
   return page.boxes.filter(box => known.has(box.text.trim().toUpperCase())).map((box, index) => {
     const width = Math.min(size, page.width * 2), height = Math.min(size, page.height * 2);
-    return { id: `${page.page}:tag:${index}`, mark: box.text.trim(),
+    return { id: `${page.page}:tag:${index}`, mark: box.text.trim(), centerX: (box.x + box.width / 2) * 2, centerY: (box.y + box.height / 2) * 2,
       x: Math.max(0, Math.min(page.width * 2 - width, (box.x + box.width / 2) * 2 - width / 2)),
       y: Math.max(0, Math.min(page.height * 2 - height, (box.y + box.height / 2) * 2 - height / 2)),
       width, height, pageWidth: page.width * 2, pageHeight: page.height * 2 };
+  });
+}
+
+export function canonicalBuilding(label: string, knownBuildings: string[]) {
+  const normalized = label.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+  const matches = [...new Set(knownBuildings.filter(Boolean))].filter(building => {
+    const words = building.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+    return (` ${normalized} `).includes(` ${words} `);
+  });
+  return matches.length === 1 ? matches[0] : label;
+}
+
+/** A model cannot turn an explicitly named MEP sheet into an architectural plan. */
+export function confirmedPageKinds(kinds: PageKind[], evidence: string): PageKind[] {
+  const servicesPlan = /\b(?:SANITARY|STORM|WATER|GAS|POWER|LIGHTING|HVAC|PLUMBING|MECHANICAL|ELECTRICAL)(?:[\s/&,-]+[A-Z]+){0,4}\s+PLAN\b/i.test(evidence);
+  return kinds.filter(kind => kind !== "plan" || !servicesPlan);
+}
+
+/** Group nearby targets so one bounded image can answer several doors. */
+export function groupedOpeningCrops(page: PageIndex, marks: string[]) {
+  const groups: Array<ReturnType<typeof openingTagCrops>[number] & { marks: string[] }> = [];
+  for (const tag of openingTagCrops(page, marks, 1000)) {
+    const centerX = tag.centerX, centerY = tag.centerY;
+    const group = groups.find(crop => crop.marks.length < 4 && centerX >= crop.x + 120 && centerX <= crop.x + crop.width - 120
+      && centerY >= crop.y + 120 && centerY <= crop.y + crop.height - 120);
+    if (group) { if (!group.marks.includes(tag.mark)) group.marks.push(tag.mark); }
+    else groups.push({ ...tag, marks: [tag.mark] });
+  }
+  return groups;
+}
+
+/** Preserve referenced type codes even when their separate diagram is unavailable. */
+export function referencedDoorTypes(openings: Array<Opening & {sourceBuilding?: string}>, definitions: Array<{code:string;sourceBuilding?:string}>) {
+  const rawCode = (code:string, building:string) => building && code.startsWith(`${building} / `) ? code.slice(building.length + 3) : code;
+  const groups = new Map<string, Array<Opening & {sourceBuilding?:string}>>();
+  for (const opening of openings) {
+    const building=opening.sourceBuilding || '', code=rawCode(opening.doorType,building);
+    if (!code) continue;
+    if (definitions.some(type => (type.sourceBuilding || '') === building && rawCode(type.code,building) === code)) continue;
+    const key=`${building}\u0000${code}`;
+    groups.set(key,[...(groups.get(key)||[]),opening]);
+  }
+  return [...groups.values()].map(rows => {
+    const first=rows[0], building=first.sourceBuilding || '';
+    const widths=new Set(rows.map(row=>row.width)), heights=new Set(rows.map(row=>row.height));
+    return {code:rawCode(first.doorType,building),description:'Type referenced in the door schedule; verify the type diagram.',
+      material:first.evidence.match(/\b(?:INSULATED HOLLOW METAL|HOLLOW METAL|SOLID CORE WOOD|ALUMINUM STOREFRONT|ALUMINUM|INSULATED STEEL)\b/i)?.[0] || '',
+      manufacturer:'',windowOrLouver:'',fireRating:'',width:widths.size===1?first.width:'',height:heights.size===1?first.height:'',
+      sourcePage:first.sourcePage,evidence:first.evidence,confidence:0.75,sourceBuilding:building,sourcePlaceholder:true};
   });
 }
