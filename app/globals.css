@@ -2501,3 +2501,33 @@ th,
 .hardware-document-upload input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 .hardware-document-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
 .hardware-document-upload.is-busy { opacity: .6; }
+
+.extraction-status { margin: 16px 0; padding: 18px; border: 1px solid #dbe7e2; border-radius: 12px; background: #f5faf7; display: grid; gap: 9px; }
+.extraction-status.needs-attention { border-color: #ead7b0; background: #fffbf2; }
+.extraction-status p { margin: 0; font-size: 13px; line-height: 1.6; }
+.extraction-status small, .extraction-review > p, .extraction-review > small { color: var(--muted); font-size: 12px; }
+.extraction-status progress { width: 100%; height: 7px; border: none; border-radius: 20px; overflow: hidden; accent-color: var(--accent); }
+.extraction-status progress::-webkit-progress-bar { background: #e4ebe7; }
+.extraction-status progress::-webkit-progress-value { background: var(--accent); border-radius: 20px; transition: width .3s ease; }
+.extraction-review { display: grid; gap: 12px; margin-top: 24px; }
+.extraction-review h4, .extraction-review p { margin: 0; }
+.extraction-category-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.extraction-category-tabs button { border: 1px solid var(--line); border-radius: 9px; background: white; padding: 10px 12px; display: flex; gap: 8px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.extraction-category-tabs button[aria-pressed=true] { border-color: var(--accent); background: #fff3eb; color: #ab410d; }
+.extraction-category-tabs span { border-radius: 20px; padding: 1px 6px; background: #00000008; }
+.extraction-options { margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; padding: 13px; }
+.extraction-options summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.extraction-options .manual-page-selection { margin: 12px 0 0; }
+@media (prefers-reduced-motion: reduce) { .extraction-status progress::-webkit-progress-value { transition: none; } }
+
+.extraction-candidate { display: grid; gap: 9px; padding: 15px 0; }
+.extraction-candidate label { display: flex; gap: 12px; cursor: pointer; }
+.extraction-candidate label > span { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.extraction-candidate input { margin-top: 3px; }
+.extraction-candidate details { font-size: 12px; color: var(--muted); margin-left: 26px; line-height: 1.6; }
+.extraction-candidate summary { cursor: pointer; }
+.extraction-candidate details p { margin: 8px 0 0; }
+.extraction-candidate > .inline-link { margin-left: 26px; display: inline-flex; align-items: center; gap: 5px; }
+.extraction-candidate label { flex-direction: row; align-items: flex-start; }
+.extraction-candidate label > input[type=checkbox] { width: 16px; height: 16px; flex: 0 0 16px; }
+.extraction-review > .button { justify-self: start; min-height: 32px; padding: 7px 11px; }

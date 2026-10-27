@@ -63,3 +63,13 @@ test("allows automatic import only when all four takeoff tabs are empty", () => 
     assert.equal(phaseHasTakeoffData({ openings: [], walls: [], doorTypes: [], hardware: [], [kind]: [{ id: "existing" }] }), true);
   }
 });
+
+test('a real type definition replaces its schedule reference without duplicating it or overwriting reviewed work',()=>{
+ const placeholder=mapAnalysisToPhaseRows('doc',{doorTypes:[{code:'DAYTON / A',sourcePage:13,sourcePlaceholder:true}]}).doorTypes![0];
+ const definition=mapAnalysisToPhaseRows('doc',{doorTypes:[{code:'DAYTON / A',sourcePage:14,material:'HM'}]}).doorTypes![0];
+ const merged=mergePhaseCandidateRows([placeholder],[definition]);
+ assert.equal(merged.length,1); assert.equal(merged[0].id,placeholder.id); assert.equal(merged[0].material,'HM');
+ assert.equal(mergePhaseCandidateRows(merged,[placeholder])[0].material,'HM');
+ const reviewed={...placeholder,reviewState:'human-reviewed',material:'WOOD'};
+ assert.equal(mergePhaseCandidateRows([reviewed],[definition])[0].material,'WOOD');
+});
