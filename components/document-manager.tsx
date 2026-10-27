@@ -27,6 +27,13 @@ const categories: Array<{ key: keyof Analysis; label: string; kind: Kind }> = [
   { key: "hardwareGroups", label: "Hardware components", kind: "hardware" },
 ];
 
+const detailLabels: Record<string, string> = {
+  room: "Room", width: "Width", height: "Height", handing: "Handing", doorType: "Door type", frameType: "Frame type",
+  wallType: "Wall type", hardwareGroup: "Hardware set", fireRating: "Fire rating", quantity: "Quantity", group: "Set",
+  component: "Component", brand: "Manufacturer", manufacturer: "Manufacturer", material: "Material", description: "Description",
+  finishedThickness: "Finished thickness", windowOrLouver: "Glazing / louver", doorPrep: "Door prep",
+};
+
 export function DocumentManager({ projectId, phaseId, phaseName, document, onApply, onAnalyzed, onProgressSaved }: {
   projectId: string; phaseId: string; phaseName: string; document: ProjectDocument;
   onApply: (rows: Partial<Record<Kind, Row[]>>, onlyIfEmpty?: boolean) => boolean | void | Promise<boolean | void>;
@@ -215,9 +222,10 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
         </div>}
         {filteredCandidates.slice(0, visibleCount).map(({ category, row, id }) => <div className="candidate-row extraction-candidate" key={id}>
           <label><input type="checkbox" checked={selected.has(id)} disabled={busy} onChange={() => toggle(id)}/><span>
-            <strong>{String(row.mark || row.code || row.group || row.component || row.name || "Candidate")}</strong>
-            <small>{category.label} · PDF p. {String(row.sourcePage || "?")}{row.sourceBuilding ? ` · ${row.sourceBuilding}` : ""} · AI draft</small>
-            <small>{Object.entries(row).filter(([key, value]) => !["sourcePage", "sourceBuilding", "evidence", "confidence", "mark", "code", "handingEvidence"].includes(key) && value !== "" && value !== null && value !== undefined && !Array.isArray(value)).slice(0, 7).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</small>
+            <strong>{String(row.component || row.mark || row.code || row.name || row.group || "Candidate")}</strong>
+            <small>{category.label} · PDF p. {String(row.sourcePage || "?")}{row.sourceBuilding ? ` · ${row.sourceBuilding}` : ""} · {row.sourcePlaceholder ? "Schedule reference · details incomplete" : "AI draft"}</small>
+            <small>{Object.entries(row).filter(([key, value]) => detailLabels[key] && key !== "component" && value !== "" && value !== null && value !== undefined && !Array.isArray(value)).slice(0, 7).map(([key, value]) => `${detailLabels[key]}: ${String(value)}`).join(" · ")}</small>
+            {category.kind === "openings" && !row.handing && <small>Handing needs review</small>}
           </span></label>
           <details><summary>Source evidence</summary><p>{String(row.evidence || "No evidence supplied. Check the cited page.")}</p>{!!row.handingEvidence && <p>{String(row.handingEvidence)}</p>}</details>
           <button type="button" className="inline-link" onClick={() => void openPage(Number(row.sourcePage || 1))}>Open p. {String(row.sourcePage || "?")} <ExternalLink size={12}/></button>

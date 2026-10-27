@@ -1,6 +1,6 @@
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
-import { canonicalBuilding, referencedDoorTypes } from "./indexing";
+import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
@@ -21,7 +21,8 @@ export async function publishProgress(jobId: string, final = false) {
     if (!task.result) continue;
     const result = task.result as unknown as typeof output;
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
-    for (const row of scoped(result.openings || [], building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
+    const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
+    for (const row of scoped(taskOpenings, building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
     output.doorTypes.push(...scoped(result.doorTypes || [], building));
     output.hardwareGroups.push(...scoped(result.hardwareGroups || [], building));
     output.walls.push(...scoped(result.walls || [], building));
@@ -95,7 +96,11 @@ export async function publishProgress(jobId: string, final = false) {
       const phase = phases?.find(row => row.id === job.phase_id);
       if (!phase) throw new Error("The target phase was removed before draft rows could be saved.");
       const updated = { ...phase, data: { ...phase.data } };
-      for (const [kind, incoming] of Object.entries(additions)) updated.data[kind as Kind] = mergePhaseCandidateRows(phase.data[kind as Kind] || [], incoming || []);
+      for (const [kind, incoming] of Object.entries(additions)) {
+        const names = new Set((incoming || []).map(row => row.name));
+        const existing = (phase.data[kind as Kind] || []).filter(row => !(kind === "doorTypes" && row.sourceDocumentId === document.id && row.sourcePlaceholder === true && row.reviewState === "ai-draft" && !names.has(row.name)));
+        updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []);
+      }
       const next = { ...project.data, phases: phases.map(row => row.id === phase.id ? updated : row),
         ...(project.data.activePhaseId === phase.id ? updated.data : {}) };
       const { data: written, error: writeError } = await db.from("projects").update({ data: next }).eq("id", job.project_id).eq("version", project.version).select("id").maybeSingle();

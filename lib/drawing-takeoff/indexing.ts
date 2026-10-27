@@ -25,9 +25,12 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Op
     // A mark must be in a table that also names material/type/hardware columns.
     if (!/\b(?:MATERIAL|MATL|HARDWARE|HDW|THICKNESS|FRAME)\b/i.test(section.slice(0, m.index))) return [];
     const tail = body.slice(m[0].length);
-    const code = tail.match(new RegExp(String.raw`^\s*(?:${dimension}\s+)?([A-Z])\s+(?:SOLID|HOLLOW|INSULATED|ALUMINUM|WOOD|METAL)\b`, "i"))?.[1] || "";
+    const leadingType = /\bTYPE\s+MATL\s+DIMENSIONS\b/i.test(section.slice(0, m.index)) ? m[2].trim().split(/\s+/)[0] : "";
+    const code = leadingType && !["-", "N/A"].includes(leadingType) ? leadingType : tail.match(new RegExp(String.raw`^\s*(?:${dimension}\s+)?([A-Z])\s+(?:SOLID|HOLLOW|INSULATED|ALUMINUM|WOOD|METAL)\b`, "i"))?.[1] || "";
+    const frameRating = /FRAME\s+TYPE\s+FIRE\s+RATING/i.test(section.slice(0, m.index)) ? body.match(/\b(F[0-9A-Z-]+|W-\d+)\s+(NR|\d+\s*(?:MIN\.?|HOUR|HR))\b/i) : null;
+    const hardwareGroup = /HARDWARE\s+HARDWARE\s+SET/i.test(section.slice(0, m.index)) ? body.match(/\b(?:PANIC|LOCKSET|PUSH\s*\/\s*PULL|PASSAGE|PRIVATE|BI-FOLD)\b.*?\s+(\d{1,2}(?:-[A-Z])?)(?=\s|$)/i)?.[1] || "" : "";
     return [{ mark: m[1], width: cleanDimension(m[3]), height: cleanDimension(m[4]),
-      doorType: code, room: "", handing: "", frameType: "", wallType: "", hardwareGroup: "", fireRating: "", quantity: "1",
+      doorType: code, room: "", handing: "", frameType: frameRating?.[1] || "", wallType: "", hardwareGroup, fireRating: frameRating?.[2]?.trim() || "", quantity: "1",
       sourcePage: page.page, evidence: body.trim().slice(0, 500), confidence: 0.9 }];
   }).filter((r, i, rows) => rows.findIndex(other => other.mark === r.mark) === i);
 }
@@ -73,7 +76,7 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
   return inventory.map(row => {
     const model = generated.find(candidate => candidate.mark.trim().toUpperCase() === row.mark.toUpperCase());
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
-      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence,
+      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorType, frameType: row.frameType || model?.frameType || "", hardwareGroup: row.hardwareGroup || model?.hardwareGroup || "", fireRating: row.fireRating || model?.fireRating || "",
       handing: model?.handing && ["LH", "RH", "LHR", "RHR"].includes(model.handing.toUpperCase()) && new RegExp(`\\b${model.handing}\\b`, "i").test(row.evidence) ? model.handing.toUpperCase() : "",
       confidence: model ? Math.min(model.confidence, 0.95) : row.confidence };
   });

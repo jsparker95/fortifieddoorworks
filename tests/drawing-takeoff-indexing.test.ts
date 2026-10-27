@@ -54,3 +54,22 @@ test('enrichment cannot invent a hand absent from the printed schedule', () => {
  const printed={...row,evidence:row.evidence+' RH'};
  assert.equal(reconcileInventoriedRows([printed],[{...row,handing:'RH'}])[0].handing,'RH');
 });
+
+test('type codes are literal column values, never an AI-expanded material description', () => {
+ const hcso=inventoryOpeningRows(JSON.parse(fs.readFileSync('tests/fixtures/schedules/hcso-90.json','utf8')));
+ assert.equal(hcso.find(row=>row.mark==='100A')?.doorType,'HL');
+ const rock=inventoryOpeningRows(JSON.parse(fs.readFileSync('tests/fixtures/schedules/rockingham-13.json','utf8')));
+ const row=rock.find(row=>row.mark==='102')!;
+ assert.equal(row.doorType,'F');
+ assert.equal(reconcileInventoriedRows([row],[{...row,doorType:'F INSULATED HOLLOW METAL'}])[0].doorType,'F');
+});
+
+test('printed frame, fire-rating and hardware set columns take precedence over enrichment',()=>{
+ const hcso=inventoryOpeningRows(JSON.parse(fs.readFileSync('tests/fixtures/schedules/hcso-90.json','utf8')));
+ assert.equal(hcso.find(row=>row.mark==='100A')?.frameType,'F2');
+ assert.equal(hcso.find(row=>row.mark==='100B')?.fireRating,'90 Min');
+ const rock=inventoryOpeningRows(JSON.parse(fs.readFileSync('tests/fixtures/schedules/rockingham-13.json','utf8')));
+ const row=rock.find(row=>row.mark==='102')!;
+ assert.equal(row.hardwareGroup,'02');
+ assert.equal(reconcileInventoriedRows([row],[{...row,hardwareGroup:'PANIC SET'}])[0].hardwareGroup,'02');
+});

@@ -111,6 +111,12 @@ export async function prepareExtraction(jobId: string) {
   const remaining = Math.max(0, MAX_AI_TASKS - Math.min(30, classified?.length || 0));
   const queued = tasks.slice(0, remaining);
   await addTasks(jobId, tasks);
+  // Refresh literal columns after a parser improvement without repurchasing
+  // already completed enrichment for the same source rows.
+  for (const task of tasks.filter(task => task.kind === "doors" && task.input.inventory?.length)) {
+    const { error: inventoryError } = await db.from("document_extraction_tasks").update({ input: task.input }).eq("job_id", jobId).eq("task_key", task.task_key);
+    if (inventoryError) throw inventoryError;
+  }
   const { data: pendingTasks, error: pendingError } = await db.from("document_extraction_tasks").select("id,task_key").eq("job_id", jobId).neq("kind", "classify").neq("status", "complete");
   if (pendingError) throw pendingError;
   const pendingByKey = new Map((pendingTasks || []).map(task => [task.task_key, task.id as string]));
@@ -122,7 +128,7 @@ export async function prepareExtraction(jobId: string) {
     uncertainties: tasks.length > queued.length ? [`${tasks.length - queued.length} extraction sections remain unprocessed at the per-document AI call limit.`] : [],
   };
   await updateJob(jobId, { status: "extracting", description, analysis,
-    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Extracting ${queued.length} sections and plan regions.`, totalTasks: queued.length, completedTasks: 0, skippedTasks: 0 } });
+    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Extracting ${queued.length} sections and plan regions.`, totalTasks: tasks.length, completedTasks: tasks.length - (pendingTasks?.length || 0), skippedTasks: 0 } });
   const { error: saveError } = await db.from("project_documents").update({ description, analysis, status: "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
   return ids;
