@@ -21,7 +21,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "workflow": "5.2.3",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
@@ -30,5 +30,9 @@
     "@types/react-dom": "^19",
     "tsx": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "zod": "$zod",
+    "undici": "7.30.1"
   }
 }
