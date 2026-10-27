@@ -1,7 +1,8 @@
 import { generateText, Output, type ModelMessage } from "ai";
 import { z } from "zod";
 import { extractionSchema, combineExtractionOutputs, sanitizeExtraction } from "./extraction-schema";
-import { reconcileInventoriedRows, type Opening } from "./indexing";
+import { confirmedPageKinds, reconcileInventoriedRows, type Opening } from "./indexing";
+import { providerAccessProblem } from "./provider-access";
 import { getArtifact, loadJob, updateJob, workerClient, type ExtractionTask } from "./job-store";
 import { renderCrop } from "./pdf-server";
 
@@ -29,7 +30,7 @@ export async function extractTask(taskId: string) {
   const { data, error } = await db.from("document_extraction_tasks").select("*").eq("id", taskId).single();
   if (error || !data) throw new Error("Extraction section no longer exists.");
   const task = data as ExtractionTask;
-  if (task.status === "complete") return;
+  if (task.status === "complete") return {};
   await loadJob(task.job_id); // Recheck live membership and source ownership on each step.
   const started = Date.now();
   const { error: startError } = await db.from("document_extraction_tasks").update({ status: "running", attempts: task.attempts + 1, updated_at: new Date().toISOString() }).eq("id", taskId);
@@ -82,6 +83,7 @@ export async function extractTask(taskId: string) {
       if (classified.pages.length !== input.pages.length || numbers.size !== input.pages.length || input.pages.some((_, index) => !numbers.has(index + 1))) {
         throw new Error("Visual page screening omitted or duplicated a page; this batch needs retrying.");
       }
+      result = { pages: classified.pages.map(page => ({ ...page, kinds: confirmedPageKinds(page.kinds, page.evidence) })) };
     }
     if (kind !== "classify") {
       const empty = combineExtractionOutputs(null, null);
@@ -113,10 +115,13 @@ export async function extractTask(taskId: string) {
       await updateJob(task.job_id, { progress: { ...job.progress, message: `Visually checked ${screenedCount} pages. Found: ${found.join("; ") || "no confirmed schedules or plans yet"}.` } });
     }
     console.info("[document-section]", JSON.stringify({ taskId, kind, pages: input.pages, ...metrics }));
+    return {};
   } catch (error) {
     const details = errorRecord(error);
-    await db.from("document_extraction_tasks").update({ status: "failed", error: details, metrics: { elapsedMs: Date.now() - started }, updated_at: new Date().toISOString() }).eq("id", taskId);
+    const blockedReason = providerAccessProblem(error);
+    await db.from("document_extraction_tasks").update({ status: "failed", error: { ...details, ...(blockedReason ? { message: blockedReason } : {}) }, metrics: { elapsedMs: Date.now() - started }, updated_at: new Date().toISOString() }).eq("id", taskId);
     console.error("[document-section]", JSON.stringify({ taskId, kind: task.kind, pages: task.input.pages, ...details }));
+    if (blockedReason) return { blockedReason };
     throw error;
   }
 }

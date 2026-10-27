@@ -1,4 +1,5 @@
 import type { Kind, Row } from "@/lib/types";
+import { hardwareSetKey } from "./references";
 
 type Candidate = Record<string, unknown>;
 type PhaseRows = Partial<Record<Kind, Row[]>>;
@@ -101,6 +102,11 @@ export function mergePhaseCandidateRows(existing: Row[], incoming: Row[]): Row[]
     const index = key ? next.findIndex((row) => row.sourceCandidateKey === key || (
       (row.sourcePlaceholder === true || candidate.sourcePlaceholder === true) && row.sourceDocumentId === candidate.sourceDocumentId
       && String(key).includes(":doorTypes:") && String(row.sourceCandidateKey).includes(":doorTypes:") && row.name === candidate.name
+    ) || (
+      String(key).includes(":hardware:") && String(row.sourceCandidateKey).includes(":hardware:")
+      && row.sourceDocumentId === candidate.sourceDocumentId && row.sourcePage === candidate.sourcePage
+      && row.sourceBuilding === candidate.sourceBuilding && row.component === candidate.component
+      && hardwareSetKey(stringValue(row.group)) === hardwareSetKey(stringValue(candidate.group))
     )) : -1;
     if (index < 0) {
       next.push(candidate);
