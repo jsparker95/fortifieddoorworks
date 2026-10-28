@@ -21,6 +21,8 @@ test("a circular swing requires a radial leaf and preserves the opposite closed 
   assert.ok(Math.hypot(found[0].jamb.x - 130, found[0].jamb.y - 100) < 0.001);
   // An arc with radial lines at both ends does not identify the open leaf.
   assert.equal(detectVectorDoors([arc(door), { points: [door.hinge, door.leaf] }, { points: [door.hinge, door.jamb] }]).length, 0);
+  const shuffled = arc(door); [shuffled.points[3], shuffled.points[8]] = [shuffled.points[8], shuffled.points[3]];
+  assert.equal(detectVectorDoors([shuffled, { points: [door.hinge, door.leaf] }]).length, 0);
 });
 
 test("traditional hands are invariant under rotation and use the reference viewpoint", () => {

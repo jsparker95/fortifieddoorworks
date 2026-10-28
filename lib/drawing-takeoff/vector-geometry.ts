@@ -23,6 +23,14 @@ function quarterArc(points: Point[]) {
   const cosine = ((start.x - hinge.x) * (end.x - hinge.x) + (start.y - hinge.y) * (end.y - hinge.y)) / (radius * radius);
   const angle = Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI;
   if (angle < 80 || angle > 100) return null;
+  const turns = points.slice(1).map((point, i) => {
+    const a = points[i], ax = a.x - hinge.x, ay = a.y - hinge.y;
+    const bx = point.x - hinge.x, by = point.y - hinge.y;
+    return Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+  });
+  // Endpoints alone also match loops and shuffled points on the same circle.
+  const travel = turns.reduce((sum, turn) => sum + Math.abs(turn), 0) * 180 / Math.PI;
+  if (travel > 100 || turns.some(turn => turn * turns[0] < 0)) return null;
   return { hinge, start, end, radius };
 }
 
@@ -67,7 +75,7 @@ export function detectVectorDoors(paths: VectorPath[]): VectorDoor[] {
     const whole = quarterArc(path.points);
     for (const arc of whole ? [whole] : curvedRuns(path.points).map(quarterArc).filter((arc): arc is NonNullable<typeof arc> => !!arc)) {
       const first = support(arc.hinge, arc.start, arc.radius), last = support(arc.hinge, arc.end, arc.radius);
-      if (first === last) continue;
+      if ((!first && !last) || (first && last)) continue;
       const leaf = first > last ? arc.start : arc.end, jamb = first > last ? arc.end : arc.start;
       if (doors.some(door => distance(door.hinge, arc.hinge) < 0.2 && distance(door.leaf, leaf) < 0.2 && distance(door.jamb, jamb) < 0.2)) continue;
       doors.push({ hinge: arc.hinge, jamb, leaf, radius: arc.radius, paired: false });
