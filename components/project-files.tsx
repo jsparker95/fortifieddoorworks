@@ -29,7 +29,6 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
-  const [starting, setStarting] = useState(false);
   const [jobStates, setJobStates] = useState<Record<string, { status: string; progress?: { message?: string } }>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -86,7 +85,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
           .upload(path, file, { contentType: mimeType, upsert: false });
         if (uploadError) throw uploadError;
       }
-      const { data: row, error: rowError } = await supabase.from("project_documents").insert({
+      const { error: rowError } = await supabase.from("project_documents").insert({
         id,
         project_id: projectId,
         phase_id: activePhaseId || null,
@@ -100,26 +99,12 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
         await supabase.storage.from("project-documents").remove([path]);
         throw rowError;
       }
-      setNotice(file.name.toLowerCase().endsWith(".pdf") && activePhaseId ? "PDF uploaded. Extracting draft takeoff data for the active phase…" : "File added to project.");
-      if (row && file.name.toLowerCase().endsWith(".pdf") && activePhaseId) {
-        setStarting(true);
-        try {
-        const { data: session } = await supabase.auth.getSession();
-        const started = await fetch("/api/documents/analyze", { method: "POST", keepalive: true,
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session?.access_token || ""}` },
-          body: JSON.stringify({ documentId: row.id, projectId, phaseId: activePhaseId, manualPages: [] }) });
-        if (!started.ok) {
-          const failure = await started.json();
-          setNotice(`PDF uploaded. Automatic extraction could not start: ${failure.error || "Open the file to retry."}`);
-        }
-        } catch { setNotice("PDF uploaded. Open the file to start or reconnect to extraction."); }
-      }
+      setNotice(file.name.toLowerCase().endsWith(".pdf") ? "PDF uploaded. Open the file and choose Begin extraction when you’re ready." : "File added to project.");
       await refresh();
-      if (row && file.name.toLowerCase().endsWith(".pdf")) setSelectedDocument(row as ProjectDocument);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed.");
     } finally {
-      setBusy(false); setStarting(false);
+      setBusy(false);
     }
   }
 
@@ -130,7 +115,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
         <div><h2>Files</h2><p>Plans, contracts, and other shared files.</p></div>
         {!demo && <label className={`project-files-add ${busy ? "is-busy" : ""}`}>
           {busy ? <LoaderCircle size={15} className="document-spinner" /> : <Upload size={15} />}
-          <span>{busy ? starting ? "Starting extraction…" : "Uploading…" : "Upload File"}</span>
+          <span>{busy ? "Uploading…" : "Upload File"}</span>
           <input type="file" disabled={busy} aria-label="Add a project file" onChange={(event) => { void upload(event.target.files?.[0]); event.currentTarget.value = ""; }} />
         </label>}
       </div>
@@ -138,7 +123,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
         <p className="project-files-empty">Sign in to upload and manage project files.</p>
       ) : (
         <>
-          {busy && <p className="project-file-uploading" role="status" aria-live="polite"><LoaderCircle size={14} className="document-spinner" /> {starting ? "File uploaded. Starting background extraction…" : `Uploading file… ${uploadPercent}% · Keep this page open until the upload finishes.`}</p>}
+          {busy && <p className="project-file-uploading" role="status" aria-live="polite"><LoaderCircle size={14} className="document-spinner" /> {`Uploading file… ${uploadPercent}% · Keep this page open until the upload finishes.`}</p>}
           {documents.length ? (
             <ul className="project-file-list">
               {documents.map((document) => (

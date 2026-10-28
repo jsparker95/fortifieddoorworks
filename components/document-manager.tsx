@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, ExternalLink, Check, LoaderCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { Kind, ProjectDocument, Row } from "@/lib/types";
-import { mapAnalysisToPhaseRows, mapPhaseCandidate } from "@/lib/drawing-takeoff/phase-import";
+import { mapPhaseCandidate } from "@/lib/drawing-takeoff/phase-import";
 
 type Analysis = {
   pipelineVersion?: string; serverImported?: boolean; extractionProgress?: { completed: number; failed: number; pending: number; total: number };
@@ -60,8 +60,6 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [manualPageInput, setManualPageInput] = useState("");
-  const autoStarted = useRef(false);
-  const recoveryImportStarted = useRef(false);
   const jobRunning = !!job && ["queued", "indexing", "locating", "extracting"].includes(job.status);
   const busy = busyAction !== null || jobRunning;
   const scheduleSearchComplete = analysis?.scheduleSearch?.completed === true && (!job || !["queued", "indexing", "locating"].includes(job.status));
@@ -83,7 +81,7 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
       if (!accessToken) throw new Error("Sign in again before analyzing this PDF.");
-      const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId, manualPages: [...manualPages] }) });
+      const response = await fetch("/api/documents/analyze", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ documentId: current.id, projectId, phaseId, manualPages: [...manualPages], startRequested: true }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not start analysis.");
       setJob(result.job); setPollGeneration(value => value + 1);
@@ -127,28 +125,6 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
     return () => { cancelled = true; clearTimeout(timer); };
   }, [current.id, projectId, phaseId, pollGeneration]);
 
-  useEffect(() => {
-    if (current.status !== "uploaded" || autoStarted.current) return;
-    autoStarted.current = true;
-    void analyze();
-  }, [analyze, current.status]);
-
-  useEffect(() => {
-    if ((current.analysis as Analysis)?.pipelineVersion || !current.analysis || !(current.analysis as Analysis).scheduleSearch?.completed || recoveryImportStarted.current) return;
-    recoveryImportStarted.current = true;
-    const rows = mapAnalysisToPhaseRows(current.id, current.analysis);
-    if (Object.values(rows).some((items) => items?.length)) {
-      void (async () => {
-        try {
-          const imported = await onApply(rows, true);
-          setNotice(imported === false
-            ? `This phase already has data in at least one takeoff tab. Saved extraction candidates were left for review and were not added.`
-            : `Saved the existing extraction as AI draft rows in ${phaseName}. Review them in the phase tabs.`);
-        }
-        catch (e) { setError(e instanceof Error ? e.message : "Could not add the saved extraction to this phase."); }
-      })();
-    }
-  }, [current.analysis, current.id, onApply, phaseName]);
   async function stopAnalysis() {
     try {
       const { data } = await supabase.auth.getSession();
@@ -183,11 +159,11 @@ export function DocumentManager({ projectId, phaseId, phaseName, document, onApp
   function toggle(id: string) { setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 
   return <section className="panel doc-intake">
-      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>Extract schedules &amp; door information</h3><p>Find schedule pages, read each opening, and save draft results to your phase. You can close this window while processing continues.</p></div><div className="doc-analysis-actions"><button className="button secondary" onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy || !phaseId} onClick={() => void analyze()}>{busy ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busy ? activeStep === "locate" ? "Finding schedule pages…" : "Extracting phase data…" : job && ["partial", "failed"].includes(job.status) ? "Resume incomplete sections" : analysis ? "Analyze again" : "Find pages & extract"}</button></div></div>
+      {current && <div className="analysis-panel"><div className="panel-heading"><div><h3>Extract schedules &amp; door information</h3><p>Choose Begin extraction to find schedules and save draft results to your phase. Processing continues in the background after you start it.</p></div><div className="doc-analysis-actions"><button className="button secondary" onClick={() => void openDocument()}><ExternalLink size={15}/>Open full PDF</button><button className="button" disabled={busy || !phaseId} onClick={() => void analyze()}>{busy ? <LoaderCircle size={16} className="document-spinner" aria-hidden="true"/> : <Sparkles size={16}/>} {busy ? activeStep === "locate" ? "Finding schedule pages…" : "Extracting phase data…" : job && ["partial", "failed"].includes(job.status) ? "Resume incomplete sections" : analysis ? "Analyze again" : "Begin extraction"}</button></div></div>
         <ol className="document-analysis-steps" aria-label="Document analysis progress" aria-live="polite">
           <li className={`${activeStep === "locate" ? "is-running" : scheduleSearchComplete ? "is-complete" : ""}`}>
             <span className="document-step-icon">{activeStep === "locate" ? <LoaderCircle size={16} className="document-spinner"/> : scheduleSearchComplete ? <Check size={16} className="document-check"/> : <span>1</span>}</span>
-            <span><strong>Find hardware, door, and frame schedules</strong><small>{activeStep === "locate" ? "Searching page text and drawings…" : scheduleSearchComplete ? current.description || analysis?.scheduleSearch?.summary || "Schedule search completed." : "Waiting to search the PDF"}</small></span>
+            <span><strong>Find hardware, door, and frame schedules</strong><small>{activeStep === "locate" ? "Searching page text and drawings…" : scheduleSearchComplete ? current.description || analysis?.scheduleSearch?.summary || "Schedule search completed." : "Ready when you choose Begin extraction"}</small></span>
           </li>
           <li className={`${activeStep === "extract" ? "is-running" : extractionComplete ? "is-complete" : ""}`}>
             <span className="document-step-icon">{activeStep === "extract" ? <LoaderCircle size={16} className="document-spinner"/> : extractionComplete ? <Check size={16} className="document-check"/> : <span>2</span>}</span>
