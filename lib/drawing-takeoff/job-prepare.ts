@@ -3,7 +3,9 @@ import { PDFDocument } from "pdf-lib";
 import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
 import { planDetails } from "./plan-details";
-import { addTasks, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
+import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf";
+import { taskIdsWithinBudget } from "./task-budget";
+import { addTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
 export async function prepareIndex(jobId: string) {
@@ -81,9 +83,13 @@ export async function prepareExtraction(jobId: string) {
   const source = await PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
   const root = job.index_path.replace(/\/index.json$/, "");
   const tasks: Array<{ task_key: string; kind: string; input: TaskInput }> = [];
+  const knownMarks = [...new Set(selected.flatMap(f => f.openingRows.map(row => row.mark)))];
+  const marksHash = createHash("sha256").update([...knownMarks].sort().join("\n")).digest("hex").slice(0,12);
+  const vectorWarnings: string[] = [];
   for (const finding of selected) {
     const page = pages[finding.page - 1];
-    const artifact = await putArtifact(`${root}/page-${page.page}.pdf`, await subsetPdf(source, [page.page]), "application/pdf");
+    const pageBytes = await subsetPdf(source, [page.page]);
+    const artifact = await putArtifact(`${root}/page-${page.page}.pdf`, pageBytes, "application/pdf");
     const common = { pages: [page.page], artifact, building: finding.building };
     if (finding.kinds.includes("door")) {
       const chunks = chunkRows(finding.openingRows);
@@ -98,20 +104,35 @@ export async function prepareExtraction(jobId: string) {
     }
     for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text } });
     if (finding.kinds.includes("plan")) {
-      const knownMarks = selected.flatMap(f => f.openingRows.map(row => row.mark));
+      const vectorPath = `${root}/vector-v${VECTOR_VERSION}-page-${page.page}-${marksHash}.json`;
+      let vector: VectorPlan;
+      try {
+        vector = JSON.parse(new TextDecoder().decode(await getArtifact(vectorPath)));
+        if(vector.version!==VECTOR_VERSION||!Array.isArray(vector.observations))throw new Error("Stale vector artifact");
+      } catch {
+        try {
+          vector = await analyzeVectorPlan(pageBytes,page,knownMarks);
+        } catch {
+          // One unsupported drawing must not prevent the schedules from saving.
+          vector = { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [],
+            reason: "Native drawing geometry could not be read; visual detections require manual handing verification." };
+        }
+        await putArtifact(vectorPath,JSON.stringify(vector),"application/json");
+      }
+      if(vector.reason)vectorWarnings.push(`PDF page ${page.page}: ${vector.reason}`);
       const tags = groupedOpeningCrops(page, knownMarks);
       const tiles = tags.length ? tags : planTiles(page.page, page.width * 2, page.height * 2, { tileSize: 1024, overlap: 256 });
       for (const tile of tiles) tasks.push({ task_key: `plan:${tile.id}`, kind: "plan", input: { ...common,
         targetMarks: "marks" in tile ? tile.marks : undefined,
         text: `Sheet context: ${page.text}\nKnown opening marks: ${selected.flatMap(f => f.openingRows.map(r => r.mark)).join(", ")}`,
         planDetails: "marks" in tile ? planDetails(page, tile, tile.marks) : [],
+        vectorArtifact: vector.supported ? vectorPath : undefined,
         crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
     }
   }
   // Schedules first; preserve every inventory row even if enrichment reaches the budget.
   tasks.sort((a, b) => Number(a.kind === "plan") - Number(b.kind === "plan"));
   const remaining = Math.max(0, MAX_AI_TASKS - Math.min(30, classified?.length || 0));
-  const queued = tasks.slice(0, remaining);
   await addTasks(jobId, tasks);
   // Refresh literal columns after a parser improvement without repurchasing
   // already completed enrichment for the same source rows.
@@ -121,12 +142,14 @@ export async function prepareExtraction(jobId: string) {
   }
   // Older responses used an ambiguous coordinate unit and could be entirely
   // discarded. Retry those sections only when the user explicitly resumes.
-  const { data: legacyPlans, error: legacyError } = await db.from("document_extraction_tasks").select("id,result")
+  const { data: legacyPlans, error: legacyError } = await db.from("document_extraction_tasks").select("id,task_key,result")
     .eq("job_id", jobId).eq("kind", "plan").eq("status", "complete");
   if (legacyError) throw legacyError;
-  const invalidPlanIds = (legacyPlans || []).filter(task => !task.result?.rawPlanResponse
-    && task.result?.doorwayObservations?.length === 0
-    && task.result?.uncertainties?.some((note: string) => /invalid citations, geometry/i.test(note))).map(task => task.id);
+  const vectorKeys = new Set(tasks.filter(task=>task.input.vectorArtifact).map(task=>task.task_key));
+  const invalidPlanIds = (legacyPlans || []).filter(task =>
+    (vectorKeys.has(task.task_key)&&task.result?.vectorVersion!==VECTOR_VERSION)
+    || (!task.result?.rawPlanResponse && task.result?.doorwayObservations?.length===0
+      && task.result?.uncertainties?.some((note:string)=>/invalid citations, geometry/i.test(note)))).map(task => task.id);
   if (invalidPlanIds.length) {
     const { error: retryError } = await db.from("document_extraction_tasks").update({ status: "pending" }).in("id", invalidPlanIds);
     if (retryError) throw retryError;
@@ -134,15 +157,15 @@ export async function prepareExtraction(jobId: string) {
   const { data: pendingTasks, error: pendingError } = await db.from("document_extraction_tasks").select("id,task_key").eq("job_id", jobId).neq("kind", "classify").neq("status", "complete");
   if (pendingError) throw pendingError;
   const pendingByKey = new Map((pendingTasks || []).map(task => [task.task_key, task.id as string]));
-  const ids = tasks.map(task => pendingByKey.get(task.task_key)).filter((id): id is string => !!id).slice(0, remaining);
+  const ids = taskIdsWithinBudget(tasks,pendingByKey,remaining);
   const analysis = { pipelineVersion: PIPELINE_VERSION, scheduleSearch: { completed: true, schedules, pages: [...new Set(schedules.flatMap(s => s.pages))], summary: description },
     openings: selected.flatMap(f => f.openingRows.map(row => ({ ...row, sourceBuilding: f.building }))), walls: [], doorTypes: [], hardwareGroups: [], doorwayObservations: [],
     relevantPages: selected.map(f => ({ page: f.page, section: f.kinds.join(", "), reason: f.evidence, confidence: 0.9 })),
     indexedPageCount: pages.length, candidatePageCount: selected.length, scannedPageCount: pages.filter(page => !page.text.trim()).length,
-    uncertainties: tasks.length > queued.length ? [`${tasks.length - queued.length} extraction sections remain unprocessed at the per-document AI call limit.`] : [],
+    uncertainties: [...vectorWarnings,...((pendingTasks?.length||0)>ids.length?[`${(pendingTasks?.length||0)-ids.length} paid extraction sections remain at the per-run model-call limit.`]:[])],
   };
   await updateJob(jobId, { status: "extracting", description, analysis,
-    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Extracting ${queued.length} sections and plan regions.`, totalTasks: tasks.length, completedTasks: tasks.length - (pendingTasks?.length || 0), skippedTasks: 0 } });
+    progress: { ...job.progress, uncheckedPages, message: `Found ${analysis.openings.length} printed openings. Processing ${ids.length} sections; native vector sections do not use AI credits.`, totalTasks: tasks.length, completedTasks: tasks.length - (pendingTasks?.length || 0), skippedTasks: 0 } });
   const { error: saveError } = await db.from("project_documents").update({ description, analysis, status: "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
   return ids;

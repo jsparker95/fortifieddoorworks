@@ -2,6 +2,7 @@ import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
 import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wall-evidence";
+import { VECTOR_VERSION } from "./vector-pdf";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
@@ -23,7 +24,7 @@ export async function publishProgress(jobId: string, final = false) {
   const groundedHardwareSets = new Set<string>();
   const obsoleteWallCaptions = new Set<string>();
   for (const task of tasks) {
-    if (!task.result) continue;
+    if (!task.result || task.status!=="complete") continue;
     const result = task.result as unknown as typeof output;
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
@@ -39,7 +40,11 @@ export async function publishProgress(jobId: string, final = false) {
     }
     output.walls.push(...scoped(wallPage ? reconcileWallNotes(wallPage, result.walls || []) : result.walls || [], building));
     output.uncertainties.push(...(result.uncertainties || []));
-    observations.push(...scoped(result.doorwayObservations || [], building));
+    const taskObservations=task.kind==="plan"&&task.result.vectorVersion!==VECTOR_VERSION
+      ? (result.doorwayObservations||[]).map(row=>({...row,handing:"" as const,hingeSide:"unknown" as const,swingDirection:"unclear" as const,
+        handingEvidence:"Vision-only hand was withheld pending independent geometry or manual verification."}))
+      :result.doorwayObservations||[];
+    observations.push(...scoped(taskObservations, building));
   }
   const detected = deduplicateDoors(observations.map((row, i) => ({ id: String(i), page: row.sourcePage, box: row.boundingBox,
     mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
