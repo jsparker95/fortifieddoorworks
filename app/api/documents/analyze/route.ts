@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { start, getRun } from "workflow/api";
 import { documentExtraction } from "@/workflows/document-extraction";
-import { workerClient, updateJob } from "@/lib/drawing-takeoff/job-store";
+import { workerClient, updateJob, PUBLICATION_VERSION } from "@/lib/drawing-takeoff/job-store";
 import { phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
 import type { ProjectPhase } from "@/lib/types";
 
@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     const { data: prior, error: readError } = await db.from("document_extraction_jobs").select("*").eq("document_id", body.documentId).eq("phase_id", body.phaseId).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (readError) throw readError;
     if (prior && ["queued", "indexing", "locating", "extracting"].includes(prior.status)) return Response.json({ job: prior }, { status: 202 });
-    const resume = !!prior && ["partial", "failed"].includes(prior.status) && JSON.stringify(prior.manual_pages) === JSON.stringify(pages);
+    const resume = !!prior && (["partial", "failed"].includes(prior.status)
+      || (prior.status === "complete" && prior.analysis?.publicationVersion !== PUBLICATION_VERSION))
+      && JSON.stringify(prior.manual_pages) === JSON.stringify(pages);
     let job = prior;
     if (!resume) {
       const rows = ["openings", "walls", "doorTypes", "hardware"].flatMap(kind => phase.data[kind as keyof typeof phase.data] as Array<Record<string, unknown>> || []);
