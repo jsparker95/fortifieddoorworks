@@ -85,6 +85,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     },
     { key: "handing", label: "Handing", options: options("Handing") },
     { key: "frameType", label: "Frame type", options: options("Frame types") },
+    { key: "frameMaterial", label: "Frame material" },
     { key: "frameCutsheet", label: "Frame cutsheet (blank = automatic match)", options: options("Frame cutsheets") },
     { key: "anchor", label: "Anchor", options: options("Anchors") },
     { key: "anchorQty", label: "Anchors per frame", type: "number" },
@@ -102,6 +103,9 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
       label: "Opening fire rating",
       options: options("Fire ratings"),
     },
+    { key: "doorMaterial", label: "Opening door material" },
+    { key: "doorFinish", label: "Door finish" },
+    { key: "doorThickness", label: "Door thickness" },
     {
       key: "group",
       label: "Hardware group",

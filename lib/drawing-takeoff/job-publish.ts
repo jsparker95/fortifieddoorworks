@@ -1,7 +1,7 @@
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
-import { reconcileWallNotes } from "./wall-evidence";
+import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wall-evidence";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
@@ -21,6 +21,7 @@ export async function publishProgress(jobId: string, final = false) {
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
   const groundedHardwareSets = new Set<string>();
+  const obsoleteWallCaptions = new Set<string>();
   for (const task of tasks) {
     if (!task.result) continue;
     const result = task.result as unknown as typeof output;
@@ -33,6 +34,9 @@ export async function publishProgress(jobId: string, final = false) {
     const taskHardware = printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || [];
     output.hardwareGroups.push(...scoped(taskHardware, building));
     const wallPage = task.kind === "walls" ? wallPages.find(page => page.page === task.input.pages[0]) : undefined;
+    if (wallPage) for (const caption of wallCaptionAliases(inventoryWallNotes(wallPage))) {
+      obsoleteWallCaptions.add(`${wallPage.page}:${building ? `${building} / ${caption}` : caption}`.toUpperCase());
+    }
     output.walls.push(...scoped(wallPage ? reconcileWallNotes(wallPage, result.walls || []) : result.walls || [], building));
     output.uncertainties.push(...(result.uncertainties || []));
     observations.push(...scoped(result.doorwayObservations || [], building));
@@ -106,7 +110,10 @@ export async function publishProgress(jobId: string, final = false) {
       const updated = { ...phase, data: { ...phase.data } };
       for (const [kind, incoming] of Object.entries(additions)) {
         const names = new Set((incoming || []).map(row => row.name));
-        const existing = (phase.data[kind as Kind] || []).filter(row => !(kind === "doorTypes" && row.sourceDocumentId === document.id && row.sourcePlaceholder === true && row.reviewState === "ai-draft" && !names.has(row.name)));
+        const existing = (phase.data[kind as Kind] || []).filter(row => !(row.sourceDocumentId === document.id && row.reviewState === "ai-draft" && (
+          (kind === "doorTypes" && row.sourcePlaceholder === true && !names.has(row.name))
+          || (kind === "walls" && obsoleteWallCaptions.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
+        )));
         const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
         updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []).filter(row => !(kind === "hardware"
           && row.sourceDocumentId === document.id && row.reviewState === "ai-draft"
@@ -126,7 +133,7 @@ export async function publishProgress(jobId: string, final = false) {
   const progress = { ...job.progress, completedTasks: completed, failedTasks: failed, totalTasks: tasks.length,
     openingCount: output.openings.length, hardwareCount: output.hardwareGroups.length,
     handedCount: output.openings.length - unhanded,
-    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} supported hands.${job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
+    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handing suggestions.${job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
   await updateJob(jobId, { status, analysis: phaseAnalysis, progress });
   const { error: saveError } = await db.from("project_documents").update({ analysis: phaseAnalysis, description: job.description, status: final ? "needs_review" : "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
