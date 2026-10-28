@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
-import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, type PageFinding } from "./indexing";
+import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, groundedScheduleKinds, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
 import { planDetails } from "./plan-details";
 import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf";
 import { taskIdsWithinBudget } from "./task-budget";
+import { scheduleSearchDescription } from "./search-description";
 import { addTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
@@ -68,7 +69,7 @@ export async function prepareExtraction(jobId: string) {
   const screenPages = new Set((classified || []).flatMap(task => task.input.pages as number[]));
   const confirmed = new Map<number, PageFinding["kinds"]>();
   for (const task of classified || []) if (task.status === "complete") for (const row of task.result?.pages || []) confirmed.set(task.input.pages[row.page - 1], confirmedPageKinds(row.kinds, row.evidence));
-  for (const finding of findings) if (screenPages.has(finding.page)) finding.kinds = [...new Set([...(finding.openingRows.length >= 2 ? ["door" as const] : []), ...(confirmed.get(finding.page) || [])])];
+  for (const finding of findings) if (screenPages.has(finding.page)) finding.kinds = [...new Set([...groundedScheduleKinds(pages[finding.page - 1], finding.openingRows), ...(confirmed.get(finding.page) || [])])];
   const scheduleBuildings = findings.filter(finding => finding.openingRows.length).map(finding => finding.building);
   for (const finding of findings) finding.building = canonicalBuilding(finding.building, scheduleBuildings);
   const selected = findings.filter(finding => finding.kinds.length);
@@ -77,7 +78,7 @@ export async function prepareExtraction(jobId: string) {
     description: kind === "door" ? `${selected.reduce((sum, f) => sum + f.openingRows.length, 0)} printed opening rows inventoried before AI enrichment.` : "Confirmed content on the listed sheets.",
     evidence: "Page text/table structure or direct visual inspection; index references excluded.", confidence: 0.9,
   })).filter(row => row.pages.length);
-  const description = schedules.map(s => `${s.kind === "door" ? "Door/opening" : s.kind === "frame" ? "Door/frame type" : "Hardware"} schedules on PDF pages ${s.pages.join(", ")}. ${s.description}`).join(" ") || "No schedule tables were confirmed. Floor plans, when present, will be inspected for supported door observations.";
+  const description = scheduleSearchDescription(schedules);
   const { data: file, error: downloadError } = await db.storage.from("project-documents").download(document.storage_path);
   if (downloadError || !file) throw new Error("Source PDF could not be opened for extraction.");
   const source = await PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
@@ -126,7 +127,10 @@ export async function prepareExtraction(jobId: string) {
         targetMarks: "marks" in tile ? tile.marks : undefined,
         text: `Sheet context: ${page.text}\nKnown opening marks: ${selected.flatMap(f => f.openingRows.map(r => r.mark)).join(", ")}`,
         planDetails: "marks" in tile ? planDetails(page, tile, tile.marks) : [],
-        vectorArtifact: vector.supported ? vectorPath : undefined,
+        // A known schedule already provides counts. Unsupported geometry is a
+        // manual-review result, not a reason to buy vision calls whose hands
+        // cannot be independently validated. Drawing-only files retain vision.
+        vectorArtifact: vector.supported || knownMarks.length ? vectorPath : undefined,
         crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
     }
   }

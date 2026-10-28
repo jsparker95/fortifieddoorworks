@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { PageIndex, TextBox } from "./indexing";
+import { displayedTextBox } from "./text-geometry";
 
 async function openPdf(bytes: Uint8Array) {
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
@@ -21,8 +22,7 @@ export async function indexPdf(bytes: Uint8Array): Promise<PageIndex[]> {
       const content = await page.getTextContent();
       const boxes: TextBox[] = content.items.flatMap(item => {
         if (!("str" in item) || !item.str.trim()) return [];
-        const point = view.convertToViewportPoint(item.transform[4], item.transform[5]);
-        return [{ text: item.str, x: point[0], y: point[1] - item.height, width: item.width, height: item.height }];
+        return [displayedTextBox(item, view.transform)];
       });
       const lineGroups: TextBox[][] = [];
       for (const box of [...boxes].sort((a, b) => a.y - b.y || a.x - b.x)) {

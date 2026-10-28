@@ -25,6 +25,15 @@ test("a circular swing requires a radial leaf and preserves the opposite closed 
   assert.equal(detectVectorDoors([shuffled, { points: [door.hinge, door.leaf] }]).length, 0);
 });
 
+test("separately stroked CAD arc segments are joined without crossing branches",()=>{
+  const points=arc(door).points;
+  const fragments=points.slice(1).map((b,i)=>({points:[points[i],b]}));
+  const found=detectVectorDoors([...fragments,{points:[door.hinge,door.leaf]}]);
+  assert.equal(found.length,1);
+  assert.ok(Math.hypot(found[0].hinge.x-100,found[0].hinge.y-100)<0.001);
+  assert.equal(detectVectorDoors(fragments).length,0);
+});
+
 test("traditional hands are invariant under rotation and use the reference viewpoint", () => {
   for (const angle of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
     const rotate = (p: { x: number; y: number }) => ({ x: p.x * Math.cos(angle) - p.y * Math.sin(angle), y: p.x * Math.sin(angle) + p.y * Math.cos(angle) });
@@ -60,6 +69,16 @@ test("free vector sections are retained beyond the paid task cap", () => {
   assert.deepEqual(taskIdsWithinBudget(tasks, ids, 1), ["id-0", "id-3", "id-4", "id-5"]);
   ids.delete("0");
   assert.deepEqual(taskIdsWithinBudget(tasks, ids, 1), ["id-1", "id-3", "id-4", "id-5"]);
+});
+
+test("a drawing without readable marks remains eligible for visual discovery",async()=>{
+  const pdf=await PDFDocument.create(),page=pdf.addPage([400,400]);
+  page.pushOperators(setLineWidth(2));
+  const points=arc(door).points;
+  page.pushOperators(moveTo(points[0].x,400-points[0].y),...points.slice(1).map(p=>lineTo(p.x,400-p.y)),stroke(),
+    moveTo(door.hinge.x,400-door.hinge.y),lineTo(door.leaf.x,400-door.leaf.y),stroke());
+  const result=await analyzeVectorPlan(await pdf.save(),{page:1,lines:["FLOOR PLAN"]},[]);
+  assert.equal(result.geometryCount,1);assert.equal(result.supported,false);assert.deepEqual(result.observations,[]);
 });
 
 test("an unbounded corridor label cannot justify handing", () => {

@@ -58,7 +58,7 @@ export function mapPhaseCandidate(
     frameType: stringValue(row.frameType), wall: stringValue(row.wallType),
     group: stringValue(row.hardwareGroup), fire: stringValue(row.fireRating), fireRating: stringValue(row.fireRating),
     doorMaterial: stringValue(row.doorMaterial), doorFinish: stringValue(row.doorFinish),
-    doorThickness: stringValue(row.doorThickness), frameMaterial: stringValue(row.frameMaterial),
+    doorThickness: stringValue(row.doorThickness), frameMaterial: stringValue(row.frameMaterial), frameFinish: stringValue(row.frameFinish),
     qty: stringValue(row.quantity), hingeSide: stringValue(row.hingeSide),
     swingDirection: stringValue(row.swingDirection), planReviewReasons: Array.isArray(row.planReviewReasons) ? row.planReviewReasons.map(String).join("; ") : stringValue(row.planReviewReasons),
     handingEvidence: stringValue(row.handingEvidence),

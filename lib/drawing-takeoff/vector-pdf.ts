@@ -5,8 +5,9 @@ import { detectVectorDoors, distance, type VectorPath } from "./vector-geometry"
 import { planRegions, referenceHand, regionReferences } from "./vector-regions";
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
+import { displayedTextBox } from "./text-geometry";
 
-export const VECTOR_VERSION = 1;
+export const VECTOR_VERSION = 2;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -67,10 +68,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     const content = await page.getTextContent();
     const boxes: TextBox[] = content.items.flatMap(item => {
       if (!("str" in item) || !item.str.trim()) return [];
-      const matrix = multiply(base.transform, item.transform), angle = Math.atan2(matrix[1], matrix[0]);
-      const dx = item.width*Math.cos(angle), dy = item.width*Math.sin(angle), ux = item.height*Math.sin(angle), uy = -item.height*Math.cos(angle);
-      const xs = [matrix[4],matrix[4]+dx,matrix[4]+ux,matrix[4]+dx+ux], ys = [matrix[5],matrix[5]+dy,matrix[5]+uy,matrix[5]+dy+uy];
-      return [{ text: item.str.trim(), x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs)-Math.min(...xs), height: Math.max(...ys)-Math.min(...ys) }];
+      return [displayedTextBox(item,base.transform)];
     });
     const scale = Math.min(1, 2200/Math.max(base.width,base.height)), view = page.getViewport({ scale });
     const canvas = createCanvas(Math.ceil(view.width),Math.ceil(view.height)), context = canvas.getContext("2d");
@@ -116,7 +114,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
         symbolEvidence:`Visible vector quarter-arc and straight leaf at tag ${tag.text}. Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
         handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
-    return { version:VECTOR_VERSION,supported:true,geometryCount:doors.length,observations,
+    return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,
       ...(!observations.length?{reason:"Vector swing symbols were found, but no target tag could be reliably attached to one."}:{}) };
   } finally { await task.destroy(); }
 }

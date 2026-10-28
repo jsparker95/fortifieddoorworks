@@ -1,4 +1,5 @@
 import type { Point } from "./geometry";
+import { joinedVectorPaths } from "./vector-chains";
 
 export type VectorPath = { points: Point[] };
 export type VectorDoor = { hinge: Point; jamb: Point; leaf: Point; radius: number; paired: boolean };
@@ -71,7 +72,7 @@ export function detectVectorDoors(paths: VectorPath[]): VectorDoor[] {
     return matches.size;
   };
   const doors: VectorDoor[] = [];
-  for (const path of paths) {
+  for (const path of [...paths, ...joinedVectorPaths(paths)]) {
     const whole = quarterArc(path.points);
     for (const arc of whole ? [whole] : curvedRuns(path.points).map(quarterArc).filter((arc): arc is NonNullable<typeof arc> => !!arc)) {
       const first = support(arc.hinge, arc.start, arc.radius), last = support(arc.hinge, arc.end, arc.radius);
