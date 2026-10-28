@@ -23,6 +23,30 @@ requiring human review. Resuming a legacy job replaces its provisional model
 hands with native evidence while preserving reviewed rows and paid-call history.
 Cached native sections do not consume the model-call budget.
 
+CAD exporters can stroke every arc segment separately. Connected segments are
+joined through vertices with two edges; branches are not crossed. An arc still
+requires a separately supported radial leaf and visible rendered ink.
+
+When a schedule already provides opening counts, unsupported plan geometry is
+retained as a free manual-review section. Paying for vision-only hands cannot
+resolve the independent verification requirement. Drawing-only PDFs without
+readable native marks remain eligible for visual opening discovery.
+
+## Compound schedule columns
+
+Vertical headings are indexed using all four displayed text corners. Compound
+door/frame tables are read spatially, with row dimensions checked against the
+literal inventory. Printed blank hardware and fire-rating cells stay blank.
+Door elevations titled `DOORS`, with multiple matching type labels, and explicit
+concrete wall tables remain extraction candidates when visual screening omits
+them. Successful earlier model sections are reused when resuming after an index
+version change.
+
+The Approved Plans sample has 13 scheduled openings and type codes 2, 5, 6 and 8.
+Its hardware-set and fire-rating columns are blank; there is no component list
+to populate Hardware. Offset door labels and leader connections are not yet
+verified by the native matcher, so their hands are withheld for manual review.
+
 ## Regression checks
 
 `tests/drawing-takeoff-vector.test.ts` covers all four hands under rotations,

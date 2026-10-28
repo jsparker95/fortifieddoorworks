@@ -1,8 +1,9 @@
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
+import { compoundScheduleColumns } from "./schedule-columns";
 
 export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
-  doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string;
+  doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string; frameFinish?: string; doorTypeInventoried?: boolean;
   fireRatingInventoried?: boolean; hardwareGroupInventoried?: boolean;
 };
 export type TextBox = { text: string; x: number; y: number; width: number; height: number };
@@ -17,14 +18,14 @@ const cleanDimension = (s: string) => s.replace(/[’]/g, "'").replace(/[”]/g,
   .replace(/\s*'\s*-?\s*/g, "'-").replace(/\s*"\s*/g, '"').replace(/\s+/g, " ");
 
 /** Inventory literal schedule rows before asking a model to enrich their fields. */
-export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Opening[] {
+export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text"> & Partial<Pick<PageIndex, "boxes">>): Opening[] {
   const heading = page.text.search(/\b(?:DOOR|OPENING)\s+(?:AND\s+FRAME\s+)?SCHEDULE\b/i);
   if (heading < 0) return [];
   const remainder = page.text.slice(heading);
   const end = remainder.search(/\bWINDOW\s+SCHEDULE\b|\bDOOR\s+(?:ELEVATION\s+)?TYPES\b/i);
   const section = end < 0 ? remainder : remainder.slice(0, end);
   const matches = [...section.matchAll(rowStart)];
-  return matches.flatMap((m, i) => {
+  const rows: Opening[] = matches.flatMap((m, i) => {
     const body = section.slice(m.index, matches[i + 1]?.index ?? Math.min(section.length, m.index + 350));
     // A mark must be in a table that also names material/type/hardware columns.
     if (!/\b(?:MATERIAL|MATL|HARDWARE|HDW|THICKNESS|FRAME)\b/i.test(section.slice(0, m.index))) return [];
@@ -48,6 +49,8 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Op
       doorFinish: materialColumns?.[3] || "", frameMaterial: materialColumns?.[4] || "", quantity: "1",
       sourcePage: page.page, evidence: body.trim().slice(0, 500), confidence: 0.9 }];
   }).filter((r, i, rows) => rows.findIndex(other => other.mark === r.mark) === i);
+  const columns = page.boxes ? compoundScheduleColumns(page.boxes, rows) : new Map();
+  return rows.map(row => ({ ...row, ...columns.get(row.mark) }));
 }
 
 export function findPageContent(page: PageIndex): PageFinding {
@@ -61,6 +64,7 @@ export function findPageContent(page: PageIndex): PageFinding {
   if (!index && hardwareSets.length >= 2 && components) kinds.push("hardware");
   if (!index && /\b(?:DOOR|FRAME)\s+(?:(?:ELEVATION\s+)?TYPES|ELEVATIONS)\b/i.test(text)) kinds.push("types");
   if (!index && /\b(?:WALL|PARTITION)\s+(?:TYPES|TYPE\s+SCHEDULE|ASSEMBLIES)\b/i.test(text)) kinds.push("walls");
+  kinds.push(...groundedScheduleKinds(page, openingRows).filter(kind => !kinds.includes(kind)));
   // Ignore index references and specification sentences; match actual drawing titles.
   const titleLines = page.lines.filter(line => line.length < 180 && !/\b(?:REFER|SEE|REFERENCE)\b/i.test(line));
   if (!index && titleLines.some(line => /\bFLOOR\s+PLAN\b|\bLEVEL\s+\d+\s+PLAN\b/i.test(line)
@@ -68,6 +72,18 @@ export function findPageContent(page: PageIndex): PageFinding {
   const building = text.match(/\bDOOR\s+SCHEDULE\s*[-–]\s*([A-Z][A-Z ]{2,40}?)(?=\s+DOOR\s+SCHEDULE|\s+(?:MARK|VV|WIDTH)\b)/)?.[1]?.trim() || "";
   return { page: page.page, kinds, building, openingRows, method: "text",
     evidence: openingRows.length ? `${openingRows.length} printed opening rows found.` : kinds.length ? `Found ${kinds.join(", ")} content on this sheet.` : index ? "Sheet index; references are not schedule tables." : "No confirmed schedule or architectural plan content." };
+}
+
+/** Literal tables and numbered elevations survive an incomplete visual classification. */
+export function groundedScheduleKinds(page: PageIndex, rows = inventoryOpeningRows(page)): PageKind[] {
+  const kinds: PageKind[] = rows.length >= 2 ? ["door"] : [];
+  const codes = new Set(rows.map(row => row.doorType).filter(Boolean));
+  const captions = page.boxes.filter(box => /^(?:[A-Z]\d+\s+)?(?:DOOR TYPES|DOOR ELEVATIONS|DOORS)$/i.test(box.text.trim()));
+  if (codes.size >= 2 && captions.some(caption => new Set(page.boxes.filter(box => codes.has(box.text.trim())
+    && box.x >= caption.x - 50 && box.x < caption.x + page.width / 2
+    && box.y > caption.y - 180 && box.y < caption.y + 20).map(box => box.text.trim())).size >= 2)) kinds.push("types");
+  if (/\bCONCRETE\s+WALL\s+SCHEDULE\b/i.test(page.text) && /\bCW-\d+[A-Z]?\s+\d+(?:\s+\d+\/\d+)?\s*"/i.test(page.text)) kinds.push("walls");
+  return kinds;
 }
 
 export function chunkRows<T>(rows: T[], size = 20): T[][] {
@@ -91,8 +107,8 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
   return inventory.map(row => {
     const model = generated.find(candidate => candidate.mark.trim().toUpperCase() === row.mark.toUpperCase());
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
-      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorType,
-      doorMaterial: row.doorMaterial, doorFinish: row.doorFinish, doorThickness: row.doorThickness, frameMaterial: row.frameMaterial,
+      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorTypeInventoried ? row.doorType : row.doorType || model?.doorType || "",
+      doorMaterial: row.doorMaterial, doorFinish: row.doorFinish, doorThickness: row.doorThickness, frameMaterial: row.frameMaterial, frameFinish: row.frameFinish,
       frameType: row.frameType || (row.frameMaterial ? "" : model?.frameType || ""),
       hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : row.hardwareGroup || model?.hardwareGroup || "",
       fireRating: row.fireRatingInventoried ? row.fireRating : row.fireRating || model?.fireRating || "",

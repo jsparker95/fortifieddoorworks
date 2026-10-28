@@ -86,6 +86,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     { key: "handing", label: "Handing", options: [...new Set([...options("Handing"), "LH", "RH", "LHR", "RHR"])] },
     { key: "frameType", label: "Frame type", options: options("Frame types") },
     { key: "frameMaterial", label: "Frame material" },
+    { key: "frameFinish", label: "Frame finish" },
     { key: "frameCutsheet", label: "Frame cutsheet (blank = automatic match)", options: options("Frame cutsheets") },
     { key: "anchor", label: "Anchor", options: options("Anchors") },
     { key: "anchorQty", label: "Anchors per frame", type: "number" },

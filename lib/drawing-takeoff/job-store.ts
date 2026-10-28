@@ -3,7 +3,7 @@ import type { PageIndex } from "./indexing";
 import type { PlanDetail } from "./plan-details";
 
 export const ARTIFACT_BUCKET = "document-analysis";
-export const PIPELINE_VERSION = "4";
+export const PIPELINE_VERSION = "5";
 export const MAX_AI_TASKS = 100;
 export type TaskInput = { pages: number[]; targetMark?: string; targetMarks?: string[]; artifact?: string; text?: string; building?: string; inventory?: unknown[]; crop?: { x: number; y: number; width: number; height: number }; pageWidth?: number; pageHeight?: number; planDetails?: PlanDetail[]; vectorArtifact?: string };
 export type ExtractionTask = { id: string; job_id: string; task_key: string; kind: string; input: TaskInput; status: string; result: Record<string, unknown> | null; attempts: number; error?: Record<string, unknown>; metrics?: Record<string,unknown> };
