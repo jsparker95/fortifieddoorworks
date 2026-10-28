@@ -112,3 +112,14 @@ test("native PDF paths, rendered boundaries and corridor text produce a grounded
   const detail = await analyzeVectorPlan(bytes, { page: 17, lines: ["FLOOR PLAN", "PLAN ENLARGEMENTS"] }, ["127"]);
   assert.equal(detail.observations[0].handing, "");
 });
+
+
+test("spatial leaf lookup preserves detections in a dense drawing and across grid boundaries", () => {
+ const noise = Array.from({length:10000},(_,i)=>({points:[{x:1000+i*40,y:1000},{x:1010+i*40,y:1000}]}));
+ for(const offset of [0,-110,27]) {
+  const shifted={...door,hinge:{x:door.hinge.x+offset,y:door.hinge.y+offset},jamb:{x:door.jamb.x+offset,y:door.jamb.y+offset},leaf:{x:door.leaf.x+offset,y:door.leaf.y+offset}};
+  const found=detectVectorDoors([...noise,arc(shifted),{points:[shifted.leaf,shifted.hinge]}]);
+  assert.equal(found.length,1);
+  assert.ok(Math.hypot(found[0].hinge.x-shifted.hinge.x,found[0].hinge.y-shifted.hinge.y)<0.001);
+ }
+});

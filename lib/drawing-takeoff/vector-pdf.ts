@@ -1,3 +1,4 @@
+import { vectorResourceLimit, MAX_VECTOR_POINTS } from "./vector-limits";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { Point } from "./geometry";
 import type { TextBox, PageIndex } from "./indexing";
@@ -20,6 +21,8 @@ export function completePlanContext(lines: string[]) {
 
 /** Read the actual drawn paths, not an LLM's interpretation of a small swing symbol. */
 export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex, "page" | "lines">, knownMarks: string[]): Promise<VectorPlan> {
+  const resourceLimit = vectorResourceLimit(bytes.byteLength);
+  if (resourceLimit) return { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason: resourceLimit };
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = getDocument({ data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
@@ -28,6 +31,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     const operatorList = await page.getOperatorList();
     const unsupported = (reason: string): VectorPlan => ({ version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason });
     if (operatorList.fnArray.length > 400_000 || operatorList.fnArray.includes(OPS.beginGroup)) return unsupported("Complex or transparent path transforms require visual review.");
+    let pointCount = 0;
     let transform = [1,0,0,1,0,0]; const stack: number[][] = [], paths: VectorPath[] = [];
     for (let i = 0; i < operatorList.fnArray.length; i++) {
       const op = operatorList.fnArray[i], args = operatorList.argsArray[i];
@@ -38,6 +42,9 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       else if (op === OPS.constructPath) {
         const data = args[1]?.[0] as ArrayLike<number> | undefined;
         if (!data?.length) continue;
+        // Be conservative before expanding Bezier coordinates into sampled points.
+        pointCount += data.length * 2;
+        if (pointCount > MAX_VECTOR_POINTS) return unsupported("Dense path geometry exceeds the safe point budget. Door handing requires manual review; schedules continue.");
         const matrix = multiply(base.transform, transform);
         const point = (x: number, y: number): Point => ({ x: matrix[0]*x+matrix[2]*y+matrix[4], y: matrix[1]*x+matrix[3]*y+matrix[5] });
         let current: Point | null = null, start: Point | null = null, points: Point[] = [];

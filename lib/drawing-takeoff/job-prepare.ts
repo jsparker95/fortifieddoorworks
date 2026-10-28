@@ -3,12 +3,13 @@ import { PDFDocument } from "pdf-lib";
 import { projectFileSizeError } from "../project-file-upload";
 import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, groundedScheduleKinds, type PageFinding, type PageIndex } from "./indexing";
 import { pageFromSegment } from "./segment-page";
+import { partitionPreparationInputs, type PreparationMode } from "./preparation-policy";
 import { planTiles } from "./geometry";
 import { planDetails } from "./plan-details";
 import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf";
 import { taskIdsWithinBudget } from "./task-budget";
 import { scheduleSearchDescription } from "./search-description";
-import { addTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
+import { addTasks, listExtractionTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
 export async function prepareIndex(jobId: string) {
@@ -105,18 +106,19 @@ export async function planExtraction(jobId: string) {
   const { error: saveError } = await db.from("project_documents").update({ description, analysis, status: "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
   console.info("[document-prepare] planned", { jobId, pages: selected.length, uncheckedPages });
-  return inputs;
+  return partitionPreparationInputs(inputs.map((path, i) => ({ path, kinds: selected[i].kinds })));
 }
 
 type PreparationInput = { finding: PageFinding; page: PageIndex; knownMarks: string[]; marksHash: string;
   sourceArtifact: string; sourcePages: number[]; root: string; total: number };
 
 /** Read one saved six-page segment, never the original large PDF. Each page is a durable step. */
-export async function preparePage(jobId: string, inputPath: string, ordinal: number) {
+export async function preparePage(jobId: string, inputPath: string, ordinal: number, mode: PreparationMode, modeTotal: number) {
   const { db, job } = await loadJob(jobId);
   if (job.status === "partial") throw new Error("Processing stopped. Saved results are retained.");
-  const { finding, page, knownMarks, marksHash, sourceArtifact, sourcePages, root, total } = JSON.parse(new TextDecoder().decode(await getArtifact(inputPath))) as PreparationInput;
-  console.info("[document-prepare] page started", { jobId, page: page.page, ordinal });
+  const { finding, page, knownMarks, marksHash, sourceArtifact, sourcePages, root } = JSON.parse(new TextDecoder().decode(await getArtifact(inputPath))) as PreparationInput;
+  console.info("[document-prepare] page started", { jobId, page: page.page, ordinal, mode });
+  finding.kinds = finding.kinds.filter(kind => mode === "plans" ? kind === "plan" : kind !== "plan");
   const pageBytes = await pageFromSegment(await getArtifact(sourceArtifact), sourcePages, page.page);
   const artifact = await putArtifact(`${root}/page-${page.page}.pdf`, pageBytes, "application/pdf");
   const common = { pages: [page.page], artifact, building: finding.building };
@@ -184,32 +186,23 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
     const { error: retryError } = await db.from("document_extraction_tasks").update({ status: "pending" }).in("id", invalidPlanIds);
     if (retryError) throw retryError;
   }
-  await updateJob(jobId, { progress: { ...job.progress, preparedPages: ordinal, preparingPages: total,
-    message: `Prepared ${ordinal} of ${total} relevant pages. Most recent: PDF page ${page.page}.` } });
+  await updateJob(jobId, { progress: { ...job.progress, preparedPages: ordinal, preparingPages: modeTotal,
+    message: `Prepared ${ordinal} of ${modeTotal} ${mode === "plans" ? "floor-plan" : "schedule and detail"} pages. Most recent: PDF page ${page.page}.` } });
   console.info("[document-prepare] page complete", { jobId, page: page.page, tasks: tasks.length });
   return vectorWarnings;
 }
 
-export async function finishPreparation(jobId: string, vectorWarnings: string[]) {
+export async function finishPreparation(jobId: string, vectorWarnings: string[], paidLimit: number, schedulesOnly: boolean, preparationFailures: number) {
   const { db, job } = await loadJob(jobId);
-  // Plans can create more than the Data API's default 1,000-row response limit.
-  const tasks: Array<{ id: string; task_key: string; kind: string; input: TaskInput; status: string }> = [];
-  for (let offset = 0; ; offset += 500) {
-    const { data, error } = await db.from("document_extraction_tasks").select("id,task_key,kind,input,status")
-      .eq("job_id", jobId).neq("kind", "classify").order("task_key").range(offset, offset + 499);
-    if (error) throw error;
-    tasks.push(...(data || []));
-    if ((data?.length || 0) < 500) break;
-  }
+  const tasks = await listExtractionTasks(db, jobId);
   tasks.sort((a, b) => Number(a.kind === "plan") - Number(b.kind === "plan"));
-  const { count, error: countError } = await db.from("document_extraction_tasks").select("id", { count: "exact", head: true }).eq("job_id", jobId).eq("kind", "classify");
-  if (countError) throw countError;
-  const remaining = Math.max(0, MAX_AI_TASKS - Math.min(30, count || 0));
-  const pending = tasks.filter(task => task.status !== "complete");
-  const ids = taskIdsWithinBudget(tasks, new Map(pending.map(task => [task.task_key, task.id])), remaining);
+  const pending = tasks.filter(task => task.status !== "complete" && (!schedulesOnly || task.kind !== "plan"));
+  const ids = taskIdsWithinBudget(tasks.filter(task => !schedulesOnly || task.kind !== "plan"), new Map(pending.map(task => [task.task_key, task.id])), paidLimit);
+  const selectedIds = new Set(ids);
+  const paidTasks = tasks.filter(task => selectedIds.has(task.id) && !(task.kind === "plan" && task.input.vectorArtifact)).length;
   await updateJob(jobId, { status: "extracting", analysis: { ...job.analysis,
     uncertainties: [...vectorWarnings, ...(pending.length > ids.length ? [`${pending.length - ids.length} paid extraction sections remain at the per-run model-call limit.`] : [])] },
-    progress: { ...job.progress, totalTasks: tasks.length, completedTasks: tasks.length - pending.length, skippedTasks: 0,
+    progress: { ...job.progress, totalTasks: tasks.length, completedTasks: tasks.filter(task => task.status === "complete").length, skippedTasks: preparationFailures,
       message: `Preparation complete. Processing ${ids.length} sections; native vector sections do not use AI credits.` } });
-  return ids;
+  return { ids, paidTasks };
 }

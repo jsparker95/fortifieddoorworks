@@ -7,14 +7,12 @@ import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, isOpe
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
-import { loadJob, readIndex, updateJob, PUBLICATION_VERSION, type ExtractionTask } from "./job-store";
+import { loadJob, listExtractionTasks, readIndex, updateJob, PUBLICATION_VERSION } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
 
 export async function publishProgress(jobId: string, final = false) {
   const { db, job, document } = await loadJob(jobId);
-  const { data, error } = await db.from("document_extraction_tasks").select("*").eq("job_id", jobId).neq("kind", "classify").order("task_key");
-  if (error) throw error;
-  const tasks = (data || []) as ExtractionTask[];
+  const tasks = await listExtractionTasks(db, jobId);
   const wallPages = job.index_path && tasks.some(task => task.kind === "walls" && task.result) ? await readIndex(job.index_path) : [];
   const output = combineExtractionOutputs(null, null);
   type ScopedOpening = typeof output.openings[number] & { sourceBuilding?: string; handingEvidence?: string };
