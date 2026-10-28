@@ -1,10 +1,13 @@
-import { prepareIndex, prepareExtraction } from "@/lib/drawing-takeoff/job-prepare";
+import { sleep } from "workflow";
+import { prepareIndex, planExtraction, preparePage, finishPreparation } from "@/lib/drawing-takeoff/job-prepare";
 import { extractTask } from "@/lib/drawing-takeoff/job-extract";
 import { publishProgress } from "@/lib/drawing-takeoff/job-publish";
 import { loadJob, updateJob, PIPELINE_VERSION } from "@/lib/drawing-takeoff/job-store";
 
 async function indexStep(jobId: string) { "use step"; return prepareIndex(jobId); }
-async function discoverStep(jobId: string) { "use step"; return prepareExtraction(jobId); }
+async function discoverStep(jobId: string) { "use step"; return planExtraction(jobId); }
+async function preparePageStep(jobId: string, inputPath: string, ordinal: number) { "use step"; return preparePage(jobId, inputPath, ordinal); }
+async function finishPreparationStep(jobId: string, warnings: string[]) { "use step"; return finishPreparation(jobId, warnings); }
 async function extractStep(taskId: string) { "use step"; return extractTask(taskId); }
 extractStep.maxRetries = 1;
 async function publishStep(jobId: string, final: boolean) { "use step"; return publishProgress(jobId, final); }
@@ -38,7 +41,17 @@ export async function documentExtraction(jobId: string, resume = false) {
         const blocked = results.flatMap(result => result.status === "fulfilled" && result.value.blockedReason ? [result.value.blockedReason] : [])[0];
         if (blocked) { await pauseStep(jobId, blocked); return; }
       }
-      tasks = await discoverStep(jobId);
+      const pageInputs = await discoverStep(jobId);
+      // Save literal schedule rows before any expensive plan geometry work.
+      await publishStep(jobId, false);
+      const warnings: string[] = [];
+      // Force a continuation between pages so a large source cannot accumulate
+      // PDF parsers and vector buffers inside one inline function invocation.
+      for (let i = 0; i < pageInputs.length; i++) {
+        await sleep("1s");
+        warnings.push(...await preparePageStep(jobId, pageInputs[i], i + 1));
+      }
+      tasks = await finishPreparationStep(jobId, warnings);
       await publishStep(jobId, false);
     }
     for (let i = 0; i < tasks.length; i += 2) {
