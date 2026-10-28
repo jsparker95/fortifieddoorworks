@@ -1,11 +1,12 @@
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
+import { reconcileWallNotes } from "./wall-evidence";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
-import { loadJob, updateJob, type ExtractionTask } from "./job-store";
+import { loadJob, readIndex, updateJob, type ExtractionTask } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
 
 export async function publishProgress(jobId: string, final = false) {
@@ -13,6 +14,7 @@ export async function publishProgress(jobId: string, final = false) {
   const { data, error } = await db.from("document_extraction_tasks").select("*").eq("job_id", jobId).neq("kind", "classify").order("task_key");
   if (error) throw error;
   const tasks = (data || []) as ExtractionTask[];
+  const wallPages = job.index_path && tasks.some(task => task.kind === "walls" && task.result) ? await readIndex(job.index_path) : [];
   const output = combineExtractionOutputs(null, null);
   type ScopedOpening = typeof output.openings[number] & { sourceBuilding?: string; handingEvidence?: string };
   const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
@@ -30,7 +32,8 @@ export async function publishProgress(jobId: string, final = false) {
     for (const row of printedHardware) groundedHardwareSets.add(`${row.sourcePage}:${hardwareSetKey(building ? `${building} / ${row.group}` : row.group)}`);
     const taskHardware = printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || [];
     output.hardwareGroups.push(...scoped(taskHardware, building));
-    output.walls.push(...scoped(result.walls || [], building));
+    const wallPage = task.kind === "walls" ? wallPages.find(page => page.page === task.input.pages[0]) : undefined;
+    output.walls.push(...scoped(wallPage ? reconcileWallNotes(wallPage, result.walls || []) : result.walls || [], building));
     output.uncertainties.push(...(result.uncertainties || []));
     observations.push(...scoped(result.doorwayObservations || [], building));
   }
@@ -104,11 +107,11 @@ export async function publishProgress(jobId: string, final = false) {
       for (const [kind, incoming] of Object.entries(additions)) {
         const names = new Set((incoming || []).map(row => row.name));
         const existing = (phase.data[kind as Kind] || []).filter(row => !(kind === "doorTypes" && row.sourceDocumentId === document.id && row.sourcePlaceholder === true && row.reviewState === "ai-draft" && !names.has(row.name)));
-      const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
-      updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []).filter(row => !(kind === "hardware"
-        && row.sourceDocumentId === document.id && row.reviewState === "ai-draft"
-        && groundedHardwareSets.has(`${row.sourcePage}:${hardwareSetKey(String(row.group || ""))}`)
-        && !incomingKeys.has(row.sourceCandidateKey)));
+        const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
+        updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []).filter(row => !(kind === "hardware"
+          && row.sourceDocumentId === document.id && row.reviewState === "ai-draft"
+          && groundedHardwareSets.has(`${row.sourcePage}:${hardwareSetKey(String(row.group || ""))}`)
+          && !incomingKeys.has(row.sourceCandidateKey)));
       }
       const next = { ...project.data, phases: phases.map(row => row.id === phase.id ? updated : row),
         ...(project.data.activePhaseId === phase.id ? updated.data : {}) };
