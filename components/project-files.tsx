@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, FileText, LoaderCircle, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { projectFileSizeError, RESUMABLE_UPLOAD_THRESHOLD, uploadLargeProjectFile } from "@/lib/project-file-upload";
 import { ProjectFileDialog } from "./project-file-dialog";
 import type { Kind, Row, ProjectPhase, ProjectDocument } from "@/lib/types";
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MIME_BY_EXTENSION: Record<string, string> = {
   pdf: "application/pdf",
   doc: "application/msword",
@@ -28,6 +28,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
   const [selectedDocument, setSelectedDocument] = useState<ProjectDocument | null>(null);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [busy, setBusy] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
   const [starting, setStarting] = useState(false);
   const [jobStates, setJobStates] = useState<Record<string, { status: string; progress?: { message?: string } }>>({});
   const [error, setError] = useState("");
@@ -60,8 +61,9 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
     if (!file) return;
     setError("");
     setNotice("");
-    if (file.size > MAX_FILE_SIZE) {
-      setError("Choose a file smaller than 100 MB.");
+    const sizeError = projectFileSizeError(file.size);
+    if (sizeError) {
+      setError(sizeError);
       return;
     }
     const mimeType = file.type || MIME_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() || ""];
@@ -70,14 +72,20 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
       return;
     }
     setBusy(true);
+    setUploadPercent(0);
     const id = crypto.randomUUID();
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const path = `${projectId}/project/${id}/${safeName}`;
     try {
-      const { error: uploadError } = await supabase.storage
-        .from("project-documents")
-        .upload(path, file, { contentType: mimeType, upsert: false });
-      if (uploadError) throw uploadError;
+      if (file.size > RESUMABLE_UPLOAD_THRESHOLD) {
+        const { data: session } = await supabase.auth.getSession();
+        if (!session.session) throw new Error("Sign in before uploading files.");
+        await uploadLargeProjectFile(new File([file], file.name, { type: mimeType }), path, session.session.access_token, setUploadPercent);
+      } else {
+        const { error: uploadError } = await supabase.storage.from("project-documents")
+          .upload(path, file, { contentType: mimeType, upsert: false });
+        if (uploadError) throw uploadError;
+      }
       const { data: row, error: rowError } = await supabase.from("project_documents").insert({
         id,
         project_id: projectId,
@@ -130,7 +138,7 @@ export function ProjectFiles({ projectId, demo, phases, activePhaseId, onApply, 
         <p className="project-files-empty">Sign in to upload and manage project files.</p>
       ) : (
         <>
-          {busy && <p className="project-file-uploading" role="status" aria-live="polite"><LoaderCircle size={14} className="document-spinner" /> {starting ? "File uploaded. Starting background extraction…" : "Uploading file… Keep this page open until the upload finishes."}</p>}
+          {busy && <p className="project-file-uploading" role="status" aria-live="polite"><LoaderCircle size={14} className="document-spinner" /> {starting ? "File uploaded. Starting background extraction…" : `Uploading file… ${uploadPercent}% · Keep this page open until the upload finishes.`}</p>}
           {documents.length ? (
             <ul className="project-file-list">
               {documents.map((document) => (

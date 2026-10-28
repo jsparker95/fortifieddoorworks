@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
+import { projectFileSizeError } from "../project-file-upload";
 import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, groundedScheduleKinds, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
 import { planDetails } from "./plan-details";
@@ -14,7 +15,8 @@ export async function prepareIndex(jobId: string) {
   await updateJob(jobId, { status: "indexing", progress: { message: "Reading every PDF page and preserving schedule text…" } });
   const { data: file, error } = await db.storage.from("project-documents").download(document.storage_path);
   if (error || !file) throw new Error("Could not download the uploaded PDF.");
-  if (file.size > 100 * 1024 * 1024) throw new Error("The PDF exceeds the 100 MB upload limit.");
+  const sizeError = projectFileSizeError(file.size);
+  if (sizeError) throw new Error(sizeError);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const hash = createHash("sha256").update(bytes).digest("hex");
   const root = `${document.project_id}/${document.id}/${hash}/v${PIPELINE_VERSION}`;
