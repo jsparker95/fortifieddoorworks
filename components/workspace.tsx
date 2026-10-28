@@ -62,6 +62,7 @@ import {
   resolvePhaseForOpening,
 } from "@/lib/phases";
 import { mergePhaseCandidateRows, phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
+import { openingReviewColumns } from "@/lib/opening-review-columns";
 import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, hardwareReviewRows, phaseReviewCounts, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
@@ -1734,6 +1735,8 @@ export default function Workspace() {
     columns: { key: string; label: string }[],
     kind?: Kind,
   ) {
+    if (kind === "openings") columns = openingReviewColumns(columns);
+    const readableGrid = !!kind && kind !== "hardware";
     const draftKey = kind && active ? `${active.id}:${active.data.activePhaseId || "default"}:${kind}` : "";
     const draft = kind && draftKey ? (inlineDrafts[draftKey] || { id: "" }) : null;
     const draftFields = kind && active ? fields(kind, active.data, catalogs, vendors) : [];
@@ -1853,12 +1856,15 @@ export default function Workspace() {
             </>
           )}
         </div>
-        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : "table-scroll"}>
+        {readableGrid && <p className="record-scroll-hint" id={`record-grid-hint-${kind}`}>Scroll horizontally for more fields. Use the edit icon to view a complete row.</p>}
+        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : readableGrid ? "table-scroll readable-record-scroll" : "table-scroll"}
+          role={readableGrid ? "region" : undefined} tabIndex={readableGrid ? 0 : undefined}
+          aria-label={readableGrid ? "Editable phase schedule" : undefined} aria-describedby={readableGrid ? `record-grid-hint-${kind}` : undefined}>
           <table className={[kind ? "record-entry-table" : "", kind ? "compact-record-table" : "", kind === "hardware" ? "hardware-fit-table" : ""].filter(Boolean).join(" ") || undefined}>
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c.key} aria-sort={kind === "hardware" && hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>
+                  <th key={c.key} data-column={c.key} aria-sort={kind === "hardware" && hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "ascending" : "descending" : undefined}>
                     {kind === "hardware" ? <button type="button" className="hardware-sort" aria-label={`Sort by ${c.label}`} onClick={() => setHardwareSort((current) => ({ key: c.key, direction: current.key === c.key && current.direction === "asc" ? "desc" : "asc" }))}>{c.label}<span aria-hidden="true">{hardwareSort.key === c.key ? hardwareSort.direction === "asc" ? "↑" : "↓" : "↕"}</span></button> : c.label}
                   </th>
                 ))}
@@ -1870,7 +1876,7 @@ export default function Workspace() {
               {sorted.slice(current * 30, current * 30 + 30).map((r) => (
                 <tr key={r.id} className={r.deleted ? "excluded" : ""}>
                   {columns.map((c, i) => (
-                    <td key={c.key} className={i === 0 ? "strong" : ""}>
+                    <td key={c.key} data-column={c.key} className={i === 0 ? "strong" : ""}>
                       {kind ? renderEditableCell(r, c.key, c.label) : typeof r[c.key] === "boolean"
                         ? r[c.key]
                           ? "Yes"
