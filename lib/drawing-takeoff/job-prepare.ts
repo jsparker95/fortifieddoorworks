@@ -138,7 +138,7 @@ export async function prepareExtraction(jobId: string) {
   const analysis = { pipelineVersion: PIPELINE_VERSION, scheduleSearch: { completed: true, schedules, pages: [...new Set(schedules.flatMap(s => s.pages))], summary: description },
     openings: selected.flatMap(f => f.openingRows.map(row => ({ ...row, sourceBuilding: f.building }))), walls: [], doorTypes: [], hardwareGroups: [], doorwayObservations: [],
     relevantPages: selected.map(f => ({ page: f.page, section: f.kinds.join(", "), reason: f.evidence, confidence: 0.9 })),
-    indexedPageCount: pages.length, candidatePageCount: selected.length,
+    indexedPageCount: pages.length, candidatePageCount: selected.length, scannedPageCount: pages.filter(page => !page.text.trim()).length,
     uncertainties: tasks.length > queued.length ? [`${tasks.length - queued.length} extraction sections remain unprocessed at the per-document AI call limit.`] : [],
   };
   await updateJob(jobId, { status: "extracting", description, analysis,

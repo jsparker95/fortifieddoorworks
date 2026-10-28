@@ -79,6 +79,7 @@ export async function publishProgress(jobId: string, final = false) {
   const unhanded = output.openings.filter(row => !row.handing).length;
   if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
   const analysis = { ...job.analysis, ...output, doorwayObservations: kept, matchedDoorways,
+    relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
     serverImported: job.import_enabled, extractionProgress: { completed, failed, pending, total: tasks.length },
   };
