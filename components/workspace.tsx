@@ -63,7 +63,7 @@ import {
 } from "@/lib/phases";
 import { mergePhaseCandidateRows, phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
 import { duplicateProject } from "@/lib/duplicate-project";
-import { derive, hardwareReviewRows, str } from "@/lib/production";
+import { derive, hardwareReviewRows, phaseReviewCounts, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
 import { ProjectFiles } from "./project-files";
@@ -483,6 +483,7 @@ export default function Workspace() {
     () => (active ? derive(active.data) : null),
     [active],
   );
+  const reviewCounts = useMemo(() => active ? phaseReviewCounts(active.data) : null, [active]);
   const summaries = useMemo(
     () =>
       projects.map((p) => {
@@ -2740,7 +2741,7 @@ export default function Workspace() {
                     }}
                   >
                     {s}
-                    {s === "Openings" && <span>{derived.frames.length}</span>}
+                    {s === "Openings" && <span>{reviewCounts?.openings || 0}</span>}
                   </button>
                 ))}
               </nav>
@@ -2767,10 +2768,26 @@ export default function Workspace() {
                     />
                     <Metric
                       label="Needs review"
-                      value={derived.warnings.length}
+                      value={derived.warnings.length + (reviewCounts?.totalDrafts || 0)}
                       icon={<AlertCircle />}
                     />
                   </div>
+                  {!!reviewCounts?.totalDrafts && (
+                    <section className="panel review-panel">
+                      <div className="panel-heading">
+                        <h2><FileText size={18} /> Review extracted data</h2>
+                        <span className="label">{reviewCounts.totalDrafts} AI drafts</span>
+                      </div>
+                      <p>Extracted rows are saved in the phase tabs. Review them before including them in production totals, takeoff, labels, or submittals.</p>
+                      <div className="actions" style={{ flexWrap: "wrap" }}>
+                        {Object.entries(kindNames).filter(([, kind]) => reviewCounts.drafts[kind] > 0).map(([name, kind]) => (
+                          <button key={kind} className="button secondary" onClick={() => { setSection(name); setTableQuery(""); }}>
+                            Review {name.toLowerCase()} ({reviewCounts.drafts[kind]})
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   <div className="overview-grid">
                     <section className="panel">
                       <div className="panel-heading">

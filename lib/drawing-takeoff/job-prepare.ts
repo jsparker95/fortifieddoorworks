@@ -117,6 +117,18 @@ export async function prepareExtraction(jobId: string) {
     const { error: inventoryError } = await db.from("document_extraction_tasks").update({ input: task.input }).eq("job_id", jobId).eq("task_key", task.task_key);
     if (inventoryError) throw inventoryError;
   }
+  // Older responses used an ambiguous coordinate unit and could be entirely
+  // discarded. Retry those sections only when the user explicitly resumes.
+  const { data: legacyPlans, error: legacyError } = await db.from("document_extraction_tasks").select("id,result")
+    .eq("job_id", jobId).eq("kind", "plan").eq("status", "complete");
+  if (legacyError) throw legacyError;
+  const invalidPlanIds = (legacyPlans || []).filter(task => !task.result?.rawPlanResponse
+    && task.result?.doorwayObservations?.length === 0
+    && task.result?.uncertainties?.some((note: string) => /invalid citations, geometry/i.test(note))).map(task => task.id);
+  if (invalidPlanIds.length) {
+    const { error: retryError } = await db.from("document_extraction_tasks").update({ status: "pending" }).in("id", invalidPlanIds);
+    if (retryError) throw retryError;
+  }
   const { data: pendingTasks, error: pendingError } = await db.from("document_extraction_tasks").select("id,task_key").eq("job_id", jobId).neq("kind", "classify").neq("status", "complete");
   if (pendingError) throw pendingError;
   const pendingByKey = new Map((pendingTasks || []).map(task => [task.task_key, task.id as string]));

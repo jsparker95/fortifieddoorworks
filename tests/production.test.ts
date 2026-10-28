@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { derive, hardwareReviewRows } from "../lib/production";
+import { derive, hardwareReviewRows, phaseReviewCounts } from "../lib/production";
 import { emptyData, Project } from "../lib/types";
 function sample() {
   const d = emptyData();
@@ -46,6 +46,16 @@ function sample() {
   ];
   return d;
 }
+test("saved drafts appear in review counts while production stays unchanged", () => {
+  const data = sample();
+  data.openings.push({ id: "draft", name: "102", reviewState: "ai-draft" }, { id: "excluded-draft", name: "103", reviewState: "ai-draft", deleted: true });
+  data.hardware.push({ id: "draft-hardware", component: "Hinge", reviewState: "ai-draft" });
+  const counts = phaseReviewCounts(data);
+  assert.equal(counts.openings, 2);
+  assert.equal(counts.drafts.openings, 1);
+  assert.equal(counts.totalDrafts, 2);
+  assert.equal(derive(data).frames.length, 1);
+});
 test("opening inputs produce frame, door and hardware output", () => {
   const r = derive(sample());
   assert.equal(r.frames[0].partName, "3070 575 L EPT ");
