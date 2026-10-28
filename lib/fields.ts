@@ -83,7 +83,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
       options: [...d.walls.map((w) => String(w.name)), "NA"],
       required: true,
     },
-    { key: "handing", label: "Handing", options: options("Handing") },
+    { key: "handing", label: "Handing", options: [...new Set([...options("Handing"), "LH", "RH", "LHR", "RHR"])] },
     { key: "frameType", label: "Frame type", options: options("Frame types") },
     { key: "frameMaterial", label: "Frame material" },
     { key: "frameCutsheet", label: "Frame cutsheet (blank = automatic match)", options: options("Frame cutsheets") },

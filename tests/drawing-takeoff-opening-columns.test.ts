@@ -37,6 +37,7 @@ test("literal fire ratings populate the displayed editor field and override gene
   data.doorTypes = [{ id: "type", name: "H", material: "SOLID CORE WOOD", fire: "90 MIN" }];
   const fireField = fields("openings", data, []).find(field => field.label === "Opening fire rating")!;
   assert.equal(data.openings[0][fireField.key], "20 MIN");
+  assert.deepEqual(fields("openings", data, []).find(field => field.key === "handing")?.options, ["LH", "RH", "LHR", "RHR"]);
   const doors = derive(data).doors;
   assert.equal(doors.find(row => row.name === "119")?.fire, "20 MIN");
   assert.equal(doors.find(row => row.name === "120")?.fire, "");
