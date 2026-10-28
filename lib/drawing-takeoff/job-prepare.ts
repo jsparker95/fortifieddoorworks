@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { chunkRows, findPageContent, hardwareSections, groupedOpeningCrops, canonicalBuilding, confirmedPageKinds, type PageFinding } from "./indexing";
 import { planTiles } from "./geometry";
+import { planDetails } from "./plan-details";
 import { addTasks, loadJob, updateJob, putArtifact, readIndex, MAX_AI_TASKS, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
@@ -103,6 +104,7 @@ export async function prepareExtraction(jobId: string) {
       for (const tile of tiles) tasks.push({ task_key: `plan:${tile.id}`, kind: "plan", input: { ...common,
         targetMarks: "marks" in tile ? tile.marks : undefined,
         text: `Sheet context: ${page.text}\nKnown opening marks: ${selected.flatMap(f => f.openingRows.map(r => r.mark)).join(", ")}`,
+        planDetails: "marks" in tile ? planDetails(page, tile, tile.marks) : [],
         crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
     }
   }
@@ -113,7 +115,7 @@ export async function prepareExtraction(jobId: string) {
   await addTasks(jobId, tasks);
   // Refresh literal columns after a parser improvement without repurchasing
   // already completed enrichment for the same source rows.
-  for (const task of tasks.filter(task => task.kind === "doors" && task.input.inventory?.length)) {
+  for (const task of tasks.filter(task => (task.kind === "doors" && task.input.inventory?.length) || task.kind === "plan")) {
     const { error: inventoryError } = await db.from("document_extraction_tasks").update({ input: task.input }).eq("job_id", jobId).eq("task_key", task.task_key);
     if (inventoryError) throw inventoryError;
   }

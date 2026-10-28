@@ -14,7 +14,7 @@ export function isNonSwingDoor(
   if (!opening) return false;
   const type = doorTypes.find((candidate) => candidate.code.trim().toUpperCase() === opening.doorType?.trim().toUpperCase());
   const description = `${opening.evidence || ""} ${type?.description || ""}`;
-  return /\b(?:sectional\s+overhead|overhead\s+door|roll(?:ing|-?up)\s+door|coiling\s+door|sliding\s+door|bi[ -]?fold\s+door|revolving\s+door)\b/i.test(description);
+  return /\b(?:sectional\s+overhead|overhead\s+door|roll(?:ing|-?up)\s+door|coiling\s+door|sliding\s+door|bi[ -]?fold(?:\s+door)?|cased\s+opening|revolving\s+door)\b/i.test(description);
 }
 
 export function resolveOpeningHanding(

@@ -46,13 +46,13 @@ export async function subsetPdf(source: PDFDocument, pages: number[]) {
 }
 
 /** Render only the requested rectangle, keeping even large plan sheets bounded. */
-export async function renderCrop(bytes: Uint8Array, crop?: { x: number; y: number; width: number; height: number }) {
+export async function renderCrop(bytes: Uint8Array, crop?: { x: number; y: number; width: number; height: number }, maxScale = 1) {
   const { task, pdf } = await openPdf(bytes);
   try {
     const page = await pdf.getPage(1);
     const viewport = page.getViewport({ scale: 2 });
     const box = crop || { x: 0, y: 0, width: viewport.width, height: viewport.height };
-    const scale = Math.min(1, 1800 / Math.max(box.width, box.height));
+    const scale = Math.min(maxScale, 1800 / Math.max(box.width, box.height));
     const canvas = createCanvas(Math.ceil(box.width * scale), Math.ceil(box.height * scale));
     const context = canvas.getContext("2d");
     await page.render({ canvas: canvas as never, canvasContext: context as never,

@@ -61,7 +61,7 @@ function confidence(value: number) {
 function traditionalHanding(row: Extraction["doorwayObservations"][number]): Extraction["doorwayObservations"][number]["handing"] {
   const evidence = row.handingEvidence;
   if (/\b(?:assum\w*|guess\w*|presum\w*|infer\w*)\b/i.test(evidence)
-    || !/\b(?:outside|exterior|key(?:ed)? side|corridor side)\b/i.test(evidence)
+    || !/\b(?:outside|exterior|key(?:ed)? side|corridor(?:\s+[A-Z0-9-]+)?\s+side|from\s+(?:the\s+)?corridor\s+[A-Z0-9-]+)\b/i.test(evidence)
     || row.hingeSide === "unknown" || row.swingDirection === "unclear") return "";
   if (row.hingeSide === "left") return row.swingDirection === "toward_reference_side" ? "LHR" : "LH";
   return row.swingDirection === "toward_reference_side" ? "RHR" : "RH";

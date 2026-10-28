@@ -58,24 +58,33 @@ export async function extractTask(taskId: string) {
     } else if (kind === "plan") {
       system += " Inspect this enlarged floor-plan crop systematically for EVERY door symbol. Return coordinateSystem=0-1000. Every boundingBox x, y, width and height is on a 0 to 1000 grid of THIS CROP: top-left 0,0 and bottom-right 1000,1000. Include the attached tag and door symbol inside the box. These are NOT 0-to-1 coordinates. Include symbols near crop edges. Match tags only when visibly attached to that doorway; room numbers, grids and wall tags are not door tags. Traditional handing uses the outside/key side: hinges left/right with swing away yields LH/RH, toward yields LHR/RHR. Establish the reference side using explicit exterior/key-side/corridor context and describe the evidence. If that side or geometry is ambiguous, use unknown/unclear and leave the hand empty. Never guess a reference side. Distinguish doors from framed openings, windows and overhead doors. Exclude equipment enclosures and kennel gates unless explicitly tagged as a building door.";
       prompt = `${targetMarks.length ? `Inspect ONLY openings visibly tagged ${targetMarks.join(", ")}. A known mark is a search target, not proof: if it is only a room number or no attached door tag is visible, return an empty observations array. Ignore neighboring doors and gates.` : "Identify all visible building doorway symbols and tags."} Describe hinge side, swing and supported handing in this crop. Building context: ${input.building || "unknown"}. sourcePage=1. Return bounding boxes on the declared 0-1000 grid.`;
+      system += " The first image is the overview. Following images are enlarged vector details for individual target tags: use details for hinge/leaf geometry and overview for room/exterior context. All bounding boxes must refer to the FIRST overview image, never a detail image. The curved swing arc does NOT pass through the hinge: it joins the opposite latch jamb to the free end of the open leaf. The hinge is where the STRAIGHT open leaf meets the frame, not where the curved arc touches a jamb. Establish the screen hinge and swing first, then convert to the observer's reference side. Double/pair, bifold, overhead and cased openings must not receive a guessed single-leaf swing hand.";
     }
     // A complete, bounded text table is cheaper and clearer than resending its full sheet.
     const textOnly = (kind === "doors" && !!input.inventory?.length) || (kind === "hardware" && !!input.text && input.text.length < 10000);
     if (input.artifact && !textOnly) {
       const bytes = await getArtifact(input.artifact);
-      if (kind === "plan") content.push({ type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.crop) });
+      if (kind === "plan") {
+        content.push({ type: "text", text: "FIRST IMAGE: overview. All response boxes use its 0-1000 coordinate grid." },
+          { type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.crop) });
+        for (const detail of (input.planDetails || []).slice(0, 4)) content.push(
+          { type: "text", text: `Enlarged vector detail for target ${detail.mark}, whose text center is at (${Math.round(detail.overviewX)},${Math.round(detail.overviewY)}) in the OVERVIEW grid. Verify it is an attached door tag. Do not return detail-image coordinates.` },
+          { type: "file", mediaType: "image/png", data: await renderCrop(bytes, detail, 4) });
+      }
       else content.push({ type: "file", mediaType: "application/pdf", data: bytes });
     }
     content.push({ type: "text", text: prompt });
-    const model = (kind === "plan" ? process.env.DOCUMENT_VISION_MODEL : undefined) || process.env.DOCUMENT_EXTRACTION_MODEL || "google/gemini-2.5-flash";
+    const model = kind === "plan" ? process.env.DOCUMENT_VISION_MODEL || "openai/gpt-5.2"
+      : process.env.DOCUMENT_EXTRACTION_MODEL || "google/gemini-2.5-flash";
     const response = await generateText({
       model,
       // Reasoning consumes the same output allowance. Bound it separately so
       // table JSON is not cut off after otherwise successful reasoning.
       ...(model === "google/gemini-2.5-flash" ? { providerOptions: { google: { thinkingConfig: { thinkingBudget: kind === "classify" ? 512 : kind === "plan" ? 2048 : 1024 }, ...(kind === "plan" ? { mediaResolution: "MEDIA_RESOLUTION_HIGH" } : {}) } } } : {}),
+      ...(model === "openai/gpt-5.2" ? { providerOptions: { openai: { reasoningEffort: "medium" } } } : {}),
       output: Output.object({ schema: schemas[kind] as z.ZodType<Record<string, unknown>> }),
       system, messages: [{ role: "user", content }] as ModelMessage[],
-      maxRetries: 0, maxOutputTokens: kind === "classify" ? 3500 : 10000,
+      maxRetries: 0, maxOutputTokens: kind === "classify" ? 3500 : kind === "plan" ? 6500 : 10000,
       abortSignal: AbortSignal.timeout(120_000),
     });
     let result = response.output;
@@ -109,7 +118,10 @@ export async function extractTask(taskId: string) {
       result = { ...safe, ...(rawPlanResponse ? { rawPlanResponse } : {}) };
     }
     const metrics = { elapsedMs: Date.now() - started, usage: response.usage, finishReason: response.finishReason,
-      model: response.response.modelId, responseId: response.response.id };
+      model: response.response.modelId, responseId: response.response.id,
+      generationId: response.providerMetadata?.gateway?.generationId,
+      gatewayCostUsd: response.providerMetadata?.gateway?.cost,
+      detailCount: input.planDetails?.length || 0 };
     if (response.finishReason === "length") throw new Error("The model reached its output limit; this section needs smaller chunks.");
     const { error: saveError } = await db.from("document_extraction_tasks").update({ result, metrics, status: "complete", error: null, updated_at: new Date().toISOString() }).eq("id", taskId);
     if (saveError) throw saveError;
