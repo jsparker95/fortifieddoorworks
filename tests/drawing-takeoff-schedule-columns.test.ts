@@ -1,12 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { findPageContent, groundedScheduleKinds, inventoryOpeningRows, reconcileInventoriedRows } from "../lib/drawing-takeoff/indexing";
+import { findPageContent, groundedScheduleKinds, inventoryOpeningRows, reconcileInventoriedRows, isOpeningRowTypeEvidence, referencedDoorTypes } from "../lib/drawing-takeoff/indexing";
 import { displayedTextBox } from "../lib/drawing-takeoff/text-geometry";
 import { mapAnalysisToPhaseRows } from "../lib/drawing-takeoff/phase-import";
 import { scheduleSearchDescription } from "../lib/drawing-takeoff/search-description";
 
 const fixture = () => JSON.parse(fs.readFileSync("tests/fixtures/schedules/approved-23.json", "utf8"));
+
+test("opening marks cannot become type definitions by repeating schedule rows",()=>{
+  const rows=inventoryOpeningRows(fixture());
+  const impostors=rows.map(row=>({code:row.mark,sourcePage:23,evidence:[row.mark,row.width,row.height,row.doorMaterial,row.doorFinish,
+    row.frameMaterial,row.frameFinish,row.doorThickness,row.doorType].join("\n")}));
+  assert.equal(impostors.filter(type=>isOpeningRowTypeEvidence(type,rows)).length,13);
+  assert.equal(isOpeningRowTypeEvidence({code:"6",sourcePage:23,evidence:'Door elevation 6, single flush metal leaf, 3\'-4" frame outside dimension.'},rows),false);
+  assert.equal(isOpeningRowTypeEvidence({...impostors[0],sourcePage:24},rows),false);
+  const types=referencedDoorTypes(rows,[]);
+  assert.deepEqual(types.map(type=>type.code),["6","8","5","2"]);
+  assert.deepEqual(types.map(type=>type.width),[`3'-0"`,`3'-0"`,`6'-0"`,`16'-0"`]);
+  assert.deepEqual(types.map(type=>type.material),["METAL","METAL","METAL","STEEL"]);
+  assert.ok(types.every(type=>type.sourcePlaceholder && /verify the type diagram/.test(type.description)));
+});
 
 test("vertical text headings use displayed corners instead of a horizontal width", () => {
   assert.deepEqual(displayedTextBox({str:"MARK",width:50,height:12,transform:[0,12,-12,0,100,200]},[1,0,0,-1,0,1000]),

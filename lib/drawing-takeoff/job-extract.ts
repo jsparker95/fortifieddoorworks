@@ -73,7 +73,7 @@ export async function extractTask(taskId: string) {
     } else if (kind === "hardware") {
       prompt = `Extract EVERY component in these hardware sets, one row per component. Preserve set identifiers, quantities, full model/options/finish text and manufacturer. "By others" is valid information.\n${prompt}`;
     } else if (kind === "types") {
-      prompt = `Extract door type definitions from the diagrams and table. Include material, dimensions and glazing/louver details only when printed.\n${prompt}`;
+      prompt = `Extract door TYPE definitions from labeled elevations/diagrams or a dedicated type table. Opening MARK numbers in a door schedule identify individual openings, not type codes. Do not emit one type per opening row. Read the TYPE column and the elevation labels. Include material, dimensions and glazing/louver details only when printed; distinguish frame outside dimensions from door leaf dimensions.\n${prompt}`;
     } else if (kind === "walls") {
       prompt = `Extract each wall type/assembly, its code, layers and explicit finished thickness.\n${prompt}`;
     } else if (kind === "plan") {

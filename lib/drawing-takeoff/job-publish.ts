@@ -3,11 +3,11 @@ import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
 import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wall-evidence";
 import { VECTOR_VERSION } from "./vector-pdf";
-import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
+import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, isOpeningRowTypeEvidence, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
-import { loadJob, readIndex, updateJob, type ExtractionTask } from "./job-store";
+import { loadJob, readIndex, updateJob, PUBLICATION_VERSION, type ExtractionTask } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
 
 export async function publishProgress(jobId: string, final = false) {
@@ -23,13 +23,21 @@ export async function publishProgress(jobId: string, final = false) {
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
   const groundedHardwareSets = new Set<string>();
   const obsoleteWallCaptions = new Set<string>();
+  const obsoleteTypeRows = new Set<string>();
   for (const task of tasks) {
     if (!task.result || task.status!=="complete") continue;
     const result = task.result as unknown as typeof output;
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
     for (const row of scoped(taskOpenings, building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
-    output.doorTypes.push(...scoped(result.doorTypes || [], building));
+    const inventory = tasks.filter(candidate => candidate.kind === "doors" && candidate.input.building === task.input.building)
+      .flatMap(candidate => candidate.input.inventory as Opening[] || []);
+    const definitions = (result.doorTypes || []).filter(type => {
+      if (!isOpeningRowTypeEvidence(type, inventory)) return true;
+      obsoleteTypeRows.add(`${type.sourcePage}:${building ? `${building} / ${type.code}` : type.code}`.toUpperCase());
+      return false;
+    });
+    output.doorTypes.push(...scoped(definitions, building));
     const printedHardware = task.kind === "hardware" && task.input.text ? inventoryHardwareRows(task.input.text, task.input.pages[0]) : [];
     for (const row of printedHardware) groundedHardwareSets.add(`${row.sourcePage}:${hardwareSetKey(building ? `${building} / ${row.group}` : row.group)}`);
     const taskHardware = printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || [];
@@ -83,7 +91,7 @@ export async function publishProgress(jobId: string, final = false) {
   for (const task of tasks.filter(task => task.status === "failed")) uncertainties.push(`PDF page ${task.input.pages.join(", ")}, ${task.kind}: ${task.error?.message || "section failed"}. Other results have been retained.`);
   const unhanded = output.openings.filter(row => !row.handing).length;
   if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
-  const analysis = { ...job.analysis, ...output, doorwayObservations: kept, matchedDoorways,
+  const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, doorwayObservations: kept, matchedDoorways,
     relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
     serverImported: job.import_enabled, extractionProgress: { completed, failed, pending, total: tasks.length },
@@ -118,6 +126,7 @@ export async function publishProgress(jobId: string, final = false) {
         const names = new Set((incoming || []).map(row => row.name));
         const existing = (phase.data[kind as Kind] || []).filter(row => !(row.sourceDocumentId === document.id && row.reviewState === "ai-draft" && (
           (kind === "doorTypes" && row.sourcePlaceholder === true && !names.has(row.name))
+          || (kind === "doorTypes" && row.sourcePlaceholder !== true && obsoleteTypeRows.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
           || (kind === "walls" && obsoleteWallCaptions.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
         )));
         const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));

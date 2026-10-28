@@ -172,8 +172,19 @@ export function referencedDoorTypes(openings: Array<Opening & {sourceBuilding?: 
     const first=rows[0], building=first.sourceBuilding || '';
     const widths=new Set(rows.map(row=>row.width)), heights=new Set(rows.map(row=>row.height));
     return {code:rawCode(first.doorType,building),description:'Type referenced in the door schedule; verify the type diagram.',
-      material:first.evidence.match(/\b(?:INSULATED HOLLOW METAL|HOLLOW METAL|SOLID CORE WOOD|ALUMINUM STOREFRONT|ALUMINUM|INSULATED STEEL)\b/i)?.[0] || '',
+      material:first.doorMaterial || first.evidence.match(/\b(?:INSULATED HOLLOW METAL|HOLLOW METAL|SOLID CORE WOOD|ALUMINUM STOREFRONT|ALUMINUM|INSULATED STEEL)\b/i)?.[0] || '',
       manufacturer:'',windowOrLouver:'',fireRating:'',width:widths.size===1?first.width:'',height:heights.size===1?first.height:'',
       sourcePage:first.sourcePage,evidence:first.evidence,confidence:0.75,sourceBuilding:building,sourcePlaceholder:true};
   });
+}
+
+/** A repeated opening-table row is not evidence of a separate type definition. */
+export function isOpeningRowTypeEvidence(definition: {code:string;evidence:string;sourcePage:number}, openings: Opening[]) {
+  const compact = (value:string) => value.toUpperCase().replace(/[\s–—-]+/g, "");
+  const evidence = compact(definition.evidence);
+  return openings.some(row => row.doorTypeInventoried && row.sourcePage === definition.sourcePage
+    && row.doorType && row.width && row.height && row.frameMaterial && row.frameFinish
+    && compact(definition.code) === compact(row.mark)
+    && evidence.startsWith(compact(`${row.mark}${row.width}${row.height}`))
+    && evidence.includes(compact(`${row.frameMaterial}${row.frameFinish}${row.doorThickness || ""}${row.doorType}`)));
 }
