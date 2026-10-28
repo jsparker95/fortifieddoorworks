@@ -67,6 +67,7 @@ import { duplicateProject } from "@/lib/duplicate-project";
 import { derive, hardwareReviewRows, phaseReviewCounts, str } from "@/lib/production";
 import { Field, fields } from "@/lib/fields";
 import { Editor } from "./editor";
+import { InfiniteRecordTable } from "./infinite-record-table";
 import { ProjectFiles } from "./project-files";
 import { ProductionTracker } from "./production-tracker";
 import { VendorDirectory } from "./vendor-directory";
@@ -297,7 +298,6 @@ export default function Workspace() {
   dirtyRef.current = dirty;
   const [mobile, setMobile] = useState(false),
     [tableQuery, setTableQuery] = useState(""),
-    [page, setPage] = useState(0),
     [cat, setCat] = useState<SettingsCategory>("Door brands");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogSort, setCatalogSort] = useState<CatalogSort>("value");
@@ -462,9 +462,6 @@ export default function Workspace() {
     window.addEventListener("beforeunload", before);
     return () => window.removeEventListener("beforeunload", before);
   }, [dirty]);
-  useEffect(() => {
-    setPage(0);
-  }, [tableQuery, section, cat]);
   useEffect(() => {
     if (!ready || demo) return;
     let alive = true;
@@ -1827,8 +1824,6 @@ export default function Workspace() {
       if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps}><option value="">—</option>{!field.options.includes(String(value)) && value ? <option value={String(value)}>{String(value)}</option> : null}{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
       return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
     };
-    const max = Math.max(0, Math.ceil(filtered.length / 30) - 1),
-      current = Math.min(page, max);
     return (
       <>
         <div className="table-toolbar">
@@ -1857,9 +1852,14 @@ export default function Workspace() {
           )}
         </div>
         {readableGrid && <p className="record-scroll-hint" id={`record-grid-hint-${kind}`}>Scroll horizontally for more fields. Use the edit icon to view a complete row.</p>}
-        <div className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : readableGrid ? "table-scroll readable-record-scroll" : "table-scroll"}
-          role={readableGrid ? "region" : undefined} tabIndex={readableGrid ? 0 : undefined}
-          aria-label={readableGrid ? "Editable phase schedule" : undefined} aria-describedby={readableGrid ? `record-grid-hint-${kind}` : undefined}>
+        <InfiniteRecordTable
+          key={JSON.stringify([active?.id, active?.data.activePhaseId, section, tableQuery, kind === "hardware" ? hardwareSort : null])}
+          rows={sorted}
+          className={kind === "hardware" ? "table-scroll hardware-fit-scroll" : readableGrid ? "table-scroll readable-record-scroll" : "table-scroll"}
+          label={`${section} schedule`}
+          describedBy={readableGrid ? `record-grid-hint-${kind}` : undefined}
+        >
+          {(visibleRows) => <>
           <table className={[kind ? "record-entry-table" : "", kind ? "compact-record-table" : "", kind === "hardware" ? "hardware-fit-table" : ""].filter(Boolean).join(" ") || undefined}>
             <thead>
               <tr>
@@ -1873,7 +1873,7 @@ export default function Workspace() {
               </tr>
             </thead>
             <tbody>
-              {sorted.slice(current * 30, current * 30 + 30).map((r) => (
+              {visibleRows.map((r) => (
                 <tr key={r.id} className={r.deleted ? "excluded" : ""}>
                   {columns.map((c, i) => (
                     <td key={c.key} data-column={c.key} className={i === 0 ? "strong" : ""}>
@@ -1961,21 +1961,8 @@ export default function Workspace() {
               </p>
             </div>
           )}
-        </div>
-        <div className="pagination">
-          <span>
-            Page {current + 1} of {max + 1}
-          </span>
-          <button disabled={current === 0} onClick={() => setPage(current - 1)}>
-            Previous
-          </button>
-          <button
-            disabled={current === max}
-            onClick={() => setPage(current + 1)}
-          >
-            Next
-          </button>
-        </div>
+          </>}
+        </InfiniteRecordTable>
       </>
     );
   }
