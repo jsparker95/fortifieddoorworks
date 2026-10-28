@@ -1223,7 +1223,9 @@ td {
 .readable-record-scroll .compact-record-table th:first-child,
 .readable-record-scroll .compact-record-table td:first-child {
   position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 #e6e9ed;
+  width: 132px; min-width: 132px; max-width: 132px;
 }
+.readable-record-scroll .compact-record-table td:first-child input:not([type="checkbox"]) { width: 108px; min-width: 0; }
 .readable-record-scroll .compact-record-table th:first-child { z-index: 3; background: #f8f9fb; }
 .readable-record-scroll .compact-record-table [data-column="width"],
 .readable-record-scroll .compact-record-table [data-column="height"],
