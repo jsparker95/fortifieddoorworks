@@ -4,6 +4,7 @@ import { extractionSchema, combineExtractionOutputs, sanitizeExtraction } from "
 import { confirmedPageKinds, reconcileInventoriedRows, type Opening } from "./indexing";
 import { providerAccessProblem } from "./provider-access";
 import { reconcileHardwareRows } from "./hardware-evidence";
+import { normalizePlanResponse, planResponseSchema } from "./plan-response";
 import { getArtifact, loadJob, updateJob, workerClient, type ExtractionTask } from "./job-store";
 import { renderCrop } from "./pdf-server";
 
@@ -17,7 +18,7 @@ const schemas = {
   hardware: extractionSchema.pick({ hardwareGroups: true }),
   types: extractionSchema.pick({ doorTypes: true }),
   walls: extractionSchema.pick({ walls: true }),
-  plan: extractionSchema.pick({ doorwayObservations: true }),
+  plan: planResponseSchema,
 };
 
 function errorRecord(error: unknown) {
@@ -55,8 +56,8 @@ export async function extractTask(taskId: string) {
     } else if (kind === "walls") {
       prompt = `Extract each wall type/assembly, its code, layers and explicit finished thickness.\n${prompt}`;
     } else if (kind === "plan") {
-      system += " Inspect this enlarged floor-plan crop systematically for EVERY door symbol. Bounding boxes are normalized to THIS CROP, top-left origin. Include symbols near crop edges. Match tags only when visibly attached to that doorway; room numbers, grids and wall tags are not door tags. Traditional handing uses the outside/key side: hinges left/right with swing away yields LH/RH, toward yields LHR/RHR. Establish the reference side using explicit exterior/key-side/corridor context and describe the evidence. If that side or geometry is ambiguous, use unknown/unclear and leave the hand empty. Never guess a reference side. Distinguish doors from framed openings, windows and overhead doors. Exclude equipment enclosures and kennel gates unless explicitly tagged as a building door.";
-      prompt = `${targetMarks.length ? `Inspect ONLY openings visibly tagged ${targetMarks.join(", ")}. A known mark is a search target, not proof: if it is only a room number or no attached door tag is visible, return an empty observations array. Ignore neighboring doors and gates.` : "Identify all visible building doorway symbols and tags."} Describe hinge side, swing and supported handing in this crop. Sheet text provides context; it is not proof that a tag belongs to a visible symbol.\n${prompt}`;
+      system += " Inspect this enlarged floor-plan crop systematically for EVERY door symbol. Return coordinateSystem=0-1000. Every boundingBox x, y, width and height is on a 0 to 1000 grid of THIS CROP: top-left 0,0 and bottom-right 1000,1000. Include the attached tag and door symbol inside the box. These are NOT 0-to-1 coordinates. Include symbols near crop edges. Match tags only when visibly attached to that doorway; room numbers, grids and wall tags are not door tags. Traditional handing uses the outside/key side: hinges left/right with swing away yields LH/RH, toward yields LHR/RHR. Establish the reference side using explicit exterior/key-side/corridor context and describe the evidence. If that side or geometry is ambiguous, use unknown/unclear and leave the hand empty. Never guess a reference side. Distinguish doors from framed openings, windows and overhead doors. Exclude equipment enclosures and kennel gates unless explicitly tagged as a building door.";
+      prompt = `${targetMarks.length ? `Inspect ONLY openings visibly tagged ${targetMarks.join(", ")}. A known mark is a search target, not proof: if it is only a room number or no attached door tag is visible, return an empty observations array. Ignore neighboring doors and gates.` : "Identify all visible building doorway symbols and tags."} Describe hinge side, swing and supported handing in this crop. Building context: ${input.building || "unknown"}. sourcePage=1. Return bounding boxes on the declared 0-1000 grid.`;
     }
     // A complete, bounded text table is cheaper and clearer than resending its full sheet.
     const textOnly = (kind === "doors" && !!input.inventory?.length) || (kind === "hardware" && !!input.text && input.text.length < 10000);
@@ -71,13 +72,15 @@ export async function extractTask(taskId: string) {
       model,
       // Reasoning consumes the same output allowance. Bound it separately so
       // table JSON is not cut off after otherwise successful reasoning.
-      ...(model === "google/gemini-2.5-flash" ? { providerOptions: { google: { thinkingConfig: { thinkingBudget: kind === "classify" ? 512 : kind === "plan" ? 2048 : 1024 } } } } : {}),
+      ...(model === "google/gemini-2.5-flash" ? { providerOptions: { google: { thinkingConfig: { thinkingBudget: kind === "classify" ? 512 : kind === "plan" ? 2048 : 1024 }, ...(kind === "plan" ? { mediaResolution: "MEDIA_RESOLUTION_HIGH" } : {}) } } } : {}),
       output: Output.object({ schema: schemas[kind] as z.ZodType<Record<string, unknown>> }),
       system, messages: [{ role: "user", content }] as ModelMessage[],
       maxRetries: 0, maxOutputTokens: kind === "classify" ? 3500 : 10000,
       abortSignal: AbortSignal.timeout(120_000),
     });
     let result = response.output;
+    const rawPlanResponse = kind === "plan" ? planResponseSchema.parse(result) : null;
+    if (rawPlanResponse) result = normalizePlanResponse(rawPlanResponse);
     if (kind === "classify") {
       const classified = classificationSchema.parse(result);
       const numbers = new Set(classified.pages.map(page => page.page));
@@ -101,7 +104,9 @@ export async function extractTask(taskId: string) {
           height: row.boundingBox.height * crop.height / height,
         } }));
       }
-      result = safe;
+      // Retain the source response so a validation improvement can recover it
+      // without another paid model call. Only normalized rows enter phase data.
+      result = { ...safe, ...(rawPlanResponse ? { rawPlanResponse } : {}) };
     }
     const metrics = { elapsedMs: Date.now() - started, usage: response.usage, finishReason: response.finishReason,
       model: response.response.modelId, responseId: response.response.id };

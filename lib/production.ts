@@ -8,6 +8,13 @@ export const eligible = (r: Row) => !r.deleted && r.reviewState !== "ai-draft" &
 export function hardwareReviewRows(data: Pick<ProjectData, "hardware">, computedHardware: Row[]): Row[] {
   return [...computedHardware, ...data.hardware.filter((row) => row.reviewState === "ai-draft")];
 }
+/** Review counts include saved drafts even though production totals exclude them. */
+export function phaseReviewCounts(data: ProjectData) {
+  const kinds = ["openings", "walls", "doorTypes", "hardware"] as const;
+  const drafts = Object.fromEntries(kinds.map(kind => [kind, data[kind].filter(row => !row.deleted && row.reviewState === "ai-draft").length])) as Record<typeof kinds[number], number>;
+  return { openings: data.openings.filter(row => !row.deleted).length, drafts,
+    totalDrafts: kinds.reduce((sum, kind) => sum + drafts[kind], 0) };
+}
 export function derive(data: ProjectData) {
   const openings = data.openings.filter(eligible);
   const key = (v: unknown) => str(v).toLowerCase();
