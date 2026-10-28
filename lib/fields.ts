@@ -15,6 +15,8 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     return [
       { key: "name", label: "Wall type", required: true },
       { key: "size", label: "Frame depth / wall size", required: true },
+      { key: "description", label: "Assembly notes", type: "textarea" },
+      { key: "layers", label: "Layers / construction", type: "textarea" },
     ];
   if (kind === "doorTypes")
     return [
@@ -30,6 +32,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
       { key: "fire", label: "Fire rating", options: options("Fire ratings") },
       { key: "pr", label: "P.R. / special requirements" },
       { key: "cutsheet", label: "Door cutsheet (blank = automatic match)", options: options("Door cutsheets") },
+      { key: "description", label: "Type notes", type: "textarea" },
     ];
   if (kind === "hardware")
     return [

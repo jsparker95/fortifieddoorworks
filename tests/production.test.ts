@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { derive, hardwareReviewRows, phaseReviewCounts } from "../lib/production";
 import { emptyData, Project } from "../lib/types";
+import { fields } from "../lib/fields";
 function sample() {
   const d = emptyData();
   d.walls = [{ id: "w", name: "W1", size: "575" }];
@@ -55,6 +56,11 @@ test("saved drafts appear in review counts while production stays unchanged", ()
   assert.equal(counts.drafts.openings, 1);
   assert.equal(counts.totalDrafts, 2);
   assert.equal(derive(data).frames.length, 1);
+});
+test("saved wall assembly and door type notes are exposed for review", () => {
+  const data = sample();
+  for (const key of ["description", "layers"]) assert.equal(fields("walls", data, []).find(field => field.key === key)?.type, "textarea");
+  assert.equal(fields("doorTypes", data, []).find(field => field.key === "description")?.type, "textarea");
 });
 test("opening inputs produce frame, door and hardware output", () => {
   const r = derive(sample());
