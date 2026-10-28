@@ -72,4 +72,6 @@ test('printed frame, fire-rating and hardware set columns take precedence over e
  const row=rock.find(row=>row.mark==='102')!;
  assert.equal(row.hardwareGroup,'02');
  assert.equal(reconcileInventoriedRows([row],[{...row,hardwareGroup:'PANIC SET'}])[0].hardwareGroup,'02');
+ const fulks=inventoryOpeningRows(JSON.parse(fs.readFileSync('tests/fixtures/schedules/rockingham-27.json','utf8')));
+ assert.equal(fulks.find(row=>row.mark==='121')?.hardwareGroup,'14', 'BIFOLD spelling retains its printed set');
 });

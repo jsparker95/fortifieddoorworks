@@ -28,7 +28,7 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Op
     const leadingType = /\bTYPE\s+MATL\s+DIMENSIONS\b/i.test(section.slice(0, m.index)) ? m[2].trim().split(/\s+/)[0] : "";
     const code = leadingType && !["-", "N/A"].includes(leadingType) ? leadingType : tail.match(new RegExp(String.raw`^\s*(?:${dimension}\s+)?([A-Z])\s+(?:SOLID|HOLLOW|INSULATED|ALUMINUM|WOOD|METAL)\b`, "i"))?.[1] || "";
     const frameRating = /FRAME\s+TYPE\s+FIRE\s+RATING/i.test(section.slice(0, m.index)) ? body.match(/\b(F[0-9A-Z-]+|W-\d+)\s+(NR|\d+\s*(?:MIN\.?|HOUR|HR))\b/i) : null;
-    const hardwareGroup = /HARDWARE\s+HARDWARE\s+SET/i.test(section.slice(0, m.index)) ? body.match(/\b(?:PANIC|LOCKSET|PUSH\s*\/\s*PULL|PASSAGE|PRIVATE|BI-FOLD)\b.*?\s+(\d{1,2}(?:-[A-Z])?)(?=\s|$)/i)?.[1] || "" : "";
+    const hardwareGroup = /HARDWARE\s+HARDWARE\s+SET/i.test(section.slice(0, m.index)) ? body.match(/\b(?:PANIC|LOCKSET|PUSH\s*\/\s*PULL|PASSAGE|PRIVATE|BI[- ]?FOLD)\b.*?\s+(\d{1,2}(?:-[A-Z])?)(?=\s|$)/i)?.[1] || "" : "";
     return [{ mark: m[1], width: cleanDimension(m[3]), height: cleanDimension(m[4]),
       doorType: code, room: "", handing: "", frameType: frameRating?.[1] || "", wallType: "", hardwareGroup, fireRating: frameRating?.[2]?.trim() || "", quantity: "1",
       sourcePage: page.page, evidence: body.trim().slice(0, 500), confidence: 0.9 }];
