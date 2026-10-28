@@ -1198,14 +1198,18 @@ td {
 }
 .hardware-sort span { color: #a2aab2; }
 .compact-record-table td input:not([type="checkbox"]),
-.compact-record-table td select {
+.compact-record-table td select,
+.compact-record-table td textarea {
   width: 100%; min-width: 0; padding: 4px 3px; border: 1px solid transparent;
   border-radius: 4px; background: transparent; color: inherit; font: inherit;
 }
 .compact-record-table td input:not([type="checkbox"]):hover,
-.compact-record-table td select:hover { border-color: #dfe4e9; background: #fff; }
+.compact-record-table td select:hover,
+.compact-record-table td textarea:hover { border-color: #dfe4e9; background: #fff; }
 .compact-record-table td input:not([type="checkbox"]):focus,
-.compact-record-table td select:focus { outline: 2px solid #ef6a32; background: #fff; }
+.compact-record-table td select:focus,
+.compact-record-table td textarea:focus { outline: 2px solid #ef6a32; background: #fff; }
+.compact-record-table td textarea { min-width: 220px; min-height: 64px; resize: vertical; }
 .hardware-fit-table th:nth-child(1),
 .hardware-fit-table td:nth-child(1) { width: 6%; }
 .hardware-fit-table th:nth-child(2),

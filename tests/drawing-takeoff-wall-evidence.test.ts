@@ -7,7 +7,7 @@ import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "../lib/drawing-
 for (const page of [12, 26]) test(`partition page ${page} keeps notes with their own diagram`, () => {
   const source = JSON.parse(fs.readFileSync(`tests/fixtures/schedules/rockingham-walls-${page}.json`, "utf8"));
   const rows = inventoryWallNotes(source);
-  assert.deepEqual(rows.map(row => row.code), Array.from({ length: 11 }, (_, index) => `W${index + 1}`));
+  assert.deepEqual(rows.map(row => row.code), [...Array.from({ length: 11 }, (_, index) => `W${index + 1}`), ...(page === 26 ? ["2F"] : [])]);
   assert.equal(rows.find(row => row.code === "W7")?.description, "N/A");
   const exterior = rows.find(row => row.code === "W8")!;
   assert.equal(exterior.layers.length, 6);
@@ -19,6 +19,13 @@ for (const page of [12, 26]) test(`partition page ${page} keeps notes with their
   assert.ok(rows.every(row => row.finishedThickness === ""));
   assert.match(rows.find(row => row.code === "W2")!.description, page === 12 ? /30 MIN/ : /1-HR/);
   assert.ok(rows.every(row => row.sourcePage === page));
+  if (page === 26) {
+    const firewall = rows.find(row => row.code === "2F")!;
+    assert.match(firewall.description, /FIRE WALL.*2-HR/);
+    assert.match(firewall.description, /8" CMU/);
+    assert.doesNotMatch(firewall.description, /GIRT|MANUFACTURED STONE/);
+    assert.equal(reconcileWallNotes(source, [{ ...firewall, code: "FIRE WALL" }]).length, 12);
+  }
 });
 
 test("corrected wall drafts retain IDs and reviewed values; unknown layouts retain visual output", () => {

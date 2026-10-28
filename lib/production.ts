@@ -18,6 +18,7 @@ export function phaseReviewCounts(data: ProjectData) {
 export function derive(data: ProjectData) {
   const openings = data.openings.filter(eligible);
   const key = (v: unknown) => str(v).toLowerCase();
+  const openingKey = (row: Row) => key(row.sourceBuilding ? `${row.sourceBuilding}/${row.name}` : row.name);
   const walls = new Map(data.walls.filter((row) => row.reviewState !== "ai-draft").map((w) => [key(w.name), w]));
   const types = new Map(data.doorTypes.filter((row) => row.reviewState !== "ai-draft").map((t) => [key(t.name), t]));
   const groupCounts = new Map<string, number>(),
@@ -25,7 +26,7 @@ export function derive(data: ProjectData) {
     groups = new Map<string, Row[]>();
   for (const o of openings) {
     groupCounts.set(key(o.group), (groupCounts.get(key(o.group)) || 0) + 1);
-    nameCounts.set(key(o.name), (nameCounts.get(key(o.name)) || 0) + 1);
+    nameCounts.set(openingKey(o), (nameCounts.get(openingKey(o)) || 0) + 1);
   }
   const reviewedHardware = data.hardware.filter((row) => row.reviewState !== "ai-draft");
   for (const h of reviewedHardware) {
@@ -74,8 +75,8 @@ export function derive(data: ProjectData) {
       .filter((h) => h.doorPrep)
       .map((h) => str(h.doorPrep))
       .join(", ");
-    const fire = str(t?.fire || o.fire);
-    const material = str(t?.material);
+    const fire = o.sourceDocumentId ? str(o.fire) : str(t?.fire || o.fire);
+    const material = str(o.doorMaterial || t?.material);
     const window = str(t?.window);
     const partName = [
       material,
@@ -173,7 +174,7 @@ export function derive(data: ProjectData) {
         !groups.has(key(o.group))
           ? `${o.name}: hardware group is missing`
           : null,
-        (nameCounts.get(key(o.name)) || 0) > 1
+        (nameCounts.get(openingKey(o)) || 0) > 1
           ? `${o.name}: duplicate opening mark`
           : null,
         /TBD/i.test(str(walls.get(key(o.wall))?.size))

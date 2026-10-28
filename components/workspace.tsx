@@ -1816,10 +1816,11 @@ export default function Workspace() {
         "aria-label": `Edit ${label}`,
         disabled: busy,
         defaultValue: String(value ?? ""),
-        onBlur: (event: FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+        onBlur: (event: FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
           if (event.currentTarget.value !== String(value ?? "")) void saveGridCell(kind, row, key, event.currentTarget.value);
         },
       };
+      if (field.type === "textarea") return <textarea key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} rows={2} />;
       if (field.options) return <select key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps}><option value="">—</option>{!field.options.includes(String(value)) && value ? <option value={String(value)}>{String(value)}</option> : null}{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
       return <input key={`${row.id}:${key}:${String(row[sourceKey] ?? "")}`} {...editorProps} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} min={field.type === "number" ? 0 : undefined} step={field.type === "number" ? "any" : undefined} />;
     };

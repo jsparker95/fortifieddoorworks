@@ -1,7 +1,10 @@
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 
-export type Opening = z.infer<typeof extractionSchema>["openings"][number];
+export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
+  doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string;
+  fireRatingInventoried?: boolean; hardwareGroupInventoried?: boolean;
+};
 export type TextBox = { text: string; x: number; y: number; width: number; height: number };
 export type PageIndex = { page: number; text: string; lines: string[]; boxes: TextBox[]; width: number; height: number; rotation: number };
 export type PageKind = "door" | "hardware" | "types" | "walls" | "plan";
@@ -10,7 +13,8 @@ export type PageFinding = { page: number; kinds: PageKind[]; building: string; e
 const dimension = String.raw`\d+\s*['’]\s*-?\s*\d+(?:\s+\d+\/\d+)?\s*["”]`;
 // Both separate width/height columns and a combined W x H column are common.
 const rowStart = new RegExp(String.raw`\b([A-Z]?\d{1,5}(?:[-][A-Z0-9]+|[A-Z])?)\s+((?:(?:[A-Z][A-Z./-]*|-)\s+){0,4})(${dimension})\s*(?:[xX×]\s*)?(${dimension})`, "g");
-const cleanDimension = (s: string) => s.replace(/[’]/g, "'").replace(/[”]/g, '"').replace(/\s+/g, "");
+const cleanDimension = (s: string) => s.replace(/[’]/g, "'").replace(/[”]/g, '"').trim()
+  .replace(/\s*'\s*-?\s*/g, "'-").replace(/\s*"\s*/g, '"').replace(/\s+/g, " ");
 
 /** Inventory literal schedule rows before asking a model to enrich their fields. */
 export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Opening[] {
@@ -28,9 +32,20 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text">): Op
     const leadingType = /\bTYPE\s+MATL\s+DIMENSIONS\b/i.test(section.slice(0, m.index)) ? m[2].trim().split(/\s+/)[0] : "";
     const code = leadingType && !["-", "N/A"].includes(leadingType) ? leadingType : tail.match(new RegExp(String.raw`^\s*(?:${dimension}\s+)?([A-Z])\s+(?:SOLID|HOLLOW|INSULATED|ALUMINUM|WOOD|METAL)\b`, "i"))?.[1] || "";
     const frameRating = /FRAME\s+TYPE\s+FIRE\s+RATING/i.test(section.slice(0, m.index)) ? body.match(/\b(F[0-9A-Z-]+|W-\d+)\s+(NR|\d+\s*(?:MIN\.?|HOUR|HR))\b/i) : null;
-    const hardwareGroup = /HARDWARE\s+HARDWARE\s+SET/i.test(section.slice(0, m.index)) ? body.match(/\b(?:PANIC|LOCKSET|PUSH\s*\/\s*PULL|PASSAGE|PRIVATE|BI[- ]?FOLD)\b.*?\s+(\d{1,2}(?:-[A-Z])?)(?=\s|$)/i)?.[1] || "" : "";
+    const hardwareGroupInventoried = /HARDWARE\s+HARDWARE\s+SET/i.test(section.slice(0, m.index));
+    const hardwareColumn = hardwareGroupInventoried ? body.match(/\b(?:PANIC|LOCKSET|PUSH\s*\/\s*PULL|PASSAGE|PRIVATE|BI[- ]?FOLD)\b.*?\s+(\d{1,2}(?:-[A-Z])?)(?=\s|$)(?:\s+(\d+\s*(?:MIN\.?|HOUR|HR)))?/i) : null;
+    const hardwareGroup = hardwareColumn?.[1] || "";
+    const fireRatingInventoried = /FRAME\s+TYPE\s+FIRE\s+RATING/i.test(section.slice(0, m.index))
+      || (hardwareGroupInventoried && /FIRE\s+RATING/i.test(section.slice(0, m.index)));
+    // Some type codes are reused with different materials. Keep each literal
+    // opening's own material/finish/thickness instead of expanding its type.
+    const materialColumns = /THICKNESS\s+TYPE\s+DOOR\s+MATERIAL\s+FINISH\s+FRAME\s+MATERIAL/i.test(section.slice(0, m.index))
+      ? tail.match(new RegExp(String.raw`^\s*(${dimension})\s+[A-Z]\s+(INSULATED HOLLOW METAL|HOLLOW METAL|SOLID CORE WOOD|ALUMINUM STOREFRONT|INSULATED STEEL|ALUMINUM|WOOD|METAL)\s+(RED PAINT|PAINT|BRONZE)\s+(HOLLOW METAL|ALUMINUM|STEEL|N/A)\b`, "i")) : null;
     return [{ mark: m[1], width: cleanDimension(m[3]), height: cleanDimension(m[4]),
-      doorType: code, room: "", handing: "", frameType: frameRating?.[1] || "", wallType: "", hardwareGroup, fireRating: frameRating?.[2]?.trim() || "", quantity: "1",
+      doorType: code, room: "", handing: "", frameType: frameRating?.[1] || "", wallType: "", hardwareGroup,
+      fireRating: frameRating?.[2]?.trim() || hardwareColumn?.[2]?.trim() || "", fireRatingInventoried, hardwareGroupInventoried,
+      doorThickness: materialColumns ? cleanDimension(materialColumns[1]) : "", doorMaterial: materialColumns?.[2] || "",
+      doorFinish: materialColumns?.[3] || "", frameMaterial: materialColumns?.[4] || "", quantity: "1",
       sourcePage: page.page, evidence: body.trim().slice(0, 500), confidence: 0.9 }];
   }).filter((r, i, rows) => rows.findIndex(other => other.mark === r.mark) === i);
 }
@@ -76,7 +91,11 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
   return inventory.map(row => {
     const model = generated.find(candidate => candidate.mark.trim().toUpperCase() === row.mark.toUpperCase());
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
-      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorType, frameType: row.frameType || model?.frameType || "", hardwareGroup: row.hardwareGroup || model?.hardwareGroup || "", fireRating: row.fireRating || model?.fireRating || "",
+      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorType,
+      doorMaterial: row.doorMaterial, doorFinish: row.doorFinish, doorThickness: row.doorThickness, frameMaterial: row.frameMaterial,
+      frameType: row.frameType || (row.frameMaterial ? "" : model?.frameType || ""),
+      hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : row.hardwareGroup || model?.hardwareGroup || "",
+      fireRating: row.fireRatingInventoried ? row.fireRating : row.fireRating || model?.fireRating || "",
       handing: model?.handing && ["LH", "RH", "LHR", "RHR"].includes(model.handing.toUpperCase()) && new RegExp(`\\b${model.handing}\\b`, "i").test(row.evidence) ? model.handing.toUpperCase() : "",
       confidence: model ? Math.min(model.confidence, 0.95) : row.confidence };
   });

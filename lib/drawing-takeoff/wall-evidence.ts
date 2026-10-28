@@ -8,7 +8,7 @@ type Wall = z.infer<typeof extractionSchema>["walls"][number];
 export function inventoryWallNotes(page: PageIndex): Wall[] {
   const heading = page.boxes.find(box => /^PARTITION\s+TYPES$/i.test(box.text.trim()));
   if (!heading) return [];
-  const anchors = page.boxes.filter(box => /^W\d+$/i.test(box.text.trim()) && box.y > heading.y)
+  const anchors = page.boxes.filter(box => /^(?:W\d+|[1-4]F)$/i.test(box.text.trim()) && box.y > heading.y)
     .sort((a, b) => a.y - b.y || a.x - b.x);
   if (anchors.length < 2) return [];
   const rows: TextBox[][] = [];
@@ -45,7 +45,7 @@ export function inventoryWallNotes(page: PageIndex): Wall[] {
       lastY = line[0].y;
     }
     if (!notes.length) return [];
-    const rating = cell.filter(box => box.y < header.y && /RATED WALL|ASSEMBLY|UL#|\b(?:MIN\.|HR\b)/i.test(box.text)).sort((a, b) => a.y - b.y).map(box => box.text).join(" ");
+    const rating = cell.filter(box => box.y < header.y && /RATED WALL|FIRE WALL|ASSEMBLY|UL#|\b(?:MIN\.|HR\b)/i.test(box.text)).sort((a, b) => a.y - b.y).map(box => box.text).join(" ");
     const description = [rating, ...notes].filter(Boolean).join("\n");
     // Stud/CMU sizes and layer thicknesses are not an explicit finished total.
     const finishedThickness = description.match(/(?:FINISHED|OVERALL|TOTAL)\s+(?:WALL\s+)?THICKNESS\s*[:=]?\s*(\d+(?:\s+\d+\/\d+)?\s*["”])/i)?.[1] || "";
@@ -57,5 +57,11 @@ export function inventoryWallNotes(page: PageIndex): Wall[] {
 export function reconcileWallNotes(page: PageIndex, generated: Wall[]): Wall[] {
   const printed = inventoryWallNotes(page);
   const codes = new Set(printed.map(row => row.code.toUpperCase()));
-  return [...printed, ...generated.filter(row => !codes.has(row.code.trim().toUpperCase()))];
+  const captions = new Set(wallCaptionAliases(printed));
+  return [...printed, ...generated.filter(row => !codes.has(row.code.trim().toUpperCase()) && !captions.has(row.code.trim().toUpperCase()))];
+}
+
+/** A diagram caption must not become a second type beside its printed code. */
+export function wallCaptionAliases(printed: Wall[]): string[] {
+  return printed.some(row => /^[1-4]F$/i.test(row.code) && /\bFIRE WALL\b/i.test(row.description)) ? ["FIRE WALL"] : [];
 }
