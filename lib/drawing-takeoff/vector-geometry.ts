@@ -59,10 +59,24 @@ function curvedRuns(points: Point[]) {
 /** Require both a quarter arc and a radial straight leaf; arc direction alone is insufficient. */
 export function detectVectorDoors(paths: VectorPath[]): VectorDoor[] {
   const lines = paths.flatMap(path => path.points.slice(1).map((b, i) => ({ a: path.points[i], b, length: distance(path.points[i], b) }))).filter(line => line.length > 3);
+  // Index both endpoints so each arc only checks nearby leaf candidates.
+  // A dense drawing must not scan every line for every candidate arc.
+  const cellSize = 32;
+  const cells = new Map<string, Set<number>>();
+  for (let i = 0; i < lines.length; i++) for (const point of [lines[i].a, lines[i].b]) {
+    const key = `${Math.floor(point.x / cellSize)},${Math.floor(point.y / cellSize)}`;
+    if (!cells.has(key)) cells.set(key, new Set());
+    cells.get(key)!.add(i);
+  }
   const support = (hinge: Point, end: Point, radius: number) => {
     const tolerance = Math.max(0.3, radius * 0.035);
     const matches = new Set<string>();
-    for (const line of lines) {
+    const candidates = new Set<number>();
+    for (let x = Math.floor((hinge.x - tolerance * 2) / cellSize); x <= Math.floor((hinge.x + tolerance * 2) / cellSize); x++)
+      for (let y = Math.floor((hinge.y - tolerance * 2) / cellSize); y <= Math.floor((hinge.y + tolerance * 2) / cellSize); y++)
+        for (const index of cells.get(`${x},${y}`) || []) candidates.add(index);
+    for (const index of candidates) {
+      const line = lines[index];
       if (Math.abs(line.length - radius) > tolerance * 2) continue;
       if (Math.min(distance(line.a, hinge) + distance(line.b, end), distance(line.b, hinge) + distance(line.a, end)) < tolerance * 2) {
         const parts = [line.a, line.b].map(point => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).sort();

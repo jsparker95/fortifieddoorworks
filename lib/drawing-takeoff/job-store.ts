@@ -1,3 +1,4 @@
+import { readInPages } from "./paged-rows";
 import { createClient } from "@supabase/supabase-js";
 import type { PageIndex } from "./indexing";
 import type { PlanDetail } from "./plan-details";
@@ -56,4 +57,13 @@ export async function addTasks(jobId: string, tasks: Array<{ task_key: string; k
   if (readError) throw readError;
   const byKey = new Map((data || []).map(task => [task.task_key, task.id as string]));
   return tasks.map(task => byKey.get(task.task_key)!).filter(Boolean);
+}
+
+export async function listExtractionTasks(db: ReturnType<typeof workerClient>, jobId: string): Promise<ExtractionTask[]> {
+  return readInPages(async (from, to) => {
+    const { data, error } = await db.from("document_extraction_tasks").select("*")
+      .eq("job_id", jobId).neq("kind", "classify").order("task_key").range(from, to);
+    if (error) throw error;
+    return (data || []) as ExtractionTask[];
+  });
 }
