@@ -1,5 +1,6 @@
 import type { Kind, Row } from "@/lib/types";
 import { hardwareSetKey } from "./references";
+import { sameHardwareSourceLine } from "./hardware-evidence";
 
 type Candidate = Record<string, unknown>;
 type PhaseRows = Partial<Record<Kind, Row[]>>;
@@ -105,7 +106,7 @@ export function mergePhaseCandidateRows(existing: Row[], incoming: Row[]): Row[]
     ) || (
       String(key).includes(":hardware:") && String(row.sourceCandidateKey).includes(":hardware:")
       && row.sourceDocumentId === candidate.sourceDocumentId && row.sourcePage === candidate.sourcePage
-      && row.sourceBuilding === candidate.sourceBuilding && row.component === candidate.component
+      && row.sourceBuilding === candidate.sourceBuilding && (row.component === candidate.component || sameHardwareSourceLine(row.sourceEvidence, candidate.sourceEvidence))
       && hardwareSetKey(stringValue(row.group)) === hardwareSetKey(stringValue(candidate.group))
     )) : -1;
     if (index < 0) {

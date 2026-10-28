@@ -1,5 +1,6 @@
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
+import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
@@ -17,6 +18,7 @@ export async function publishProgress(jobId: string, final = false) {
   const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
+  const groundedHardwareSets = new Set<string>();
   for (const task of tasks) {
     if (!task.result) continue;
     const result = task.result as unknown as typeof output;
@@ -24,7 +26,10 @@ export async function publishProgress(jobId: string, final = false) {
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
     for (const row of scoped(taskOpenings, building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
     output.doorTypes.push(...scoped(result.doorTypes || [], building));
-    output.hardwareGroups.push(...scoped(result.hardwareGroups || [], building));
+    const printedHardware = task.kind === "hardware" && task.input.text ? inventoryHardwareRows(task.input.text, task.input.pages[0]) : [];
+    for (const row of printedHardware) groundedHardwareSets.add(`${row.sourcePage}:${hardwareSetKey(building ? `${building} / ${row.group}` : row.group)}`);
+    const taskHardware = printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || [];
+    output.hardwareGroups.push(...scoped(taskHardware, building));
     output.walls.push(...scoped(result.walls || [], building));
     output.uncertainties.push(...(result.uncertainties || []));
     observations.push(...scoped(result.doorwayObservations || [], building));
@@ -99,7 +104,11 @@ export async function publishProgress(jobId: string, final = false) {
       for (const [kind, incoming] of Object.entries(additions)) {
         const names = new Set((incoming || []).map(row => row.name));
         const existing = (phase.data[kind as Kind] || []).filter(row => !(kind === "doorTypes" && row.sourceDocumentId === document.id && row.sourcePlaceholder === true && row.reviewState === "ai-draft" && !names.has(row.name)));
-        updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []);
+      const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
+      updated.data[kind as Kind] = mergePhaseCandidateRows(existing, incoming || []).filter(row => !(kind === "hardware"
+        && row.sourceDocumentId === document.id && row.reviewState === "ai-draft"
+        && groundedHardwareSets.has(`${row.sourcePage}:${hardwareSetKey(String(row.group || ""))}`)
+        && !incomingKeys.has(row.sourceCandidateKey)));
       }
       const next = { ...project.data, phases: phases.map(row => row.id === phase.id ? updated : row),
         ...(project.data.activePhaseId === phase.id ? updated.data : {}) };
