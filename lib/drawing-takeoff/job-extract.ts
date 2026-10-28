@@ -3,6 +3,7 @@ import { z } from "zod";
 import { extractionSchema, combineExtractionOutputs, sanitizeExtraction } from "./extraction-schema";
 import { confirmedPageKinds, reconcileInventoriedRows, type Opening } from "./indexing";
 import { providerAccessProblem } from "./provider-access";
+import { reconcileHardwareRows } from "./hardware-evidence";
 import { getArtifact, loadJob, updateJob, workerClient, type ExtractionTask } from "./job-store";
 import { renderCrop } from "./pdf-server";
 
@@ -89,6 +90,7 @@ export async function extractTask(taskId: string) {
       const empty = combineExtractionOutputs(null, null);
       const safe = sanitizeExtraction({ ...empty, ...result }, input.pages);
       if (kind === "doors" && input.inventory?.length) safe.openings = reconcileInventoriedRows(input.inventory as Opening[], safe.openings);
+      if (kind === "hardware" && input.text) safe.hardwareGroups = reconcileHardwareRows(input.text, input.pages[0], safe.hardwareGroups);
       if (kind === "plan" && targetMarks.length) safe.doorwayObservations = safe.doorwayObservations.filter(row => targetMarks.some(mark => row.mark.trim().toUpperCase() === mark.trim().toUpperCase()));
       if (kind === "plan" && input.crop && input.pageWidth && input.pageHeight) {
         const crop = input.crop, width = input.pageWidth, height = input.pageHeight;
