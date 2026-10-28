@@ -3,6 +3,7 @@ import { start, getRun } from "workflow/api";
 import { documentExtraction } from "@/workflows/document-extraction";
 import { workerClient, updateJob, PUBLICATION_VERSION } from "@/lib/drawing-takeoff/job-store";
 import { phaseHasTakeoffData } from "@/lib/drawing-takeoff/phase-import";
+import { hasExplicitExtractionRequest } from "@/lib/drawing-takeoff/start-request";
 import type { ProjectPhase } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ async function authorize(request: Request, documentId: string, projectId: string
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    if (!hasExplicitExtractionRequest(body)) return Response.json({ error: "Refresh this page, then choose Begin extraction to start processing." }, { status: 400 });
     if (![body.documentId, body.projectId, body.phaseId].every(id => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))) return Response.json({ error: "Document, project and phase are required." }, { status: 400 });
     const { user, phase } = await authorize(request, body.documentId, body.projectId, body.phaseId);
     const pages = [...new Set<number>(Array.isArray(body.manualPages) ? body.manualPages : [])].sort((a, b) => a - b);
