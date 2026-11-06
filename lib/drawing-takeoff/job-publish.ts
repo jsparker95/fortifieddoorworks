@@ -4,7 +4,7 @@ import { doorTypeDefinitionSupported, wallDefinitionSupported } from "./definiti
 import { mergeVisualScheduleRows } from "./visual-schedule";
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
-import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
+import { inventoryHardwareRows, reconcileHardwareRows, preserveHardwareIdentity } from "./hardware-evidence";
 import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wall-evidence";
 import { VECTOR_VERSION } from "./vector-pdf";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, isOpeningRowTypeEvidence, type Opening } from "./indexing";
@@ -54,7 +54,7 @@ export async function publishProgress(jobId: string, final = false) {
     output.doorTypes.push(...scoped(definitions, building));
     const printedHardware = task.kind === "hardware" && task.input.text ? inventoryHardwareRows(task.input.text, task.input.pages[0]) : [];
     for (const row of printedHardware) groundedHardwareSets.add(`${row.sourcePage}:${hardwareSetKey(building ? `${building} / ${row.group}` : row.group)}`);
-    const taskHardware = printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || [];
+    const taskHardware = (printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || []).map(preserveHardwareIdentity);
     if(task.input.hardwareSection)hardwareImageReads.push(scoped(taskHardware,building));
     else output.hardwareGroups.push(...scoped(taskHardware, building));
     const wallPage = task.kind === "walls" ? wallPages.find(page => page.page === task.input.pages[0]) : undefined;

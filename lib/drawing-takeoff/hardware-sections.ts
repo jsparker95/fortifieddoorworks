@@ -3,6 +3,7 @@ import {extractionSchema} from './extraction-schema';
 import type {PageIndex} from './indexing';
 import {locateScheduleTables} from './schedule-table';
 import type {SourceCrop} from './visual-schedule';
+import {preserveHardwareIdentity} from './hardware-evidence';
 
 export const hardwareImageSchema=z.object({groups:z.array(z.object({group:z.string(),name:z.string(),complete:z.boolean(),note:z.string(),items:z.array(extractionSchema.shape.hardwareGroups.element.omit({group:true,name:true}).extend({unit:z.string()}))}))});
 export type HardwareImageSection={crop:SourceCrop;ownerLeft:number;ownerRight:number};
@@ -33,7 +34,7 @@ export function normalizeHardwareImage(output:unknown){
  for(const group of parsed.groups){
   if(!group.complete){incompleteGroups.push(group.group.replace(/^(?:HARDWARE\s+)?(?:GROUP|SET)\s*(?:NO\.?\s*)?[:#]?\s*/i,'').trim());continue;}
   const code=group.group.replace(/^(?:HARDWARE\s+)?(?:GROUP|SET)\s*(?:NO\.?\s*)?[:#]?\s*/i,'').trim();
-  for(const [index,item] of group.items.entries())hardwareGroups.push({...item,sourceHardwareLine:String(index),group:code,name:group.name,component:`${/^(?:EA|EACH|PIECES?|PCS?)$/i.test(item.unit.trim())?'':item.unit.trim()?`[${item.unit.trim()}] `:''}${item.component}`,evidence:[group.name,item.evidence,group.note].filter(Boolean).join('\n')});
+  for(const [index,item] of group.items.entries())hardwareGroups.push({...preserveHardwareIdentity({...item,component:`${/^(?:EA|EACH|PIECES?|PCS?)$/i.test(item.unit.trim())?'':item.unit.trim()?`[${item.unit.trim()}] `:''}${item.component}`}),sourceHardwareLine:String(index),group:code,name:group.name,evidence:[group.name,item.evidence,group.note].filter(Boolean).join('\n')});
   if(!group.items.length&&group.note.trim())hardwareGroups.push({group:code,sourceHardwareLine:'0',name:group.name,brand:'',component:group.note,quantity:0,quantityKnown:false,sourceRequirement:true,frameModification:'',doorModification:'',doorPrep:'',sourcePage:1,evidence:group.note,confidence:.9});
  }
  return {hardwareGroups,uncertainties,incompleteGroups};

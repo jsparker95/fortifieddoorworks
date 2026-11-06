@@ -3,6 +3,7 @@ import { prepareIndex, planExtraction, preparePage, finishPreparation } from "@/
 import { extractTask } from "@/lib/drawing-takeoff/job-extract";
 import { publishProgress } from "@/lib/drawing-takeoff/job-publish";
 import { loadJob, updateJob, PIPELINE_VERSION, MAX_AI_TASKS } from "@/lib/drawing-takeoff/job-store";
+import { screeningCoverage, needsScreening } from "@/lib/drawing-takeoff/screening-coverage";
 
 async function indexStep(jobId: string) { "use step"; return prepareIndex(jobId); }
 async function discoverStep(jobId: string) { "use step"; return planExtraction(jobId); }
@@ -35,11 +36,12 @@ async function pauseStep(jobId: string, message: string) {
 async function pendingStep(jobId: string) {
   "use step";
   const { db, job } = await loadJob(jobId);
-  const { data: screening, error: screeningError } = await db.from("document_extraction_tasks").select("id").eq("job_id", jobId).eq("kind", "classify").neq("status", "complete").limit(30);
+  const { data: screening, error: screeningError } = await db.from("document_extraction_tasks").select("id,input,status,result").eq("job_id", jobId).eq("kind", "classify");
   if (screeningError) throw screeningError;
   if (!job.index_path || job.analysis?.pipelineVersion !== PIPELINE_VERSION) return null;
   await updateJob(jobId, { status: "locating", error: null });
-  return { classify: (screening || []).map(task => task.id as string), tasks: null as string[] | null };
+  const {completed}=screeningCoverage(screening||[]);
+  return { classify: (screening || []).filter(task=>needsScreening(task,completed)).map(task => task.id as string), tasks: null as string[] | null };
 }
 
 export async function documentExtraction(jobId: string, resume = false) {

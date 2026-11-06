@@ -68,6 +68,7 @@ test('publication keeps rows beyond the API response cap, including later wall/t
 });
 
 import vm from 'node:vm';
+import {screeningCoverage,needsScreening} from '../lib/drawing-takeoff/screening-coverage';
 
 test('actual workflow saves schedules before plans and continues past a failed plan within one paid budget', async () => {
  const events:string[]=[];
@@ -77,6 +78,7 @@ test('actual workflow saves schedules before plans and continues past a failed p
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const exports:Record<string,unknown>={};
  const dependencies:Record<string,unknown>={
+  '@/lib/drawing-takeoff/screening-coverage':{screeningCoverage,needsScreening},
   workflow:{sleep:async()=>{}},
   '@/lib/drawing-takeoff/job-prepare':{
    prepareIndex:async()=>[],
