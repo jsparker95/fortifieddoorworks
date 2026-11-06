@@ -1,3 +1,4 @@
+import { doorTypeDefinitionSupported, wallDefinitionSupported } from "./definition-evidence";
 import { mergeVisualScheduleRows } from "./visual-schedule";
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
@@ -38,7 +39,7 @@ export async function publishProgress(jobId: string, final = false) {
     const inventory = tasks.filter(candidate => candidate.kind === "doors" && candidate.input.building === task.input.building)
       .flatMap(candidate => candidate.input.inventory as Opening[] || []);
     const definitions = (result.doorTypes || []).filter(type => {
-      if (!isOpeningRowTypeEvidence(type, inventory)) return true;
+      if (!isOpeningRowTypeEvidence(type, inventory) && doorTypeDefinitionSupported(type,inventory)) return true;
       obsoleteTypeRows.add(`${type.sourcePage}:${building ? `${building} / ${type.code}` : type.code}`.toUpperCase());
       return false;
     });
@@ -51,7 +52,13 @@ export async function publishProgress(jobId: string, final = false) {
     if (wallPage) for (const caption of wallCaptionAliases(inventoryWallNotes(wallPage))) {
       obsoleteWallCaptions.add(`${wallPage.page}:${building ? `${building} / ${caption}` : caption}`.toUpperCase());
     }
-    output.walls.push(...scoped(wallPage ? reconcileWallNotes(wallPage, result.walls || []) : result.walls || [], building));
+    const wallCandidates=wallPage ? reconcileWallNotes(wallPage,result.walls||[]) : result.walls||[];
+    const definitionsOfWalls=wallCandidates.filter(row=>{
+      if(!wallPage||wallDefinitionSupported(wallPage,row))return true;
+      obsoleteWallCaptions.add(`${row.sourcePage}:${building ? `${building} / ${row.code}` : row.code}`.toUpperCase());
+      return false;
+    });
+    output.walls.push(...scoped(definitionsOfWalls,building));
     output.uncertainties.push(...(result.uncertainties || []));
     const taskObservations=task.kind==="plan"&&task.result.vectorVersion!==VECTOR_VERSION
       ? (result.doorwayObservations||[]).map(row=>({...row,handing:"" as const,hingeSide:"unknown" as const,swingDirection:"unclear" as const,
