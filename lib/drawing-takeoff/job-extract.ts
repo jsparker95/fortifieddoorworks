@@ -104,6 +104,7 @@ export async function extractTask(taskId: string) {
       const bytes = await getArtifact(input.artifact);
       if(kind==="hardware"&&input.hardwareSection){
         content.push({type:"file",mediaType:"image/png",data:await renderCrop(bytes,input.hardwareSection.crop)});
+        if(input.hardwareSection.continuationCrop)content.push({type:"file",mediaType:"image/png",data:await renderCrop(bytes,input.hardwareSection.continuationCrop)});
       } else if (kind === "doors" && input.scheduleSection) {
         content.push({ type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.scheduleSection.headerCrop) },
           { type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.scheduleSection.crop) });
@@ -121,7 +122,7 @@ export async function extractTask(taskId: string) {
       (kind === "hardware" && input.hardwareSection ? hardwareImageSchema : kind === "doors" && input.scheduleSection ? visualScheduleSchema : schemas[kind]) as z.ZodType<Record<string, unknown>>, system, content);
     let result = response.output;
     const rawHardwareResponse=kind==="hardware"&&input.hardwareSection?result:null;
-    if(rawHardwareResponse)result=normalizeHardwareImage(rawHardwareResponse);
+    if(rawHardwareResponse)result=normalizeHardwareImage(rawHardwareResponse,input.hardwareSection?.continuationGroup);
     const rawScheduleResponse = kind === "doors" && input.scheduleSection ? result : null;
     if (rawScheduleResponse && input.scheduleSection) result = { openings: ownedVisualRows(rawScheduleResponse, input.scheduleSection).map(row => ({ ...row,
       // Markup can be a revision, highlight, or scope annotation. Retain the row for review.
