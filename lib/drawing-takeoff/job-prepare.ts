@@ -10,6 +10,7 @@ import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf
 import { taskIdsWithinBudget } from "./task-budget";
 import { scheduleSearchDescription } from "./search-description";
 import { addTasks, listExtractionTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, PIPELINE_VERSION, type TaskInput } from "./job-store";
+import { readHardwareMatrix, type MatrixResult } from "./hardware-matrix";
 import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
@@ -125,7 +126,13 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
   const common = { pages: [page.page], artifact, building: finding.building };
   const tasks: Array<{ task_key: string; kind: string; input: TaskInput }> = [];
   const vectorWarnings: string[] = [];
+  let matrix: MatrixResult | null = null;
   if (finding.kinds.includes("door")) {
+    matrix = await readHardwareMatrix(pageBytes, page, finding.openingRows);
+    if (matrix?.hardwareGroups.length) {
+      const matrixArtifact = await putArtifact(`${root}/matrix-${page.page}.json`, JSON.stringify(matrix), "application/json");
+      tasks.push({task_key:`hardware-matrix:${page.page}`,kind:"hardware",input:{...common,matrixArtifact}});
+    }
     const chunks = chunkRows(finding.openingRows);
     if (!chunks.length) {
       const sections = visualScheduleSections(page);
@@ -135,7 +142,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
     for (let i = 0; i < chunks.length; i++) tasks.push({ task_key: `doors:${page.page}:${i}`, kind: "doors",
       input: { ...common, inventory: chunks[i], text: `Schedule context: ${page.text.slice(Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)), Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)) + 600)}\nRows:\n${chunks[i].map(row => row.evidence).join("\n")}` } });
   }
-  if (finding.kinds.includes("hardware")) {
+  if (finding.kinds.includes("hardware") && (!matrix?.hardwareGroups.length || hardwareSections(page.text).length)) {
     const sets = hardwareSections(page.text);
     const chunks = sets.length ? chunkRows(sets, 2).map(parts => parts.join("\n\n")) : [page.text];
     chunks.forEach((text, i) => tasks.push({ task_key: `hardware:${page.page}:${i}`, kind: "hardware", input: { ...common, text } }));

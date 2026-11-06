@@ -50,7 +50,7 @@ export function productionLabels(
       title: str(item.name),
       lines: [
         ...parts.map((hardware) => {
-          const text = `${str(hardware.qty) || "0"}ea. ${str(hardware.selectedBrand)} ${str(hardware.selectedComponent)}`.trim();
+          const text = `${hardware.quantityKnown === false && !str(hardware.qty).trim() ? "Qty TBD" : `${str(hardware.qty) || "0"}ea.`} ${str(hardware.selectedBrand)} ${str(hardware.selectedComponent)}`.trim();
           return { text };
         }),
       ],
