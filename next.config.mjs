@@ -5,7 +5,7 @@ const nextConfig = {
   // Keep the package external and include that worker in the Vercel function.
   serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
   outputFileTracingIncludes: {
-    "/*": ["./node_modules/pdfjs-dist/legacy/build/*.mjs", "./node_modules/pdfjs-dist/wasm/*", "./node_modules/pdfjs-dist/standard_fonts/*"],
+    "/*": ["./node_modules/pdfjs-dist/package.json", "./node_modules/pdfjs-dist/legacy/build/*.mjs", "./node_modules/pdfjs-dist/wasm/*", "./node_modules/pdfjs-dist/standard_fonts/*"],
   },
 };
 
