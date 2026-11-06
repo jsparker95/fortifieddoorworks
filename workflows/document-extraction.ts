@@ -11,6 +11,17 @@ preparePageStep.maxRetries = 1;
 async function finishPreparationStep(jobId: string, warnings: string[], paidLimit: number, schedulesOnly: boolean, preparationFailures: number) { "use step"; return finishPreparation(jobId, warnings, paidLimit, schedulesOnly, preparationFailures); }
 async function extractStep(taskId: string) { "use step"; return extractTask(taskId); }
 extractStep.maxRetries = 1;
+async function extractWithBackoff(taskId:string):Promise<{blockedReason?:string;deferred?:boolean}>{
+  // Durable waits release the worker. A 429 must not spend the ordinary retry
+  // allowance before the provider's retry-after window has elapsed.
+  for(let waits=0;waits<12;waits++){
+    const result=await extractStep(taskId);
+    if(!result.retryAfterMs)return result;
+    await sleep(`${result.retryAfterMs}ms`);
+  }
+  return {deferred:true}; // Leave the section pending and resumable after sustained throttling.
+}
+
 async function publishStep(jobId: string, final: boolean) { "use step"; return publishProgress(jobId, final); }
 async function failStep(jobId: string, message: string) {
   "use step";
@@ -37,7 +48,7 @@ export async function documentExtraction(jobId: string, resume = false) {
     const pending = resume ? await pendingStep(jobId) : null;
     const classify = pending ? pending.classify : await indexStep(jobId);
     for (let i = 0; i < classify.length; i += 2) {
-      const results = await Promise.allSettled(classify.slice(i, i + 2).map(id => extractStep(id)));
+      const results = await Promise.allSettled(classify.slice(i, i + 2).map(id => extractWithBackoff(id)));
       const blocked = results.flatMap(result => result.status === "fulfilled" && result.value.blockedReason ? [result.value.blockedReason] : [])[0];
       if (blocked) { await pauseStep(jobId, blocked); return; }
     }
@@ -62,7 +73,7 @@ export async function documentExtraction(jobId: string, resume = false) {
       const prepared = await finishPreparationStep(jobId, warnings, paidRemaining, mode === "schedules", preparationFailures);
       paidRemaining -= prepared.paidTasks;
       for (let i = 0; i < prepared.ids.length; i += 2) {
-        const results = await Promise.allSettled(prepared.ids.slice(i, i + 2).map(id => extractStep(id)));
+        const results = await Promise.allSettled(prepared.ids.slice(i, i + 2).map(id => extractWithBackoff(id)));
         await publishStep(jobId, false);
         const blocked = results.flatMap(result => result.status === "fulfilled" && result.value.blockedReason ? [result.value.blockedReason] : [])[0];
         if (blocked) { await pauseStep(jobId, blocked); return; }
