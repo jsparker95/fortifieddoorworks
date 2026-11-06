@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hardwareImageSections,normalizeHardwareImage,mergeHardwareImageReads} from '../lib/drawing-takeoff/hardware-sections';
 import {findPageContent,confirmedPageKinds,type PageIndex} from "../lib/drawing-takeoff/indexing";
-import {useSingleNativePlanTask,taskMatchesFindings} from "../lib/drawing-takeoff/plan-task-policy";
+import {useSingleNativePlanTask,taskMatchesFindings,currentPlanMarks} from "../lib/drawing-takeoff/plan-task-policy";
 import {canUseHardwareText} from "../lib/drawing-takeoff/hardware-evidence";
 import {mapAnalysisToPhaseRows,mergePhaseCandidateRows} from '../lib/drawing-takeoff/phase-import';
 
@@ -60,4 +60,11 @@ test('cached detail and service-plan tasks do not survive corrected page classif
  assert.equal(taskMatchesFindings({kind:'doors',input:{pages:[54]}},findings),true);
  assert.equal(taskMatchesFindings({kind:'plan',input:{pages:[104]}},findings),false);
  assert.equal(taskMatchesFindings({kind:'hardware',input:{pages:[54],matrixArtifact:'matrix'}},[{page:54,section:'door'}]),true);
+});
+
+test('newly OCR-read schedule marks replace empty initial plan targets without counting catalog rows',()=>{
+ assert.deepEqual(currentPlanMarks([],{openings:[{mark:'102'},{mark:'101'}]}),['101','102']);
+ assert.deepEqual(currentPlanMarks(['101'],{openings:[{mark:'101'},{mark:'102'}]}),['101','102']);
+ assert.deepEqual(currentPlanMarks(['01F'],{openings:[{mark:'G101'}],openingCatalog:[{mark:'01F',scheduleRole:'catalog'}]}),['G101']);
+ assert.deepEqual(currentPlanMarks(['EXCLUDED'],{openings:[{mark:'EXCLUDED',autoImportEligible:false}]}),[]);
 });
