@@ -3,6 +3,7 @@ import { visualScheduleSchema, visualScheduleSystem, visualSectionPrompt, ownedV
 import { z } from "zod";
 import { extractionSchema, combineExtractionOutputs, sanitizeExtraction } from "./extraction-schema";
 import { confirmedPageKinds, reconcileInventoriedRows, type Opening } from "./indexing";
+import { providerRateLimitDelay } from "./rate-limit";
 import { providerAccessProblem } from "./provider-access";
 import { reconcileHardwareRows } from "./hardware-evidence";
 import { normalizePlanResponse, planResponseSchema } from "./plan-response";
@@ -35,7 +36,8 @@ export async function extractTask(taskId: string) {
   if (error || !data) throw new Error("Extraction section no longer exists.");
   const task = data as ExtractionTask;
   if (task.status === "complete") return {};
-  await loadJob(task.job_id); // Recheck live membership and source ownership on each step.
+  const {job:liveJob}=await loadJob(task.job_id); // Recheck membership, ownership and stop requests after durable waits.
+  if(liveJob.status==="partial")return {blockedReason:"Processing stopped. Saved results are retained."};
   const started = Date.now();
   const { error: startError } = await db.from("document_extraction_tasks").update({ status: "running", attempts: task.attempts + 1, updated_at: new Date().toISOString() }).eq("id", taskId);
   if (startError) throw startError;
@@ -179,6 +181,15 @@ export async function extractTask(taskId: string) {
   } catch (error) {
     const details = errorRecord(error);
     const blockedReason = providerAccessProblem(error);
+    const retryAfterMs=providerRateLimitDelay(error);
+    if(retryAfterMs&&!blockedReason){
+      const nextRetryAt=new Date(Date.now()+retryAfterMs).toISOString();
+      await db.from("document_extraction_tasks").update({status:"pending",error:{...details,temporary:true,nextRetryAt},metrics:{...task.metrics,elapsedMs:Date.now()-started,rateLimited:true},updated_at:new Date().toISOString()}).eq("id",taskId);
+      const {job}=await loadJob(task.job_id);
+      if(job.status!=="partial")await updateJob(task.job_id,{progress:{...job.progress,message:`AI service busy. This section will retry automatically in ${Math.ceil(retryAfterMs/1000)} seconds. Saved results are retained.`}});
+      return {retryAfterMs};
+    }
+
     await db.from("document_extraction_tasks").update({ status: "failed", error: { ...details, ...(blockedReason ? { message: blockedReason } : {}) }, metrics: { elapsedMs: Date.now() - started }, updated_at: new Date().toISOString() }).eq("id", taskId);
     console.error("[document-section]", JSON.stringify({ taskId, kind: task.kind, pages: task.input.pages, ...details }));
     if (blockedReason) return { blockedReason };
