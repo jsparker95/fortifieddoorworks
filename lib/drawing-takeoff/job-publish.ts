@@ -1,3 +1,4 @@
+import { mergeVisualScheduleRows } from "./visual-schedule";
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows } from "./hardware-evidence";
@@ -19,6 +20,7 @@ export async function publishProgress(jobId: string, final = false) {
   const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
+  const visualScheduleRows: ScopedOpening[] = [];
   const groundedHardwareSets = new Set<string>();
   const obsoleteWallCaptions = new Set<string>();
   const obsoleteTypeRows = new Set<string>();
@@ -27,7 +29,10 @@ export async function publishProgress(jobId: string, final = false) {
     const result = task.result as unknown as typeof output;
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
-    for (const row of scoped(taskOpenings, building)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
+    for (const row of scoped(taskOpenings, building)) {
+      if (task.input.scheduleSection) visualScheduleRows.push(row);
+      else openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
+    }
     const inventory = tasks.filter(candidate => candidate.kind === "doors" && candidate.input.building === task.input.building)
       .flatMap(candidate => candidate.input.inventory as Opening[] || []);
     const definitions = (result.doorTypes || []).filter(type => {
@@ -52,6 +57,7 @@ export async function publishProgress(jobId: string, final = false) {
       :result.doorwayObservations||[];
     observations.push(...scoped(taskObservations, building));
   }
+  for (const row of mergeVisualScheduleRows(visualScheduleRows)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
   const detected = deduplicateDoors(observations.map((row, i) => ({ id: String(i), page: row.sourcePage, box: row.boundingBox,
     mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
   const kept = detected.doors.map(row => observations[Number(row.id)]);
