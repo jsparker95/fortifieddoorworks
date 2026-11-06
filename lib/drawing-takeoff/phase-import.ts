@@ -79,7 +79,8 @@ export function mapPhaseCandidate(
   };
   return {
     ...stamp, group: stringValue(row.group), component: stringValue(row.component || row.name),
-    brand: stringValue(row.brand), qty: Number(row.quantity) || 0,
+    brand: stringValue(row.brand), qty: row.quantityKnown === false ? "" : Number(row.quantity) || 0,
+    quantityKnown: row.quantityKnown !== false, sourceRequirement: row.sourceRequirement === true,
     frameMod: stringValue(row.frameModification), doorMod: stringValue(row.doorModification),
     doorPrep: stringValue(row.doorPrep),
   };

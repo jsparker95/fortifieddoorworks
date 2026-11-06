@@ -20,6 +20,7 @@ export async function publishProgress(jobId: string, final = false) {
   const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
+  const matrixOpeningGroups: Array<{mark:string;sourcePage:number;group:string}> = [];
   const visualScheduleRows: ScopedOpening[] = [];
   const groundedHardwareSets = new Set<string>();
   const obsoleteWallCaptions = new Set<string>();
@@ -27,6 +28,7 @@ export async function publishProgress(jobId: string, final = false) {
   for (const task of tasks) {
     if (!task.result || task.status!=="complete") continue;
     const result = task.result as unknown as typeof output;
+    if (task.input.matrixArtifact && Array.isArray(task.result.matrixOpeningGroups)) matrixOpeningGroups.push(...task.result.matrixOpeningGroups);
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
     for (const row of scoped(taskOpenings, building)) {
@@ -58,6 +60,10 @@ export async function publishProgress(jobId: string, final = false) {
     observations.push(...scoped(taskObservations, building));
   }
   for (const row of mergeVisualScheduleRows(visualScheduleRows)) openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
+  for (const link of matrixOpeningGroups) {
+    const key=`${link.sourcePage}:${normalizeMark(link.mark)}`,row=openings.get(key);
+    if(row&&(!(row as Opening).hardwareGroupInventoried||!row.hardwareGroup))openings.set(key,{...row,hardwareGroup:link.group});
+  }
   const detected = deduplicateDoors(observations.map((row, i) => ({ id: String(i), page: row.sourcePage, box: row.boundingBox,
     mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
   const kept = detected.doors.map(row => observations[Number(row.id)]);

@@ -42,6 +42,14 @@ export async function extractTask(taskId: string) {
   try {
     const kind = task.kind as keyof typeof schemas;
     const input = task.input;
+    if (kind === "hardware" && input.matrixArtifact) {
+      const matrix = JSON.parse(new TextDecoder().decode(await getArtifact(input.matrixArtifact)));
+      const result = {...combineExtractionOutputs(null,null),hardwareGroups:matrix.hardwareGroups,matrixOpeningGroups:matrix.openingGroups,uncertainties:matrix.uncertainties};
+      const metrics = {elapsedMs:Date.now()-started,model:"source/hardware-matrix",aiCallsThisAttempt:0,gatewayCostUsd:"0"};
+      const {error:saveError}=await db.from("document_extraction_tasks").update({result,metrics,status:"complete",error:null,updated_at:new Date().toISOString()}).eq("id",taskId);
+      if(saveError)throw saveError;
+      return {};
+    }
     if(kind==="plan"&&input.vectorArtifact){
       const vector=JSON.parse(new TextDecoder().decode(await getArtifact(input.vectorArtifact))) as VectorPlan;
       if(vector.version!==VECTOR_VERSION)throw new Error("Native drawing geometry must be rebuilt before this section can be processed.");

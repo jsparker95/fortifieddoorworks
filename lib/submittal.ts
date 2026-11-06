@@ -66,7 +66,7 @@ export function submittalOpenings(data: ProjectData): SubmittalOpening[] {
       for (const part of hardware.filter((line) => same(line.group, frame.group))) {
         const brand = str(part.selectedBrand || part.brand);
         const component = str(part.selectedComponent || part.component);
-        const description = `${str(part.qty) || "0"}ea. ${brand} ${component}`;
+        const description = `${part.quantityKnown === false && !str(part.qty).trim() ? "Qty TBD" : `${str(part.qty) || "0"}ea.`} ${brand} ${component}`;
         if (brand || component) items.push(normalized(description));
       }
     }

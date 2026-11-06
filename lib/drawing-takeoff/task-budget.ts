@@ -6,6 +6,7 @@ export function taskIdsWithinBudget(tasks: Array<{ task_key: string; kind: strin
   return tasks.flatMap(task=>{
     const id=pendingByKey.get(task.task_key);
     if(!id)return [];
+    if(task.input.matrixArtifact)return [id];
     if(task.kind==="plan"&&task.input.vectorArtifact)return [id];
     return paid++<paidLimit?[id]:[];
   });
