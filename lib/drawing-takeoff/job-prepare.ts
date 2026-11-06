@@ -10,6 +10,10 @@ import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf
 import { taskIdsWithinBudget } from "./task-budget";
 import { scheduleSearchDescription } from "./search-description";
 import { addTasks, listExtractionTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, PIPELINE_VERSION, type TaskInput } from "./job-store";
+import { combineExtractionOutputs } from "./extraction-schema";
+import { useSingleNativePlanTask, taskMatchesFindings } from "./plan-task-policy";
+import { hardwareImageSections } from "./hardware-sections";
+import { canUseHardwareText } from "./hardware-evidence";
 import { readHardwareMatrix, type MatrixResult } from "./hardware-matrix";
 import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
@@ -143,9 +147,13 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       input: { ...common, inventory: chunks[i], text: `Schedule context: ${page.text.slice(Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)), Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)) + 600)}\nRows:\n${chunks[i].map(row => row.evidence).join("\n")}` } });
   }
   if (finding.kinds.includes("hardware") && (!matrix?.hardwareGroups.length || hardwareSections(page.text).length)) {
-    const sets = hardwareSections(page.text);
-    const chunks = sets.length ? chunkRows(sets, 2).map(parts => parts.join("\n\n")) : [page.text];
-    chunks.forEach((text, i) => tasks.push({ task_key: `hardware:${page.page}:${i}`, kind: "hardware", input: { ...common, text } }));
+    const images=canUseHardwareText(page.text,page.page)?[]:hardwareImageSections(page);
+    if(images.length)images.forEach((section,i)=>tasks.push({task_key:`hardware:${page.page}:image:${i}`,kind:"hardware",input:{...common,hardwareSection:section}}));
+    else {
+      const sets = hardwareSections(page.text);
+      const chunks = sets.length ? chunkRows(sets, 2).map(parts => parts.join("\n\n")) : [page.text];
+      chunks.forEach((text, i) => tasks.push({ task_key: `hardware:${page.page}:${i}`, kind: "hardware", input: { ...common, text } }));
+    }
   }
   for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text } });
   if (finding.kinds.includes("plan")) {
@@ -165,6 +173,15 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       await putArtifact(vectorPath,JSON.stringify(vector),"application/json");
     }
     if(vector.reason)vectorWarnings.push(`PDF page ${page.page}: ${vector.reason}`);
+    if(useSingleNativePlanTask(vector,knownMarks)){
+      const task_key=`plan:page:${page.page}:native:v${VECTOR_VERSION}`;
+      tasks.push({task_key,kind:"plan",input:{...common,vectorArtifact:vectorPath,targetMarks:knownMarks}});
+      // Retain old task inputs for audit while retiring redundant unfinished
+      // native crop work from earlier versions of the same resumed job.
+      const {error:retireError}=await db.from("document_extraction_tasks").update({status:"complete",result:{...combineExtractionOutputs(null,null),supersededBy:task_key},metrics:{model:"source/superseded-native-crop",gatewayCostUsd:"0",aiCallsThisAttempt:0},updated_at:new Date().toISOString()})
+        .eq("job_id",jobId).eq("kind","plan").neq("status","complete").neq("task_key",task_key).contains("input",{pages:[page.page]}).not("input->>vectorArtifact","is",null);
+      if(retireError)throw retireError;
+    }else{
     const tags = groupedOpeningCrops(page, knownMarks);
     const tiles = tags.length ? tags : planTiles(page.page, page.width * 2, page.height * 2, { tileSize: 1024, overlap: 256 });
     for (const tile of tiles) tasks.push({ task_key: `plan:${tile.id}`, kind: "plan", input: { ...common,
@@ -176,6 +193,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       // cannot be independently validated. Drawing-only files retain vision.
       vectorArtifact: vector.supported || knownMarks.length ? vectorPath : undefined,
       crop: { x: tile.x, y: tile.y, width: tile.width, height: tile.height }, pageWidth: tile.pageWidth, pageHeight: tile.pageHeight } });
+    }
   }
   await addTasks(jobId, tasks);
   // Refresh literal columns after a parser improvement without repurchasing
@@ -206,12 +224,12 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
 
 export async function finishPreparation(jobId: string, vectorWarnings: string[], paidLimit: number, schedulesOnly: boolean, preparationFailures: number) {
   const { db, job } = await loadJob(jobId);
-  const tasks = await listExtractionTasks(db, jobId);
+  const tasks = (await listExtractionTasks(db, jobId)).filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
   tasks.sort((a, b) => Number(a.kind === "plan") - Number(b.kind === "plan"));
   const pending = tasks.filter(task => task.status !== "complete" && (!schedulesOnly || task.kind !== "plan"));
   const ids = taskIdsWithinBudget(tasks.filter(task => !schedulesOnly || task.kind !== "plan"), new Map(pending.map(task => [task.task_key, task.id])), paidLimit);
   const selectedIds = new Set(ids);
-  const paidTasks = tasks.filter(task => selectedIds.has(task.id) && !(task.kind === "plan" && task.input.vectorArtifact)).length;
+  const paidTasks = tasks.filter(task => selectedIds.has(task.id) && !task.input.matrixArtifact && !(task.kind === "plan" && task.input.vectorArtifact)).length;
   await updateJob(jobId, { status: "extracting", analysis: { ...job.analysis,
     uncertainties: [...vectorWarnings, ...(pending.length > ids.length ? [`${pending.length - ids.length} paid extraction sections remain at the per-run model-call limit.`] : [])] },
     progress: { ...job.progress, totalTasks: tasks.length, completedTasks: tasks.filter(task => task.status === "complete").length, skippedTasks: preparationFailures,

@@ -90,6 +90,7 @@ test("an unbounded corridor label cannot justify handing", () => {
 });
 
 test("native PDF paths, rendered boundaries and corridor text produce a grounded cited hand", async () => {
+ for(const corridorLabel of ["CORRIDOR 1","ENTRY-CORRIDORS"]){
   const pdf = await PDFDocument.create(), page = pdf.addPage([1000, 1000]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   page.pushOperators(setLineWidth(2));
@@ -98,7 +99,7 @@ test("native PDF paths, rendered boundaries and corridor text produce a grounded
   line(100, 250, 300, 250); line(330, 250, 500, 250); line(300, 250, 300, 280);
   const points = arc({ ...door, hinge: { x: 300, y: 250 } }).points;
   page.pushOperators(moveTo(points[0].x, 1000-points[0].y), ...points.slice(1).map(p => lineTo(p.x, 1000-p.y)), stroke());
-  page.drawText("CORRIDOR 1", { x: 150, y: 780, size: 10, font });
+  page.drawText(corridorLabel, { x: 150, y: 780, size: 10, font });
   page.drawText("BUNK", { x: 150, y: 650, size: 10, font });
   page.drawText("127", { x: 310, y: 759, size: 6, font });
   const bytes = await pdf.save();
@@ -111,6 +112,7 @@ test("native PDF paths, rendered boundaries and corridor text produce a grounded
   assert.equal(safe.doorwayObservations[0].handing, "RH");
   const detail = await analyzeVectorPlan(bytes, { page: 17, lines: ["FLOOR PLAN", "PLAN ENLARGEMENTS"] }, ["127"]);
   assert.equal(detail.observations[0].handing, "");
+ }
 });
 
 

@@ -73,11 +73,18 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text"> & Pa
   return [...combined.values()];
 }
 
+/** A note referring readers to an index must not hide the floor plan itself. */
+export function isSheetIndexPage(page:Pick<PageIndex,"text"|"boxes"|"lines">){
+  const title=/^(?:[A-Z]\d+[.\d]*\s+)?(?:(?:ARCHITECTURAL|PROJECT)\s+)?(?:(?:SHEET|DRAWING)\s+INDEX|INDEX\s+OF\s+(?:SHEETS|DRAWINGS))(?:\s*(?:[&/]|AND)\s*GENERAL NOTES)?$/i;
+  return page.boxes.some(box=>title.test(box.text.trim()))||page.lines.some(line=>title.test(line.trim()))
+    || /^(?:SHEET|DRAWING)\s+INDEX\b/i.test(page.text.trim());
+}
+
 export function findPageContent(page: PageIndex): PageFinding {
   const text = page.text;
   const openingRows = inventoryOpeningRows(page);
   const kinds: PageKind[] = [];
-  const index = /\b(?:SHEET|DRAWING)\s+INDEX\b|\bINDEX\s+OF\s+(?:SHEETS|DRAWINGS)\b/i.test(text);
+  const index = isSheetIndexPage(page);
   const hardwareSets = [...text.matchAll(/\b(?:SET\s*(?:NO\.?\s*)?[:#]?\s*\d+(?:\.\d+)?[A-Z-]*|HARDWARE\s+SET\s+\d+)\b/gi)];
   const components = /\b(?:HINGE|DEADLATCH|DEADBOLT|LOCKSET|CLOSER|PANIC|THRESHOLD|GASKET)\b/i.test(text);
   if (openingRows.length >= 2) kinds.push("door");
@@ -160,8 +167,13 @@ export function canonicalBuilding(label: string, knownBuildings: string[]) {
 
 /** A model cannot turn an explicitly named MEP sheet into an architectural plan. */
 export function confirmedPageKinds(kinds: PageKind[], evidence: string): PageKind[] {
-  const servicesPlan = /\b(?:SANITARY|STORM|WATER|GAS|POWER|LIGHTING|HVAC|PLUMBING|MECHANICAL|ELECTRICAL)(?:[\s/&,-]+[A-Z]+){0,4}\s+PLAN\b/i.test(evidence);
-  return kinds.filter(kind => kind !== "plan" || !servicesPlan);
+  const servicesPlan = /\b(?:SANITARY|STORM|DOMESTIC|WATER|GAS|POWER|LIGHTING|HVAC|PLUMBING|MECHANICAL|ELECTRICAL)(?:[\s/&,-]+[A-Z]+){0,4}\s+PLAN\b/i.test(evidence);
+  return kinds.filter(kind => {
+    if(kind==="plan")return !servicesPlan;
+    if(kind==="door")return /\b(?:DOOR|OPENING)\b/i.test(evidence)&&/\b(?:SCHEDULE|TABLE)\b/i.test(evidence);
+    if(kind==="types"&&/\bWINDOW TYPES\b/i.test(evidence)&&!/\b(?:DOOR|FRAME)\b/i.test(evidence))return false;
+    return true;
+  });
 }
 
 /** Group nearby targets so one bounded image can answer several doors. */

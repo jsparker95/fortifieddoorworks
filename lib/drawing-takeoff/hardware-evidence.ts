@@ -49,3 +49,10 @@ export function sameHardwareSourceLine(left: unknown, right: unknown) {
   const a = key(left), b = key(right);
   return a.length >= 12 && a === b;
 }
+
+/** Searchable headings alone are not a readable component inventory. */
+export function canUseHardwareText(text:string,sourcePage:number){
+  if(!text.trim()||text.length>=10000)return false;
+  const sections=hardwareSections(text);
+  return sections.length>0&&sections.every(section=>inventoryHardwareRows(section,sourcePage).length>0);
+}
