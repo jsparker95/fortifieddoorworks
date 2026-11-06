@@ -17,6 +17,7 @@ import { canUseHardwareText } from "./hardware-evidence";
 import { readHardwareMatrix, type MatrixResult } from "./hardware-matrix";
 import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
+import { screeningCoverage } from "./screening-coverage";
 
 export async function prepareIndex(jobId: string) {
   const { db, job, document } = await loadJob(jobId);
@@ -62,7 +63,7 @@ export async function planExtraction(jobId: string) {
   const findings = pages.map(findPageContent);
   const { data: classified, error } = await db.from("document_extraction_tasks").select("input,result,status").eq("job_id", jobId).eq("kind", "classify");
   if (error) throw error;
-  const uncheckedPages = (classified || []).filter(task => task.status !== "complete").reduce((sum, task) => sum + task.input.pages.length, 0);
+  const uncheckedPages = screeningCoverage(classified || []).unchecked.length;
   for (const task of classified || []) {
     for (const row of task.result?.pages || []) {
       const actualPage = task.input.pages[row.page - 1];

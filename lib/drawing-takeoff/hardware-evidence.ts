@@ -5,6 +5,27 @@ import { hardwareSetKey } from "./references";
 
 type Hardware = z.infer<typeof extractionSchema>["hardwareGroups"][number];
 
+/** Recover product identity from one cited component line, never adjacent set notes. */
+export function preserveHardwareIdentity<T extends {component:string;brand:string;quantity:number;evidence:string}>(row:T):T {
+  const normalized=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const component=row.component.replace(/^\[[^\]]+\]\s*/,"").trim();
+  const tokens=component.match(/[A-Za-z0-9]+/g)||[];
+  if(!tokens.length)return row;
+  const candidates=row.evidence.split(/\r?\n/).flatMap(line=>{
+    const match=line.trim().match(/^(\d+)\s+(EA|EACH|PR|PAIR|SETS?|PCS?|PIECES?)\b\s*(.+)$/i);
+    if(!match||Number(match[1])!==row.quantity)return [];
+    const body=match[3].trim(),key=normalized(body);
+    if(row.brand.trim()&&!key.includes(normalized(row.brand)))return [];
+    if(!tokens.every(token=>key.includes(normalized(token))))return [];
+    return [{body,unit:match[2].toUpperCase()}];
+  });
+  const distinct=[...new Map(candidates.map(candidate=>[normalized(candidate.body),candidate])).values()];
+  if(distinct.length!==1)return row;
+  const {body,unit}=distinct[0];
+  const prefix=/^(?:EA|EACH|PCS?|PIECES?)$/.test(unit)?"":`[${unit}] `;
+  return {...row,component:prefix+body};
+}
+
 /** Quantified printed rows are authoritative for part numbers and quantities. */
 export function inventoryHardwareRows(text: string, sourcePage: number): Hardware[] {
   return hardwareSections(text).flatMap(section => {
