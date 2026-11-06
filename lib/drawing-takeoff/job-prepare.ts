@@ -11,7 +11,7 @@ import { taskIdsWithinBudget } from "./task-budget";
 import { scheduleSearchDescription } from "./search-description";
 import { addTasks, listExtractionTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, PIPELINE_VERSION, type TaskInput } from "./job-store";
 import { combineExtractionOutputs } from "./extraction-schema";
-import { useSingleNativePlanTask, taskMatchesFindings } from "./plan-task-policy";
+import { useSingleNativePlanTask, taskMatchesFindings, currentPlanMarks } from "./plan-task-policy";
 import { hardwareImageSections } from "./hardware-sections";
 import { canUseHardwareText } from "./hardware-evidence";
 import { readHardwareMatrix, type MatrixResult } from "./hardware-matrix";
@@ -122,7 +122,9 @@ type PreparationInput = { finding: PageFinding; page: PageIndex; knownMarks: str
 export async function preparePage(jobId: string, inputPath: string, ordinal: number, mode: PreparationMode, modeTotal: number) {
   const { db, job } = await loadJob(jobId);
   if (job.status === "partial") throw new Error("Processing stopped. Saved results are retained.");
-  const { finding, page, knownMarks, marksHash, sourceArtifact, sourcePages, root } = JSON.parse(new TextDecoder().decode(await getArtifact(inputPath))) as PreparationInput;
+  const { finding, page, knownMarks:storedMarks, marksHash:storedMarksHash, sourceArtifact, sourcePages, root } = JSON.parse(new TextDecoder().decode(await getArtifact(inputPath))) as PreparationInput;
+  const knownMarks=mode==="plans"?currentPlanMarks(storedMarks,job.analysis):storedMarks;
+  const marksHash=mode==="plans"?createHash("sha256").update(knownMarks.join("|")).digest("hex").slice(0,12):storedMarksHash;
   console.info("[document-prepare] page started", { jobId, page: page.page, ordinal, mode });
   finding.kinds = finding.kinds.filter(kind => mode === "plans" ? kind === "plan" : kind !== "plan");
   const pageBytes = await pageFromSegment(await getArtifact(sourceArtifact), sourcePages, page.page);
@@ -174,12 +176,12 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
     }
     if(vector.reason)vectorWarnings.push(`PDF page ${page.page}: ${vector.reason}`);
     if(useSingleNativePlanTask(vector,knownMarks)){
-      const task_key=`plan:page:${page.page}:native:v${VECTOR_VERSION}`;
+      const task_key=`plan:page:${page.page}:native:v${VECTOR_VERSION}:${marksHash}`;
       tasks.push({task_key,kind:"plan",input:{...common,vectorArtifact:vectorPath,targetMarks:knownMarks}});
       // Retain old task inputs for audit while retiring redundant unfinished
       // native crop work from earlier versions of the same resumed job.
-      const {error:retireError}=await db.from("document_extraction_tasks").update({status:"complete",result:{...combineExtractionOutputs(null,null),supersededBy:task_key},metrics:{model:"source/superseded-native-crop",gatewayCostUsd:"0",aiCallsThisAttempt:0},updated_at:new Date().toISOString()})
-        .eq("job_id",jobId).eq("kind","plan").neq("status","complete").neq("task_key",task_key).contains("input",{pages:[page.page]}).not("input->>vectorArtifact","is",null);
+      const {error:retireError}=await db.from("document_extraction_tasks").update({status:"complete",result:{...combineExtractionOutputs(null,null),supersededBy:task_key},updated_at:new Date().toISOString()})
+        .eq("job_id",jobId).eq("kind","plan").neq("status","complete").neq("task_key",task_key).contains("input",{pages:[page.page]});
       if(retireError)throw retireError;
     }else{
     const tags = groupedOpeningCrops(page, knownMarks);
