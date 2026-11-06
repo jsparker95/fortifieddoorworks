@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:pdf-runtime": "node scripts/verify-pdf-runtime-assets.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.13",

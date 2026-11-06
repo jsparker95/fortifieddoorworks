@@ -26,7 +26,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
   if (resourceLimit) return { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason: resourceLimit };
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const task = getDocument({ ...pdfAssetOptions, data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
+  const task = getDocument({ ...pdfAssetOptions(), data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
   try {
     const pdf = await task.promise, page = await pdf.getPage(1), base = page.getViewport({ scale: 1 });
     const operatorList = await page.getOperatorList();
