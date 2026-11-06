@@ -18,6 +18,7 @@ import { readHardwareMatrix, type MatrixResult } from "./hardware-matrix";
 import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
 import { screeningCoverage } from "./screening-coverage";
+import { hardwareContinuationTasks } from "./hardware-continuation";
 
 export async function prepareIndex(jobId: string) {
   const { db, job, document } = await loadJob(jobId);
@@ -227,7 +228,11 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
 
 export async function finishPreparation(jobId: string, vectorWarnings: string[], paidLimit: number, schedulesOnly: boolean, preparationFailures: number) {
   const { db, job } = await loadJob(jobId);
-  const tasks = (await listExtractionTasks(db, jobId)).filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
+  let tasks = (await listExtractionTasks(db, jobId)).filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
+  if(!schedulesOnly){
+    await addTasks(jobId,hardwareContinuationTasks(tasks));
+    tasks=(await listExtractionTasks(db,jobId)).filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
+  }
   tasks.sort((a, b) => Number(a.kind === "plan") - Number(b.kind === "plan"));
   const pending = tasks.filter(task => task.status !== "complete" && (!schedulesOnly || task.kind !== "plan"));
   const ids = taskIdsWithinBudget(tasks.filter(task => !schedulesOnly || task.kind !== "plan"), new Map(pending.map(task => [task.task_key, task.id])), paidLimit);

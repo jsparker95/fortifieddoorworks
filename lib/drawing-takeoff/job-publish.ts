@@ -1,5 +1,6 @@
 import { taskMatchesFindings } from "./plan-task-policy";
 import { mergeHardwareImageReads } from "./hardware-sections";
+import { reconcileHardwareContinuation } from "./hardware-continuation";
 import { doorTypeDefinitionSupported, wallDefinitionSupported } from "./definition-evidence";
 import { mergeVisualScheduleRows } from "./visual-schedule";
 import { combineExtractionOutputs } from "./extraction-schema";
@@ -28,6 +29,7 @@ export async function publishProgress(jobId: string, final = false) {
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
   const incompleteHardwareGroups=new Map<string,{page:number;group:string}>();
   const hardwareImageReads: typeof output.hardwareGroups[] = [];
+  const hardwareContinuations: typeof output.hardwareGroups[] = [];
   const matrixOpeningGroups: Array<{mark:string;sourcePage:number;group:string}> = [];
   const visualScheduleRows: ScopedOpening[] = [];
   const groundedHardwareSets = new Set<string>();
@@ -37,6 +39,7 @@ export async function publishProgress(jobId: string, final = false) {
     if (!task.result || task.status!=="complete") continue;
     const result = task.result as unknown as typeof output;
     if(task.input.hardwareSection&&Array.isArray(task.result.incompleteHardwareGroups))for(const group of task.result.incompleteHardwareGroups)incompleteHardwareGroups.set(`${task.input.pages[0]}:${group}`,{page:task.input.pages[0],group:String(group)});
+    if(task.input.hardwareSection?.continuationGroup&&Array.isArray(task.result.incompleteHardwareGroups)&&task.result.incompleteHardwareGroups.length)output.uncertainties.push(`PDF page ${task.input.pages[0]}: the column continuation for hardware group ${task.input.hardwareSection.continuationGroup} could not be confirmed. Its saved component list may be incomplete; review the source.`);
     if (task.input.matrixArtifact && Array.isArray(task.result.matrixOpeningGroups)) matrixOpeningGroups.push(...task.result.matrixOpeningGroups);
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
@@ -55,7 +58,8 @@ export async function publishProgress(jobId: string, final = false) {
     const printedHardware = task.kind === "hardware" && task.input.text ? inventoryHardwareRows(task.input.text, task.input.pages[0]) : [];
     for (const row of printedHardware) groundedHardwareSets.add(`${row.sourcePage}:${hardwareSetKey(building ? `${building} / ${row.group}` : row.group)}`);
     const taskHardware = (printedHardware.length ? reconcileHardwareRows(task.input.text!, task.input.pages[0], result.hardwareGroups || []) : result.hardwareGroups || []).map(preserveHardwareIdentity);
-    if(task.input.hardwareSection)hardwareImageReads.push(scoped(taskHardware,building));
+    if(task.input.hardwareSection?.continuationGroup)hardwareContinuations.push(scoped(taskHardware,building));
+    else if(task.input.hardwareSection)hardwareImageReads.push(scoped(taskHardware,building));
     else output.hardwareGroups.push(...scoped(taskHardware, building));
     const wallPage = task.kind === "walls" ? wallPages.find(page => page.page === task.input.pages[0]) : undefined;
     if (wallPage) for (const caption of wallCaptionAliases(inventoryWallNotes(wallPage))) {
@@ -74,6 +78,12 @@ export async function publishProgress(jobId: string, final = false) {
         handingEvidence:"Vision-only hand was withheld pending independent geometry or manual verification."}))
       :result.doorwayObservations||[];
     observations.push(...scoped(taskObservations, building));
+  }
+  const baseImageRows=mergeHardwareImageReads(hardwareImageReads);
+  for(const continuation of hardwareContinuations){
+    const reconciled=reconcileHardwareContinuation(baseImageRows,continuation);
+    hardwareImageReads.push(reconciled.rows);
+    output.uncertainties.push(...reconciled.uncertainties);
   }
   output.hardwareGroups.push(...mergeHardwareImageReads(hardwareImageReads));
   for(const missing of incompleteHardwareGroups.values())if(!output.hardwareGroups.some(row=>row.sourcePage===missing.page&&row.group===missing.group))output.uncertainties.push(`PDF page ${missing.page}: hardware group ${missing.group} was only partly visible in the saved image sections and needs review.`);
