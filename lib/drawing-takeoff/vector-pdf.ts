@@ -1,3 +1,4 @@
+import { pdfAssetOptions } from "./pdf-assets";
 import { vectorResourceLimit, MAX_VECTOR_POINTS } from "./vector-limits";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { Point } from "./geometry";
@@ -8,7 +9,7 @@ import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { displayedTextBox } from "./text-geometry";
 
-export const VECTOR_VERSION = 2;
+export const VECTOR_VERSION = 3;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -25,7 +26,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
   if (resourceLimit) return { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason: resourceLimit };
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const task = getDocument({ data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
+  const task = getDocument({ ...pdfAssetOptions, data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
   try {
     const pdf = await task.promise, page = await pdf.getPage(1), base = page.getViewport({ scale: 1 });
     const operatorList = await page.getOperatorList();

@@ -1,3 +1,4 @@
+import { pdfAssetOptions } from "./pdf-assets";
 import { PDFDocument } from "pdf-lib";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { PageIndex, TextBox } from "./indexing";
@@ -6,7 +7,7 @@ import { displayedTextBox } from "./text-geometry";
 async function openPdf(bytes: Uint8Array) {
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const task = getDocument({ data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
+  const task = getDocument({ ...pdfAssetOptions, data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
   return { task, pdf: await task.promise };
 }
 

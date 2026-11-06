@@ -1,3 +1,4 @@
+import { hardwareImageSchema, hardwareImagePrompt, normalizeHardwareImage } from "./hardware-sections";
 import { readSourceModel, type SourceContent } from "./source-model";
 import { visualScheduleSchema, visualScheduleSystem, visualSectionPrompt, ownedVisualRows } from "./visual-schedule";
 import { z } from "zod";
@@ -5,7 +6,7 @@ import { extractionSchema, combineExtractionOutputs, sanitizeExtraction } from "
 import { confirmedPageKinds, reconcileInventoriedRows, type Opening } from "./indexing";
 import { providerRateLimitDelay } from "./rate-limit";
 import { providerAccessProblem } from "./provider-access";
-import { reconcileHardwareRows } from "./hardware-evidence";
+import { canUseHardwareText, reconcileHardwareRows } from "./hardware-evidence";
 import { normalizePlanResponse, planResponseSchema } from "./plan-response";
 import { VECTOR_VERSION, type VectorPlan } from "./vector-pdf";
 import { getArtifact, loadJob, updateJob, workerClient, type ExtractionTask } from "./job-store";
@@ -64,7 +65,7 @@ export async function extractTask(taskId: string) {
       });
       const safe=sanitizeExtraction({...combineExtractionOutputs(null,null),doorwayObservations:observations},input.pages);
       if(vector.reason)safe.uncertainties.push(`PDF page ${input.pages[0]}: ${vector.reason}`);
-      const metrics={elapsedMs:Date.now()-started,model:vector.supported?"source/vector-geometry":"source/manual-review",sourceMethod:vector.supported?"vector-geometry":"manual-review",aiCallsThisAttempt:0,
+      const metrics={elapsedMs:Date.now()-started,model:vector.supported&&vector.observations.length?"source/vector-geometry":"source/manual-review",sourceMethod:vector.supported&&vector.observations.length?"vector-geometry":"manual-review",aiCallsThisAttempt:0,
         gatewayCostUsd:task.metrics?.gatewayCostUsd||"0",previousMetrics:task.metrics||null};
       const {error:saveError}=await db.from("document_extraction_tasks").update({result:{...safe,vectorVersion:VECTOR_VERSION,
         ...(task.result?.rawPlanResponse?{rawPlanResponse:task.result.rawPlanResponse}:{})},metrics,status:"complete",error:null,updated_at:new Date().toISOString()}).eq("id",taskId);
@@ -96,11 +97,14 @@ export async function extractTask(taskId: string) {
       system = visualScheduleSystem;
       prompt = visualSectionPrompt(input.scheduleSection);
     }
+    if(kind==="hardware"&&input.hardwareSection)prompt=hardwareImagePrompt(input.hardwareSection);
     // A complete, bounded text table is cheaper and clearer than resending its full sheet.
-    const textOnly = (kind === "doors" && !!input.inventory?.length) || (kind === "hardware" && !!input.text && input.text.length < 10000);
+    const textOnly = (kind === "doors" && !!input.inventory?.length) || (kind === "hardware" && !!input.text && canUseHardwareText(input.text,input.pages[0]));
     if (input.artifact && !textOnly) {
       const bytes = await getArtifact(input.artifact);
-      if (kind === "doors" && input.scheduleSection) {
+      if(kind==="hardware"&&input.hardwareSection){
+        content.push({type:"file",mediaType:"image/png",data:await renderCrop(bytes,input.hardwareSection.crop)});
+      } else if (kind === "doors" && input.scheduleSection) {
         content.push({ type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.scheduleSection.headerCrop) },
           { type: "file", mediaType: "image/png", data: await renderCrop(bytes, input.scheduleSection.crop) });
       } else if (kind === "plan") {
@@ -114,8 +118,10 @@ export async function extractTask(taskId: string) {
     }
     content.push({ type: "text", text: prompt });
     const response = await readSourceModel(kind,
-      (kind === "doors" && input.scheduleSection ? visualScheduleSchema : schemas[kind]) as z.ZodType<Record<string, unknown>>, system, content);
+      (kind === "hardware" && input.hardwareSection ? hardwareImageSchema : kind === "doors" && input.scheduleSection ? visualScheduleSchema : schemas[kind]) as z.ZodType<Record<string, unknown>>, system, content);
     let result = response.output;
+    const rawHardwareResponse=kind==="hardware"&&input.hardwareSection?result:null;
+    if(rawHardwareResponse)result=normalizeHardwareImage(rawHardwareResponse);
     const rawScheduleResponse = kind === "doors" && input.scheduleSection ? result : null;
     if (rawScheduleResponse && input.scheduleSection) result = { openings: ownedVisualRows(rawScheduleResponse, input.scheduleSection).map(row => ({ ...row,
       // Markup can be a revision, highlight, or scope annotation. Retain the row for review.
@@ -158,7 +164,7 @@ export async function extractTask(taskId: string) {
         const flagged = ownedVisualRows(rawScheduleResponse, input.scheduleSection).filter(row => row.markedOut);
         if (flagged.length) safe.uncertainties.push(`PDF page ${input.pages[0]}: marked-up rows ${flagged.map(row => row.mark).join(", ")} were retained. Confirm their scope before ordering.`);
       }
-      result = { ...safe, ...(rawScheduleResponse ? { rawScheduleResponse } : {}), ...(rawPlanResponse ? { rawPlanResponse } : {}) };
+      result = { ...safe, ...(rawHardwareResponse ? {rawHardwareResponse,incompleteHardwareGroups:normalizeHardwareImage(rawHardwareResponse).incompleteGroups} : {}), ...(rawScheduleResponse ? { rawScheduleResponse } : {}), ...(rawPlanResponse ? { rawPlanResponse } : {}) };
     }
     const metrics = { elapsedMs: Date.now() - started, usage: response.usage, finishReason: response.finishReason,
       model: response.response.modelId, responseId: response.response.id,

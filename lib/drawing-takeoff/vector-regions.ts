@@ -58,7 +58,7 @@ function labelRegion(map: RegionMap, box: TextBox) {
 }
 
 export function regionReferences(map: RegionMap, boxes: TextBox[], doors: VectorDoor[], allowExterior: boolean) {
-  const labels = boxes.filter(box => /^(?:CORRIDOR|HALLWAY|HALL)(?:\s+[A-Z0-9-]+)?$/i.test(box.text.trim()))
+  const labels = boxes.filter(box => /^(?:(?:ENTRY|MAIN|EXIT|PUBLIC)[ -]+)?(?:CORRIDORS?|HALLWAY|HALL)(?:\s+[A-Z0-9-]+)?$/i.test(box.text.trim()))
     .map(box => ({ ...box, region: labelRegion(map, box) }))
     .filter(box => box.region && !map.border[box.region] && map.areas[box.region] < map.width * map.height * 0.15);
   const interior = new Set(labels.map(box => box.region));

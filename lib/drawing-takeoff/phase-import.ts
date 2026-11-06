@@ -25,7 +25,7 @@ function candidateName(kind: Kind, row: Candidate) {
 }
 
 export function phaseCandidateKey(documentId: string, kind: Kind, row: Candidate, index: number) {
-  const name = stablePart(candidateName(kind, row));
+  const name = stablePart(candidateName(kind, row)) + (kind === "hardware" && row.sourceHardwareLine !== undefined ? `:line-${stringValue(row.sourceHardwareLine)}` : "");
   // The same opening mark or hardware component can appear on separate sheets.
   // Keep those source rows independent while making re-analysis idempotent.
   return `${documentId}:${kind}:${name || `page-${sourcePage(row)}-${index}`}:p${sourcePage(row)}`;
@@ -80,6 +80,7 @@ export function mapPhaseCandidate(
   return {
     ...stamp, group: stringValue(row.group), component: stringValue(row.component || row.name),
     brand: stringValue(row.brand), qty: row.quantityKnown === false ? "" : Number(row.quantity) || 0,
+    sourceHardwareLine: row.sourceHardwareLine === undefined ? undefined : stringValue(row.sourceHardwareLine),
     quantityKnown: row.quantityKnown !== false, sourceRequirement: row.sourceRequirement === true,
     frameMod: stringValue(row.frameModification), doorMod: stringValue(row.doorModification),
     doorPrep: stringValue(row.doorPrep),
@@ -111,7 +112,8 @@ export function mergePhaseCandidateRows(existing: Row[], incoming: Row[]): Row[]
     ) || (
       String(key).includes(":hardware:") && String(row.sourceCandidateKey).includes(":hardware:")
       && row.sourceDocumentId === candidate.sourceDocumentId && row.sourcePage === candidate.sourcePage
-      && row.sourceBuilding === candidate.sourceBuilding && (row.component === candidate.component || sameHardwareSourceLine(row.sourceEvidence, candidate.sourceEvidence))
+      && row.sourceBuilding === candidate.sourceBuilding
+      && (row.sourceHardwareLine === undefined || candidate.sourceHardwareLine === undefined || row.sourceHardwareLine === candidate.sourceHardwareLine) && (row.component === candidate.component || sameHardwareSourceLine(row.sourceEvidence, candidate.sourceEvidence))
       && hardwareSetKey(stringValue(row.group)) === hardwareSetKey(stringValue(candidate.group))
     )) : -1;
     if (index < 0) {
