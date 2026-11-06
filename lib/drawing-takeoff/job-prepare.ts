@@ -10,6 +10,7 @@ import { analyzeVectorPlan, VECTOR_VERSION, type VectorPlan } from "./vector-pdf
 import { taskIdsWithinBudget } from "./task-budget";
 import { scheduleSearchDescription } from "./search-description";
 import { addTasks, listExtractionTasks, getArtifact, loadJob, updateJob, putArtifact, readIndex, PIPELINE_VERSION, type TaskInput } from "./job-store";
+import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
 
 export async function prepareIndex(jobId: string) {
@@ -126,7 +127,11 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
   const vectorWarnings: string[] = [];
   if (finding.kinds.includes("door")) {
     const chunks = chunkRows(finding.openingRows);
-    if (!chunks.length) tasks.push({ task_key: `doors:${page.page}:visual`, kind: "doors", input: { ...common, text: page.text } });
+    if (!chunks.length) {
+      const sections = visualScheduleSections(page);
+      if (sections.length) sections.forEach((section, i) => tasks.push({ task_key: `doors:${page.page}:strip:${i}`, kind: "doors", input: { ...common, scheduleSection: section } }));
+      else tasks.push({ task_key: `doors:${page.page}:visual`, kind: "doors", input: { ...common, text: page.text } });
+    }
     for (let i = 0; i < chunks.length; i++) tasks.push({ task_key: `doors:${page.page}:${i}`, kind: "doors",
       input: { ...common, inventory: chunks[i], text: `Schedule context: ${page.text.slice(Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)), Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)) + 600)}\nRows:\n${chunks[i].map(row => row.evidence).join("\n")}` } });
   }

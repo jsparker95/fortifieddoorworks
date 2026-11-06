@@ -63,6 +63,8 @@ export function mapPhaseCandidate(
     swingDirection: stringValue(row.swingDirection), planReviewReasons: Array.isArray(row.planReviewReasons) ? row.planReviewReasons.map(String).join("; ") : stringValue(row.planReviewReasons),
     handingEvidence: stringValue(row.handingEvidence),
     countSource: stringValue(row.countSource),
+    sourceMarkedOut: row.markedOut === true, scopeEvidence: stringValue(row.scopeEvidence),
+    scheduleNotes: stringValue(row.scheduleNotes), leafCount: stringValue(row.leafCount), leafWidth: stringValue(row.leafWidth),
   };
   if (kind === "walls") return {
     ...stamp, name: stringValue(row.code) || `Unmarked · p. ${sourcePage(row)}`,

@@ -1,10 +1,13 @@
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
+import { inventoryGeometricSchedule, locateScheduleTables } from "./schedule-table";
 import { compoundScheduleColumns } from "./schedule-columns";
 
 export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
   doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string; frameFinish?: string; doorTypeInventoried?: boolean;
-  fireRatingInventoried?: boolean; hardwareGroupInventoried?: boolean;
+  fireRatingInventoried?: boolean; hardwareGroupInventoried?: boolean; frameTypeInventoried?: boolean;
+  scheduleNotes?: string; leafCount?: string; leafWidth?: string;
+  scheduleRowBox?: { x: number; y: number; width: number; height: number };
 };
 export type TextBox = { text: string; x: number; y: number; width: number; height: number };
 export type PageIndex = { page: number; text: string; lines: string[]; boxes: TextBox[]; width: number; height: number; rotation: number };
@@ -19,8 +22,9 @@ const cleanDimension = (s: string) => s.replace(/[’]/g, "'").replace(/[”]/g,
 
 /** Inventory literal schedule rows before asking a model to enrich their fields. */
 export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text"> & Partial<Pick<PageIndex, "boxes">>): Opening[] {
+  const geometric = page.boxes && "width" in page && "height" in page ? inventoryGeometricSchedule(page as PageIndex) : [];
   const heading = page.text.search(/\b(?:DOOR|OPENING)\s+(?:AND\s+FRAME\s+)?SCHEDULE\b/i);
-  if (heading < 0) return [];
+  if (heading < 0) return geometric;
   const remainder = page.text.slice(heading);
   const end = remainder.search(/\bWINDOW\s+SCHEDULE\b|\bDOOR\s+(?:ELEVATION\s+)?TYPES\b/i);
   const section = end < 0 ? remainder : remainder.slice(0, end);
@@ -50,7 +54,23 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text"> & Pa
       sourcePage: page.page, evidence: body.trim().slice(0, 500), confidence: 0.9 }];
   }).filter((r, i, rows) => rows.findIndex(other => other.mark === r.mark) === i);
   const columns = page.boxes ? compoundScheduleColumns(page.boxes, rows) : new Map();
-  return rows.map(row => ({ ...row, ...columns.get(row.mark) }));
+  const enriched = rows.map(row => ({ ...row, ...columns.get(row.mark) }));
+  const anchored = geometric.length && page.boxes && "width" in page && "height" in page
+    ? new Set(locateScheduleTables(page as PageIndex).flatMap(table => table.anchors.map(box => box.text.trim()))) : null;
+  const combined = new Map(enriched.filter(row => !anchored || anchored.has(row.mark)).map(row => [row.mark, row]));
+  for (const row of geometric) {
+    const prior = combined.get(row.mark);
+    combined.set(row.mark, { ...prior, ...row, ...columns.get(row.mark),
+      doorType: row.doorTypeInventoried ? row.doorType : prior?.doorType || row.doorType,
+      frameType: row.frameTypeInventoried ? row.frameType : prior?.frameType || row.frameType,
+      hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : prior?.hardwareGroup || row.hardwareGroup,
+      fireRating: row.fireRatingInventoried ? row.fireRating : prior?.fireRating || row.fireRating,
+      doorTypeInventoried: row.doorTypeInventoried || prior?.doorTypeInventoried,
+      hardwareGroupInventoried: row.hardwareGroupInventoried || prior?.hardwareGroupInventoried,
+      fireRatingInventoried: row.fireRatingInventoried || prior?.fireRatingInventoried,
+      room: row.room || prior?.room || "" });
+  }
+  return [...combined.values()];
 }
 
 export function findPageContent(page: PageIndex): PageFinding {
@@ -107,9 +127,9 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
   return inventory.map(row => {
     const model = generated.find(candidate => candidate.mark.trim().toUpperCase() === row.mark.toUpperCase());
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
-      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, doorType: row.doorTypeInventoried ? row.doorType : row.doorType || model?.doorType || "",
+      sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, room: row.room || model?.room || "", doorType: row.doorTypeInventoried ? row.doorType : row.doorType || model?.doorType || "",
       doorMaterial: row.doorMaterial, doorFinish: row.doorFinish, doorThickness: row.doorThickness, frameMaterial: row.frameMaterial, frameFinish: row.frameFinish,
-      frameType: row.frameType || (row.frameMaterial ? "" : model?.frameType || ""),
+      frameType: row.frameTypeInventoried ? row.frameType : row.frameType || (row.frameMaterial ? "" : model?.frameType || ""),
       hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : row.hardwareGroup || model?.hardwareGroup || "",
       fireRating: row.fireRatingInventoried ? row.fireRating : row.fireRating || model?.fireRating || "",
       handing: model?.handing && ["LH", "RH", "LHR", "RHR"].includes(model.handing.toUpperCase()) && new RegExp(`\\b${model.handing}\\b`, "i").test(row.evidence) ? model.handing.toUpperCase() : "",
