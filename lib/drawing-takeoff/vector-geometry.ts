@@ -13,8 +13,9 @@ function circle(a: Point, b: Point, c: Point) {
     y: (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x)) / denominator };
 }
 
-/** CAD exports often flatten a swing arc into a short circular polyline. */
-function quarterArc(points: Point[]) {
+/** CAD exports flatten swing arcs into polylines. A partially open leaf can
+ * subtend 45 degrees; requiring a quarter circle discards real door symbols. */
+function swingArc(points: Point[]) {
   if (points.length < 5) return null;
   const start = points[0], end = points.at(-1)!;
   const hinge = circle(start, points[Math.floor(points.length / 2)], end);
@@ -23,7 +24,7 @@ function quarterArc(points: Point[]) {
   if (radius < 8 || radius > 500 || points.some(point => Math.abs(distance(hinge, point) - radius) > Math.max(0.08, radius * 0.01))) return null;
   const cosine = ((start.x - hinge.x) * (end.x - hinge.x) + (start.y - hinge.y) * (end.y - hinge.y)) / (radius * radius);
   const angle = Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI;
-  if (angle < 80 || angle > 100) return null;
+  if (angle < 35 || angle > 100) return null;
   const turns = points.slice(1).map((point, i) => {
     const a = points[i], ax = a.x - hinge.x, ay = a.y - hinge.y;
     const bx = point.x - hinge.x, by = point.y - hinge.y;
@@ -56,7 +57,7 @@ function curvedRuns(points: Point[]) {
   return runs;
 }
 
-/** Require both a quarter arc and a radial straight leaf; arc direction alone is insufficient. */
+/** Require both a swing arc and a radial straight leaf; arc direction alone is insufficient. */
 export function detectVectorDoors(paths: VectorPath[]): VectorDoor[] {
   const lines = paths.flatMap(path => path.points.slice(1).map((b, i) => ({ a: path.points[i], b, length: distance(path.points[i], b) }))).filter(line => line.length > 3);
   // Index both endpoints so each arc only checks nearby leaf candidates.
@@ -87,8 +88,8 @@ export function detectVectorDoors(paths: VectorPath[]): VectorDoor[] {
   };
   const doors: VectorDoor[] = [];
   for (const path of [...paths, ...joinedVectorPaths(paths)]) {
-    const whole = quarterArc(path.points);
-    for (const arc of whole ? [whole] : curvedRuns(path.points).map(quarterArc).filter((arc): arc is NonNullable<typeof arc> => !!arc)) {
+    const whole = swingArc(path.points);
+    for (const arc of whole ? [whole] : curvedRuns(path.points).map(swingArc).filter((arc): arc is NonNullable<typeof arc> => !!arc)) {
       const first = support(arc.hinge, arc.start, arc.radius), last = support(arc.hinge, arc.end, arc.radius);
       if ((!first && !last) || (first && last)) continue;
       const leaf = first > last ? arc.start : arc.end, jamb = first > last ? arc.end : arc.start;
