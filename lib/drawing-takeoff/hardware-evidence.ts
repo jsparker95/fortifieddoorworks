@@ -20,7 +20,16 @@ export function preserveHardwareIdentity<T extends {component:string;brand:strin
     return [{body,unit:match[2].toUpperCase()}];
   });
   const distinct=[...new Map(candidates.map(candidate=>[normalized(candidate.body),candidate])).values()];
-  if(distinct.length!==1)return row;
+  if(distinct.length!==1){
+    if(distinct.length||!row.brand.trim())return row;
+    // An inactive-leaf qualifier can identify a product without specifying a
+    // numeric quantity. Preserve its identity, while withholding guessed counts.
+    const unquantified=row.evidence.split(/\r?\n/).map(line=>line.trim().replace(/^(?:(?:INACTIVE|ACTIVE)\s+LEAF\s+ONLY\s+|(?:EA|EACH|PR|PAIR|SETS?|PCS?|PIECES?)\s+)/i,''))
+      .filter(line=>normalized(line).startsWith(normalized(component))&&normalized(line).includes(normalized(row.brand)));
+    const unique=[...new Set(unquantified)];
+    const unit=row.component.match(/^\[[^\]]+\]\s*/)?.[0]||'';
+    return unique.length===1?{...row,component:unit+unique[0],quantity:0,quantityKnown:false,sourceRequirement:true}:row;
+  }
   const {body,unit}=distinct[0];
   const prefix=/^(?:EA|EACH|PCS?|PIECES?)$/.test(unit)?"":`[${unit}] `;
   return {...row,component:prefix+body};
@@ -64,7 +73,8 @@ export function reconcileHardwareRows(text: string, sourcePage: number, generate
 /** Stable evidence allows a corrected part label to keep the same draft ID. */
 export function sameHardwareSourceLine(left: unknown, right: unknown) {
   const key = (value: unknown) => {
-    const line = String(value || "").match(/\b\d+\s+(?:EA|EACH|PR|PAIR|SETS?)\b[\s\S]*/i)?.[0];
+    const line = String(value || "").match(/\b\d+\s+(?:EA|EACH|PR|PAIR|SETS?)\b[\s\S]*/i)?.[0]
+      ||String(value||'').split(/\r?\n/).find(line=>/^(?:(?:INACTIVE|ACTIVE)\s+LEAF\s+ONLY|EA|EACH|PR|PAIR|SETS?|PCS?|PIECES?)\s+/i.test(line.trim()));
     return line?.replace(/\*?\s*BALANCE\s+OF\s+HARDWARE\s+BY\s+OTHERS[\s\S]*/i, "").toUpperCase().replace(/[^A-Z0-9]/g, "") || "";
   };
   const a = key(left), b = key(right);

@@ -27,3 +27,16 @@ test('printed pair unit is preserved without multiplying quantity',()=>{
  assert.equal(recovered.component,'[PR] Hinges Example Brand HX-4 US26D');
  assert.equal(recovered.quantity,1);
 });
+test('unquantified product identity is kept without inventing an inactive-leaf count',()=>{
+ const recovered=preserveHardwareIdentity({...row,component:'Manual Flushbolt',evidence:'inactive leaf only Manual Flushbolt Example Brand FB10 US26D'});
+ assert.equal(recovered.component,'Manual Flushbolt Example Brand FB10 US26D');
+ assert.equal(recovered.quantity,0);
+ const saved=mapAnalysisToPhaseRows('doc',{hardwareGroups:[recovered]}).hardware![0];
+ assert.equal(saved.qty,'');assert.equal(saved.quantityKnown,false);
+ const original=mapAnalysisToPhaseRows('doc',{hardwareGroups:[{...row,component:'Manual Flushbolt',evidence:'inactive leaf only Manual Flushbolt Example Brand FB10 US26D'}]}).hardware!;
+ const merged=mergePhaseCandidateRows(original,[saved]);assert.equal(merged.length,1);assert.equal(merged[0].id,original[0].id);
+ assert.equal(preserveHardwareIdentity({...row,component:'[PR] Hinges',evidence:'PR Hinges Example Brand HX10'}).component,'[PR] Hinges Example Brand HX10');
+ const quantified=preserveHardwareIdentity({...row,component:'Weatherstrip',quantity:2,evidence:'2 Each Weatherstrip Example Brand WS10'});
+ assert.equal(quantified.quantity,2);
+ assert.equal(preserveHardwareIdentity({...row,component:'Manual Flushbolt',evidence:'Do not use Manual Flushbolt Example Brand FB10'}).component,'Manual Flushbolt');
+});
