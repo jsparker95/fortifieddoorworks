@@ -9,7 +9,7 @@ import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { displayedTextBox } from "./text-geometry";
 
-export const VECTOR_VERSION = 3;
+export const VECTOR_VERSION = 4;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -72,7 +72,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       }
     }
     const allDoors = detectVectorDoors(paths);
-    if (!allDoors.length) return unsupported("No complete vector arc and straight-leaf combinations were found.");
+    if (!allDoors.length) return unsupported("No supported vector swing arc and straight-leaf combinations were found.");
     const content = await page.getTextContent();
     const boxes: TextBox[] = content.items.flatMap(item => {
       if (!("str" in item) || !item.str.trim()) return [];
@@ -119,7 +119,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       if(right<=x||bottom<=y)continue;
       observations.push({mark:tag.text,sourcePage:index.page,boundingBox:{x:x/base.width,y:y/base.height,width:(right-x)/base.width,height:(bottom-y)/base.height},
         hingeSide:agreed?.hingeSide||"unknown",swingDirection:agreed?.swingDirection||"unclear",handing:agreed?.handing||"",
-        symbolEvidence:`Visible vector quarter-arc and straight leaf at tag ${tag.text}. Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
+        symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}. Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
         handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
     return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,

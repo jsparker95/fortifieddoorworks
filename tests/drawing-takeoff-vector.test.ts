@@ -34,6 +34,19 @@ test("separately stroked CAD arc segments are joined without crossing branches",
   assert.equal(detectVectorDoors(fragments).length,0);
 });
 
+test('45-degree swings require a matching leaf and retain ambiguity guards',()=>{
+ const partial={points:arc(door).points.slice(0,7)},leaf=partial.points.at(-1)!;
+ const found=detectVectorDoors([partial,{points:[door.hinge,leaf]}]);assert.equal(found.length,1);
+ assert.ok(Math.hypot(found[0].jamb.x-door.jamb.x,found[0].jamb.y-door.jamb.y)<.001);
+ assert.ok(Math.hypot(found[0].leaf.x-leaf.x,found[0].leaf.y-leaf.y)<.001);
+ assert.equal(detectVectorDoors([partial]).length,0);
+ assert.equal(detectVectorDoors([partial,{points:[door.hinge,leaf]},{points:[door.hinge,door.jamb]}]).length,0);
+ const fragments=partial.points.slice(1).map((b,i)=>({points:[partial.points[i],b]}));
+ assert.equal(detectVectorDoors([...fragments,{points:[door.hinge,leaf]}]).length,1);
+ const tiny={points:Array.from({length:7},(_,i)=>({x:100+30*Math.cos(i*Math.PI/36),y:100+30*Math.sin(i*Math.PI/36)}))};
+ assert.equal(detectVectorDoors([tiny,{points:[door.hinge,tiny.points.at(-1)!]}]).length,0);
+});
+
 test("traditional hands are invariant under rotation and use the reference viewpoint", () => {
   for (const angle of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
     const rotate = (p: { x: number; y: number }) => ({ x: p.x * Math.cos(angle) - p.y * Math.sin(angle), y: p.x * Math.sin(angle) + p.y * Math.cos(angle) });
