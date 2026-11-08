@@ -1,7 +1,7 @@
 import { taskMatchesFindings } from "./plan-task-policy";
 import { mergeHardwareImageReads } from "./hardware-sections";
 import { reconcileHardwareContinuation } from "./hardware-continuation";
-import { doorTypeDefinitionSupported, wallDefinitionSupported } from "./definition-evidence";
+import { doorTypeDefinitionSupported, scheduleTypeReferences, wallDefinitionSupported } from "./definition-evidence";
 import { mergeVisualScheduleRows } from "./visual-schedule";
 import { combineExtractionOutputs } from "./extraction-schema";
 import { hardwareSetIdentifier, hardwareSetKey } from "./references";
@@ -11,7 +11,7 @@ import { VECTOR_VERSION } from "./vector-pdf";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, isOpeningRowTypeEvidence, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
-import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
+import { mapAnalysisToPhaseRows, mergePhaseCandidateRows, phaseCandidateKey } from "./phase-import";
 import { loadJob, listExtractionTasks, readIndex, updateJob, PUBLICATION_VERSION } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
 import {catalogOpeningKey} from './annotation-candidates';
@@ -44,7 +44,10 @@ export async function publishProgress(jobId: string, final = false) {
   const visualScheduleRows: ScopedOpening[] = [];
   const groundedHardwareSets = new Set<string>();
   const obsoleteWallCaptions = new Set<string>();
-  const obsoleteTypeRows = new Set<string>();
+  const obsoleteDefinitionKeys = new Set<string>();
+  const definitionKey = (kind:'doorTypes'|'walls',row:{code:string;sourcePage:number},building:string) => phaseCandidateKey(document.id,kind,
+    {...row,code:row.code&&building&&!row.code.startsWith(`${building} / `)?`${building} / ${row.code}`:row.code},0);
+  const imageTypeReferences = new Map<string,string[]>();
   for (const task of tasks) {
     if (!task.result || task.status!=="complete") continue;
     const result = task.result as unknown as typeof output;
@@ -60,9 +63,13 @@ export async function publishProgress(jobId: string, final = false) {
     }
     const inventory = tasks.filter(candidate => candidate.kind === "doors" && candidate.input.building === task.input.building)
       .flatMap(candidate => candidate.input.inventory as Opening[] || []);
+    const referenceBuilding = task.input.building || '';
+    if(!imageTypeReferences.has(referenceBuilding))imageTypeReferences.set(referenceBuilding,scheduleTypeReferences(tasks,referenceBuilding));
+    const imageReferences = imageTypeReferences.get(referenceBuilding)!;
     const definitions = (result.doorTypes || []).filter(type => {
-      if (!isOpeningRowTypeEvidence(type, inventory) && doorTypeDefinitionSupported(type,inventory)) return true;
-      obsoleteTypeRows.add(`${type.sourcePage}:${building ? `${building} / ${type.code}` : type.code}`.toUpperCase());
+      if (!isOpeningRowTypeEvidence(type, inventory) && doorTypeDefinitionSupported(type,inventory,imageReferences)) return true;
+      obsoleteDefinitionKeys.add(definitionKey('doorTypes',type,building));
+      output.uncertainties.push(`PDF page ${type.sourcePage}: door-type definition ${type.code || '(unmarked)'} was withheld because it conflicts with the opening schedule or describes a detail. Review the source diagram before adding it.`);
       return false;
     });
     output.doorTypes.push(...scoped(definitions, building));
@@ -80,6 +87,7 @@ export async function publishProgress(jobId: string, final = false) {
     const definitionsOfWalls=wallCandidates.filter(row=>{
       if(!wallPage||wallDefinitionSupported(wallPage,row))return true;
       obsoleteWallCaptions.add(`${row.sourcePage}:${building ? `${building} / ${row.code}` : row.code}`.toUpperCase());
+      obsoleteDefinitionKeys.add(definitionKey('walls',row,building));
       return false;
     });
     output.walls.push(...scoped(definitionsOfWalls,building));
@@ -181,7 +189,7 @@ export async function publishProgress(jobId: string, final = false) {
           || (kind === "walls" && obsoletePages.has(`walls:${row.sourcePage}`))
           || (kind === "hardware" && obsoletePages.has(`hardware:${row.sourcePage}`))
           || (kind === "doorTypes" && row.sourcePlaceholder === true && !names.has(row.name))
-          || (kind === "doorTypes" && !row.sourceCatalogDefinition && row.sourcePlaceholder !== true && obsoleteTypeRows.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
+          || ((kind === "doorTypes" || kind === "walls") && !row.sourceCatalogDefinition && row.sourcePlaceholder !== true && obsoleteDefinitionKeys.has(String(row.sourceCandidateKey)))
           || (kind === "walls" && obsoleteWallCaptions.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
         )));
         const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
