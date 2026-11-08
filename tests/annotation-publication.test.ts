@@ -45,3 +45,29 @@ test('publication reuses a completed model response against the latest literal s
  const saved=project.data.phases[0].data.openings[0];assert.equal(saved.doorFinish,'F-NEW');assert.equal(saved.scheduleNotes,'Current printed pair note');assert.equal(saved.leafCount,'2');assert.equal(saved.leafWidth,'3/0');assert.equal(saved.qty,'1');assert.equal(saved.width,'6/0');
  assert.equal(task.input.inventory[0].doorFinish,'F-OLD');assert.equal(task.metrics.responseId,'retained-model-response');
 });
+
+test('publication holds conflicting symbol labels, clears cached geometric hands, and preserves printed and reviewed hands',async()=>{
+ const opening=(mark:string,handing='',evidence=`Printed schedule row ${mark}`)=>({mark,handing,evidence,sourcePage:2,room:'Office',width:'3/0',height:'7/0',doorType:'A',frameType:'',wallType:'',hardwareGroup:'H1',fireRating:'',quantity:'1',confidence:.95});
+ const reviewed={id:'reviewed',name:'A1',sourcePage:2,sourceDocumentId:'doc',reviewState:'human-reviewed',handing:'LH'};
+ let project:any={version:1,data:{activePhaseId:'phase',phases:[{id:'phase',data:{openings:[reviewed],doorTypes:[],walls:[],hardware:[]}}]}};
+ const observations=['A1','A2','A3','B1'].map((mark,i)=>({mark,sourcePage:1,boundingBox:{x:i===3?.7:.1,y:.1,width:.1,height:.1},confidence:.95,handing:'RH',symbolEvidence:'Visible arc and leaf',handingEvidence:'Verified corridor boundary.'}));
+ const job={id:'job',project_id:'project',phase_id:'phase',import_enabled:true,index_path:'',progress:{},analysis:{openings:[opening('A1'),{...opening('A2','RH'),handingEvidence:'Old cached geometry'},opening('A3','LH','Printed schedule row A3; HAND LH'),opening('B1')],relevantPages:[{page:2,section:'door'},{page:1,section:'plan'}]}};
+ let published:any;
+ const db={from:(table:string)=>table==='projects'?{
+  select:()=>({eq:()=>({single:async()=>({data:project,error:null})})}),
+  update:(values:any)=>({eq:()=>({eq:()=>({select:()=>({maybeSingle:async()=>{project={...project,...values};return {data:{id:'project'},error:null};}})})})}),
+ }:{update:()=>({eq:async()=>({error:null})})}};
+ const source=await readFile('lib/drawing-takeoff/job-publish.ts','utf8'),code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ const appRequire=createRequire(import.meta.url),exports:Record<string,any>={};
+ vm.runInNewContext(code,{exports,require:(name:string)=>name==='./job-store'?{loadJob:async()=>({db,job,document:{id:'doc'}}),listExtractionTasks:async()=>[{kind:'plan',status:'complete',input:{pages:[1]},result:{vectorVersion:VECTOR_VERSION,doorwayObservations:observations}}],readIndex:async()=>[],updateJob:async(_id:string,value:any)=>{published=value;},PUBLICATION_VERSION:'test'}:appRequire(path.resolve('lib/drawing-takeoff',name))});
+ await exports.publishProgress('job',true);
+ const saved=project.data.phases[0].data.openings;
+ assert.equal(saved.find((r:any)=>r.name==='A1').handing,'LH');
+ assert.equal(saved.find((r:any)=>r.name==='A2').handing,'');
+ assert.equal(saved.find((r:any)=>r.name==='A3').handing,'LH');
+ assert.equal(saved.find((r:any)=>r.name==='B1').handing,'RH');
+ assert.equal(published.analysis.doorwayObservations.filter((r:any)=>r.mark!=='B1').every((r:any)=>!r.handing),true);
+ assert.equal(published.analysis.matchedDoorways.find((r:any)=>r.mark==='A2').identityConflict,true);
+ assert.match(published.analysis.uncertainties.join(' '),/A1 and A2 overlap the same door symbol/);
+ assert.equal(observations[1].handing,'RH');
+});
