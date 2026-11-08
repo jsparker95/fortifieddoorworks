@@ -209,3 +209,24 @@ test('displaced six-sided tags require visible outlines, unique identity and the
  const competing=await PDFDocument.load(bytes);competing.getPage(0).drawText('D13',{x:310,y:1000-241,size:6,font});
  const ambiguous=await analyzeVectorPlan(await competing.save(),index,['D12','D13']);assert.equal(ambiguous.observations.length,2);assert.ok(ambiguous.observations.every(o=>!o.handing));
 });
+
+test('faint existing walls can use a visible corridor room card without inferring an exterior',async()=>{
+ const {rgb}=await import('pdf-lib');
+ const pdf=await PDFDocument.create(),page=pdf.addPage([1000,1000]),font=await pdf.embedFont(StandardFonts.Helvetica);
+ const line=(x1:number,y1:number,x2:number,y2:number,color=rgb(0,0,0))=>page.drawLine({start:{x:x1,y:1000-y1},end:{x:x2,y:1000-y2},thickness:2,color});
+ line(100,180,500,180);line(500,180,500,400);line(500,400,100,400);line(100,400,100,180,rgb(.65,.65,.65));
+ line(100,250,300,250);line(330,250,500,250);line(300,250,300,280);
+ const points=arc({...door,hinge:{x:300,y:250}}).points;
+ page.pushOperators(setLineWidth(2),moveTo(points[0].x,1000-points[0].y),...points.slice(1).map(p=>lineTo(p.x,1000-p.y)),stroke());
+ page.drawText('CORRIDOR',{x:165,y:800,size:10,font});page.drawText('BUNK',{x:150,y:650,size:10,font});page.drawText('127',{x:310,y:759,size:6,font});
+ const unframed=await pdf.save(),index={page:6,lines:['OVERALL FLOOR PLAN']};
+ assert.equal((await analyzeVectorPlan(unframed,index,['127'])).observations[0].handing,'','a floating corridor word cannot establish the side');
+ const framed=await PDFDocument.load(unframed),framedPage=framed.getPage(0),framedFont=await framed.embedFont(StandardFonts.Helvetica);
+ framedPage.drawText('103',{x:180,y:787,size:10,font:framedFont});framedPage.drawText('560 SF',{x:173,y:774,size:8,font:framedFont});
+ for(const [x1,y1,x2,y2] of [[178,202,202,202],[202,202,202,218],[202,218,178,218],[178,218,178,202]])framedPage.drawLine({start:{x:x1,y:1000-y1},end:{x:x2,y:1000-y2},thickness:2});
+ const bytes=await framed.save(),found=await analyzeVectorPlan(bytes,index,['127']);
+ assert.equal(found.observations[0].handing,'RH',JSON.stringify(found));assert.match(found.observations[0].handingEvidence,/printed CORRIDOR room 103/);assert.match(found.observations[0].handingEvidence,/Clear source rays/);
+ const detail=await analyzeVectorPlan(bytes,{...index,lines:['ENLARGED OFFICE/ELECTRICAL FLOOR PLAN']},['127']);assert.equal(detail.observations[0].handing,'');
+ const hidden=await PDFDocument.load(bytes);hidden.getPage(0).drawRectangle({x:155,y:1000-235,width:70,height:50,color:rgb(1,1,1)});
+ assert.equal((await analyzeVectorPlan(await hidden.save(),index,['127'])).observations[0].handing,'');
+});

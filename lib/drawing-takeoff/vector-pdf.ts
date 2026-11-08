@@ -11,6 +11,7 @@ import { planRegions, referenceHand, regionReferences } from "./vector-regions";
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { displayedTextBox } from "./text-geometry";
+import {corridorCards,corridorVisibilityReference} from './corridor-visibility';
 import {hexagonalDoorTags,visibleHexagonalDoorTag,hexagonalTagNearDoor} from './hexagonal-door-tags';
 import {printedCapsuleTags,printedCircleTags} from './printed-tag-shapes';
 import {capsuleVisibility} from './tag-visibility';
@@ -18,9 +19,9 @@ import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 10;
+export const VECTOR_VERSION = 11;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
-export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean};reason?: string };
+export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean;corridorVisibilityBudgetExceeded?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
 
 export function completePlanContext(lines: string[]) {
@@ -174,6 +175,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     }
     Object.assign(decodeEvidence,{entryReferenceCards:cards.length,entryReferenceHands:entryHands?.size||0});
     const observations: Observation[] = [];
+    let corridorSightLines:ReturnType<typeof corridorVisibilityReference>|undefined;
     for (const tag of tags) {
       const matches=tagMatches.get(tag)!;
       if (!matches.length) continue;
@@ -182,7 +184,12 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       const hands=unique?maps.map(({map,references})=>referenceHand(map,references,door)):[];
       const fullPlanHand=!partition.skipped&&fullContext && hands.length===2 && hands[0] && hands[1] && hands[0].handing===hands[1].handing && hands[0].referenceKind===hands[1].referenceKind?hands[0]:null;
       const entryHand=unique?entryHands?.get(door):null;
-      const agreed=fullPlanHand&&entryHand&&fullPlanHand.handing!==entryHand.handing?null:fullPlanHand||entryHand;
+      let sightLineHand:ReturnType<NonNullable<ReturnType<typeof corridorVisibilityReference>>['hand']>=null;
+      if(fullContext&&!partition.skipped&&unique&&!fullPlanHand&&!entryHand&&!decodeEvidence.entryReferenceFailure){
+        if(corridorSightLines===undefined)corridorSightLines=corridorVisibilityReference({data:pixels,width:canvas.width,height:canvas.height,scale,offsetX:0,offsetY:0},corridorCards(boxes,paths),doors);
+        sightLineHand=corridorSightLines?.hand(door)||null;
+      }
+      const agreed=fullPlanHand&&entryHand&&fullPlanHand.handing!==entryHand.handing?null:fullPlanHand||entryHand||sightLineHand;
       const points=matches.flatMap(row=>[row.door.hinge,row.door.jamb,row.door.leaf]);
       if(matches[0].d===Infinity)points.push(...(hexTags.find(shape=>shape.label===tag)?.points||[]));
       points.push({x:tag.x,y:tag.y},{x:tag.x+tag.width,y:tag.y+tag.height});
@@ -192,8 +199,9 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       observations.push({mark:tag.text,sourcePage:index.page,boundingBox:{x:x/base.width,y:y/base.height,width:(right-x)/base.width,height:(bottom-y)/base.height},
         hingeSide:agreed?.hingeSide||"unknown",swingDirection:agreed?.swingDirection||"unclear",handing:agreed?.handing||"",
         symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}.${matches[0].d===Infinity?' A visible six-sided schedule-mark tag adjoins the candidate opening.':''} Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
-        handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:!unique?"More than one tag or swing can describe this opening; hand requires source review.":decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
+        handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.${sightLineHand?` ${sightLineHand.method==='sight-lines'?'Clear source rays':'Corridor region proof'}: ${sightLineHand.proof}.`:''}`:!unique?"More than one tag or swing can describe this opening; hand requires source review.":decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
+    if(corridorSightLines?.exhausted)decodeEvidence.corridorVisibilityBudgetExceeded=true;
     return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,printedTagReviewEvidence,decodeEvidence,
       ...(regionReason?{reason:regionReason}:!observations.length?{reason:"Vector swing symbols were found, but no target tag could be reliably attached to one."}:{}) };
   } finally { focusedRaster?.destroy();await task.destroy(); }
