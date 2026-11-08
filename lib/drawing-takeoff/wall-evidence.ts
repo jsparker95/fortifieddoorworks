@@ -1,11 +1,14 @@
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import type { PageIndex, TextBox } from "./indexing";
+import { partitionTableWallNotes } from './partition-table';
 
 type Wall = z.infer<typeof extractionSchema>["walls"][number];
 
 /** Keep each legible partition diagram's notes inside its own grid cell. */
 export function inventoryWallNotes(page: PageIndex): Wall[] {
+  const table = partitionTableWallNotes(page);
+  if (table.length) return table;
   const heading = page.boxes.find(box => /^PARTITION\s+TYPES$/i.test(box.text.trim()));
   if (!heading) return [];
   const anchors = page.boxes.filter(box => /^(?:W\d+|[1-4]F)$/i.test(box.text.trim()) && box.y > heading.y)

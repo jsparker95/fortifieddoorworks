@@ -15,6 +15,7 @@ export function fields(kind: Kind, d: ProjectData, c: Catalog[], vendors: Vendor
     return [
       { key: "name", label: "Wall type", required: true },
       { key: "size", label: "Frame depth / wall size", required: true },
+      { key: "finishedThickness", label: "Finished wall thickness" },
       { key: "description", label: "Assembly notes", type: "textarea" },
       { key: "layers", label: "Layers / construction", type: "textarea" },
     ];

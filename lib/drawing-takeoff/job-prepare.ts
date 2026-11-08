@@ -1,4 +1,5 @@
 import {entryContextsForPage} from './room-reference';
+import {partitionTableWallNotes} from './partition-table';
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { projectFileSizeError } from "../project-file-upload";
@@ -173,7 +174,11 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       chunks.forEach((text, i) => tasks.push({ task_key: `hardware:${page.page}:${i}`, kind: "hardware", input: { ...common, text } }));
     }
   }
-  for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text } });
+  for (const kind of ["types", "walls"] as const) if (finding.kinds.includes(kind)) {
+    const walls = kind === 'walls' ? partitionTableWallNotes(page) : [];
+    const wallTableArtifact = walls.length ? await putArtifact(`${root}/partition-table-${page.page}-v1.json`, JSON.stringify({ walls }), 'application/json') : undefined;
+    tasks.push({ task_key: `${kind}:${page.page}`, kind, input: { ...common, text: page.text, ...(wallTableArtifact ? { wallTableArtifact } : {}) } });
+  }
   if (finding.kinds.includes("plan")) {
     const vectorPath = `${root}/vector-v${VECTOR_VERSION}-page-${page.page}-${marksHash}.json`;
     let vector: VectorPlan;
@@ -216,7 +221,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
   await addTasks(jobId, tasks);
   // Refresh literal columns after a parser improvement without repurchasing
   // already completed enrichment for the same source rows.
-  for (const task of tasks.filter(task => (task.kind === "doors" && task.input.inventory?.length) || task.kind === "plan")) {
+  for (const task of tasks.filter(task => (task.kind === "doors" && task.input.inventory?.length) || task.kind === "plan" || task.input.wallTableArtifact)) {
     const { error: inventoryError } = await db.from("document_extraction_tasks").update({ input: task.input }).eq("job_id", jobId).eq("task_key", task.task_key);
     if (inventoryError) throw inventoryError;
   }

@@ -3,6 +3,7 @@ import type { extractionSchema } from "./extraction-schema";
 import { inventoryGeometricSchedule, locateScheduleTables } from "./schedule-table";
 import { compoundScheduleColumns } from "./schedule-columns";
 import { hardwareHeadings } from './hardware-headings';
+import { partitionTableWallNotes } from './partition-table';
 
 export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
   doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string; frameFinish?: string; doorTypeInventoried?: boolean;
@@ -113,6 +114,7 @@ export function groundedScheduleKinds(page: PageIndex, rows = inventoryOpeningRo
     && box.x >= caption.x - 50 && box.x < caption.x + page.width / 2
     && box.y > caption.y - 180 && box.y < caption.y + 20).map(box => box.text.trim())).size >= 2)) kinds.push("types");
   if (/\bCONCRETE\s+WALL\s+SCHEDULE\b/i.test(page.text) && /\bCW-\d+[A-Z]?\s+\d+(?:\s+\d+\/\d+)?\s*"/i.test(page.text)) kinds.push("walls");
+  if (partitionTableWallNotes(page).length >= 2 && !kinds.includes('walls')) kinds.push('walls');
   return kinds;
 }
 

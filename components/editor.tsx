@@ -9,11 +9,13 @@ function PlanSourceDetails({ source }: { source: Row }) {
   const leafWidth = String(source.leafWidth || "");
   const profile = String(source.sourceCatalogCode || "");
   const diagram = String(source.sourceScheduleDoorType || "");
-  if (!source.sourceDocumentId || !(notes || leaves || diagram)) return null;
+  const frameDepthReview = source.frameDepthReviewRequired === true && !source.size;
+  if (!source.sourceDocumentId || !(notes || leaves || diagram || source.layers || frameDepthReview || source.finishedThickness)) return null;
   const page = Number(source.sourcePage), schedule = Number(source.sourceSchedulePage);
   const facts = [
     ["Schedule profile", profile], ["Drawing door type", diagram],
     ["Door leaves", leaves], ["Width of each leaf", leafWidth || (Number(leaves) > 1 ? "Needs review" : "")],
+    ["Finished wall thickness", String(source.finishedThickness || "")],
   ].filter(([, value]) => value);
   return (
     <section className="plan-source-details" aria-label="From the plans">
@@ -25,6 +27,7 @@ function PlanSourceDetails({ source }: { source: Row }) {
           {!!facts.length && <dl className="plan-source-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
           {!!notes && <div className="plan-source-notes"><strong>Plan notes</strong><p>{notes}</p></div>}
           {Number(leaves) > 1 && !leafWidth && <p className="plan-source-review">Leaf sizes need review. The printed opening width has been retained.</p>}
+          {frameDepthReview && <p className="plan-source-review">Ordered frame depth needs review. Wall construction or finished thickness alone does not establish the frame depth.</p>}
           {!!(source.sourceEvidence || source.handingEvidence) && <details className="plan-source-evidence"><summary>Source evidence</summary>
             {!!source.sourceEvidence && <p>{String(source.sourceEvidence)}</p>}
             {!!source.handingEvidence && <p>{String(source.handingEvidence)}</p>}

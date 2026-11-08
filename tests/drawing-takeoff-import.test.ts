@@ -14,7 +14,9 @@ test("maps extracted schedule and hardware fields into phase tab rows as AI draf
   assert.equal(rows.openings?.[0].name, "101A");
   assert.equal(rows.openings?.[0].qty, "2");
   assert.equal(rows.openings?.[0].handing, "RH");
-  assert.equal(rows.walls?.[0].size, "6\"");
+  assert.equal(rows.walls?.[0].size, "");
+  assert.equal(rows.walls?.[0].finishedThickness, "6\"");
+  assert.equal(rows.walls?.[0].frameDepthReviewRequired, true);
   assert.equal(rows.walls?.[0].layers, "GWB / stud");
   assert.equal(rows.doorTypes?.[0].brand, "Acme");
   assert.equal(rows.hardware?.[0].component, "Hinge");

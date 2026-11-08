@@ -45,6 +45,15 @@ export async function extractTask(taskId: string) {
   try {
     const kind = task.kind as keyof typeof schemas;
     const input = task.input;
+    if (kind === 'walls' && input.wallTableArtifact) {
+      const table = extractionSchema.pick({ walls: true }).parse(JSON.parse(new TextDecoder().decode(await getArtifact(input.wallTableArtifact))));
+      const result = sanitizeExtraction({ ...combineExtractionOutputs(null, null), walls: table.walls }, new Set(input.pages));
+      const metrics = { elapsedMs: Date.now() - started, model: 'source/partition-table', aiCallsThisAttempt: 0,
+        gatewayCostUsd: '0', previousMetrics: task.metrics || null };
+      const { error: saveError } = await db.from('document_extraction_tasks').update({ result, metrics, status: 'complete', error: null, updated_at: new Date().toISOString() }).eq('id', taskId);
+      if (saveError) throw saveError;
+      return {};
+    }
     if (kind === "hardware" && (input.matrixArtifact||input.hardwareTableArtifact)) {
       const matrix = JSON.parse(new TextDecoder().decode(await getArtifact((input.matrixArtifact||input.hardwareTableArtifact)!)));
       const result = {...combineExtractionOutputs(null,null),hardwareGroups:matrix.hardwareGroups,matrixOpeningGroups:matrix.openingGroups,uncertainties:matrix.uncertainties};
