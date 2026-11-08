@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { hardwareSections } from "./indexing";
 import { hardwareSetKey } from "./references";
+import { hardwareHeadings } from './hardware-headings';
 
 type Hardware = z.infer<typeof extractionSchema>["hardwareGroups"][number];
 
@@ -38,7 +39,7 @@ export function preserveHardwareIdentity<T extends {component:string;brand:strin
 /** Quantified printed rows are authoritative for part numbers and quantities. */
 export function inventoryHardwareRows(text: string, sourcePage: number): Hardware[] {
   return hardwareSections(text).flatMap(section => {
-    const heading = section.match(/^SET\s*(?:NO\.?\s*)?[:#]?\s*(\d+(?:\.\d+)?[A-Z-]*)(?=\s|\()/i);
+    const heading = hardwareHeadings(section)[0];
     if (!heading) return [];
     const items = [...section.matchAll(/\b(\d+)\s+(EA|EACH|PR|PAIR|SETS?)\b/gi)];
     const title = section.slice(0, items[0]?.index ?? section.length).trim();
@@ -54,7 +55,7 @@ export function inventoryHardwareRows(text: string, sourcePage: number): Hardwar
       const brand = manufacturer?.[1].trim() || "";
       const part = brand ? body.slice(0, body.length - brand.length).trim() : body;
       const unit = item[2].toUpperCase();
-      return [{ group: heading[1], name: title, brand,
+      return [{ group: heading.identifier, name: title, brand,
         component: `${unit === "EA" || unit === "EACH" ? "" : `[${unit}] `}${part}${note ? `; ${note}` : ""}`,
         quantity: Number(item[1]), frameModification: "", doorModification: "", doorPrep: "",
         sourcePage, evidence: `${title}\n${item[1]} ${unit} ${raw}`, confidence: 0.95 }];

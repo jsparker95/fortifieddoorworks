@@ -20,6 +20,7 @@ import { indexPdf, subsetPdf } from "./pdf-server";
 import { screeningCoverage } from "./screening-coverage";
 import { hardwareContinuationTasks } from "./hardware-continuation";
 import {resolveAnnotationCandidates,catalogOpeningKey} from './annotation-candidates';
+import {readHardwareTable} from './hardware-table';
 
 export async function prepareIndex(jobId: string) {
   const { db, job, document } = await loadJob(jobId);
@@ -141,6 +142,11 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
   const tasks: Array<{ task_key: string; kind: string; input: TaskInput }> = [];
   const vectorWarnings: string[] = [];
   let matrix: MatrixResult | null = null;
+  const hardwareTable=finding.kinds.includes('hardware')?readHardwareTable(page):null;
+  if(hardwareTable?.hardwareGroups.length&&hardwareTable.complete){
+    const hardwareTableArtifact=await putArtifact(`${root}/hardware-table-${page.page}.json`,JSON.stringify(hardwareTable),'application/json');
+    tasks.push({task_key:`hardware-table:${page.page}:v1`,kind:'hardware',input:{...common,hardwareTableArtifact}});
+  }
   if (finding.kinds.includes("door")) {
     matrix = await readHardwareMatrix(pageBytes, page, finding.openingRows);
     if (matrix?.hardwareGroups.length) {
@@ -156,7 +162,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
     for (let i = 0; i < chunks.length; i++) tasks.push({ task_key: `doors:${page.page}:${i}`, kind: "doors",
       input: { ...common, inventory: chunks[i], text: `Schedule context: ${page.text.slice(Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)), Math.max(0, page.text.search(/\bDOOR\s+SCHEDULE\b/i)) + 600)}\nRows:\n${chunks[i].map(row => row.evidence).join("\n")}` } });
   }
-  if (finding.kinds.includes("hardware") && (!matrix?.hardwareGroups.length || hardwareSections(page.text).length)) {
+  if (finding.kinds.includes("hardware") && !(hardwareTable?.complete&&hardwareTable.hardwareGroups.length) && (!matrix?.hardwareGroups.length || hardwareSections(page.text).length)) {
     const images=canUseHardwareText(page.text,page.page)?[]:hardwareImageSections(page);
     if(images.length)images.forEach((section,i)=>tasks.push({task_key:`hardware:${page.page}:image:${i}`,kind:"hardware",input:{...common,hardwareSection:section}}));
     else {
@@ -243,7 +249,7 @@ export async function finishPreparation(jobId: string, vectorWarnings: string[],
   const pending = tasks.filter(task => task.status !== "complete" && (!schedulesOnly || task.kind !== "plan"));
   const ids = taskIdsWithinBudget(tasks.filter(task => !schedulesOnly || task.kind !== "plan"), new Map(pending.map(task => [task.task_key, task.id])), paidLimit);
   const selectedIds = new Set(ids);
-  const paidTasks = tasks.filter(task => selectedIds.has(task.id) && !task.input.matrixArtifact && !(task.kind === "plan" && task.input.vectorArtifact)).length;
+  const paidTasks = tasks.filter(task => selectedIds.has(task.id) && !task.input.matrixArtifact && !task.input.hardwareTableArtifact && !(task.kind === "plan" && task.input.vectorArtifact)).length;
   await updateJob(jobId, { status: "extracting", analysis: { ...job.analysis,
     uncertainties: [...vectorWarnings, ...(pending.length > ids.length ? [`${pending.length - ids.length} paid extraction sections remain at the per-run model-call limit.`] : [])] },
     progress: { ...job.progress, totalTasks: tasks.length, completedTasks: tasks.filter(task => task.status === "complete").length, skippedTasks: preparationFailures,

@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { inventoryGeometricSchedule, locateScheduleTables } from "./schedule-table";
 import { compoundScheduleColumns } from "./schedule-columns";
+import { hardwareHeadings } from './hardware-headings';
 
 export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
   doorMaterial?: string; doorFinish?: string; doorThickness?: string; frameMaterial?: string; frameFinish?: string; doorTypeInventoried?: boolean;
@@ -105,6 +106,7 @@ export function findPageContent(page: PageIndex): PageFinding {
 /** Literal tables and numbered elevations survive an incomplete visual classification. */
 export function groundedScheduleKinds(page: PageIndex, rows = inventoryOpeningRows(page)): PageKind[] {
   const kinds: PageKind[] = rows.length >= 2 ? ["door"] : [];
+  if(hardwareSections(page.text).reduce((count,section)=>count+[...section.matchAll(/\b\d+\s+(?:EA|EACH|PR|PAIR|SETS?)\b/gi)].length,0)>=2)kinds.push('hardware');
   const codes = new Set(rows.map(row => row.doorType).filter(Boolean));
   const captions = page.boxes.filter(box => /^(?:[A-Z]\d+\s+)?(?:DOOR TYPES|DOOR ELEVATIONS|DOORS)$/i.test(box.text.trim()));
   if (codes.size >= 2 && captions.some(caption => new Set(page.boxes.filter(box => codes.has(box.text.trim())
@@ -122,7 +124,7 @@ export function chunkRows<T>(rows: T[], size = 20): T[][] {
 }
 
 export function hardwareSections(text: string): string[] {
-  const headings = [...text.matchAll(/\bSET\s*(?:NO\.?\s*)?[:#]?\s*\d+(?:\.\d+)?[A-Z-]*(?=\s|\()/gi)];
+  const headings = hardwareHeadings(text);
   return headings.map((heading, index) => {
     const tail = text.slice(heading.index, headings[index + 1]?.index);
     const end = tail.search(/\b(?:DOOR|WINDOW)\s+(?:ELEVATION\s+)?(?:SCHEDULE|TYPES)\b/i);
@@ -172,6 +174,7 @@ export function confirmedPageKinds(kinds: PageKind[], evidence: string): PageKin
   return kinds.filter(kind => {
     if(kind==="plan")return !servicesPlan;
     if(kind==="door")return /\b(?:DOOR|OPENING)\b/i.test(evidence)&&/\b(?:SCHEDULE|TABLE)\b/i.test(evidence);
+    if(kind==="hardware")return /\b(?:HARDWARE|HINGE|LOCKSET|CLOSER|PANIC)\b/i.test(evidence)&&/\b(?:SCHEDULE|SETS?|GROUPS?)\b/i.test(evidence);
     if(kind==="types"&&/\bWINDOW TYPES\b/i.test(evidence)&&!/\b(?:DOOR|FRAME)\b/i.test(evidence))return false;
     return true;
   });
