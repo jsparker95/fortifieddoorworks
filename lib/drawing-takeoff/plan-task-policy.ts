@@ -1,6 +1,6 @@
 /** A cached page-wide native result needs one task, including a manual-review outcome. */
-export function useSingleNativePlanTask(vector:{supported:boolean;observations:unknown[]},knownMarks:string[]){
-  return vector.supported||knownMarks.length>0;
+export function useSingleNativePlanTask(vector:{supported:boolean;observations:unknown[];printedTagReviewEvidence?:unknown[]},knownMarks:string[]){
+  return vector.supported||knownMarks.length>0||!!vector.printedTagReviewEvidence?.length;
 }
 
 /** Reapply improved page classification to cached tasks without repurchasing their results. */
@@ -11,8 +11,10 @@ export function taskMatchesFindings(task:{kind:string;input:{pages:number[];matr
 }
 
 /** Schedule OCR completes after initial planning; floor-plan work must use those saved marks. */
-export function currentPlanMarks(stored:string[],analysis?:{openings?:Array<Record<string,unknown>>;openingCatalog?:Array<Record<string,unknown>>}){
+export function currentPlanMarks(stored:string[],analysis?:{openings?:Array<Record<string,unknown>>;openingCatalog?:Array<Record<string,unknown>>;annotationOpeningCandidates?:Array<Record<string,unknown>>}){
  const rows=[...(analysis?.openings||[]),...(analysis?.openingCatalog||[])];
  const excluded=new Set(rows.filter(r=>r.autoImportEligible===false||r.scheduleRole==='catalog').map(r=>String(r.mark||'').trim().toUpperCase()));
- return [...new Set([...stored,...(analysis?.openings||[]).filter(r=>r.autoImportEligible!==false&&r.scheduleRole!=='catalog').map(r=>String(r.mark||''))].map(mark=>mark.trim()).filter(mark=>mark&&!excluded.has(mark.toUpperCase())))].sort();
+ const labels=(analysis?.annotationOpeningCandidates||[]).map(r=>String(r.mark||'').trim());
+ const labelIds=new Set(labels.map(mark=>mark.toUpperCase()));
+ return [...new Set([...stored,...(analysis?.openings||[]).filter(r=>r.autoImportEligible!==false&&r.scheduleRole!=='catalog').map(r=>String(r.mark||'')),...labels].map(mark=>mark.trim()).filter(mark=>mark&&(!excluded.has(mark.toUpperCase())||labelIds.has(mark.toUpperCase()))))].sort();
 }

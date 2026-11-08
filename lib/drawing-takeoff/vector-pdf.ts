@@ -1,5 +1,5 @@
 import { pdfAssetOptions } from "./pdf-assets";
-import { vectorResourceLimit, MAX_VECTOR_POINTS } from "./vector-limits";
+import { vectorResourceLimit, MAX_VECTOR_POINTS,MAX_VECTOR_SOURCE_BYTES,expandedPathPointCount } from "./vector-limits";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { Point } from "./geometry";
 import type { TextBox, PageIndex } from "./indexing";
@@ -8,10 +8,15 @@ import { planRegions, referenceHand, regionReferences } from "./vector-regions";
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { displayedTextBox } from "./text-geometry";
+import {printedCapsuleTags,printedCircleTags} from './printed-tag-shapes';
+import {capsuleVisibility} from './tag-visibility';
+import type {PrintedReviewEvidence} from './printed-review-candidates';
+import {geometryPage} from './geometry-page';
+import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 4;
+export const VECTOR_VERSION = 6;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
-export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; reason?: string };
+export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
 
 export function completePlanContext(lines: string[]) {
@@ -21,16 +26,22 @@ export function completePlanContext(lines: string[]) {
 }
 
 /** Read the actual drawn paths, not an LLM's interpretation of a small swing symbol. */
-export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex, "page" | "lines">, knownMarks: string[]): Promise<VectorPlan> {
-  const resourceLimit = vectorResourceLimit(bytes.byteLength);
-  if (resourceLimit) return { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason: resourceLimit };
+export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex, "page" | "lines"> & Partial<Pick<PageIndex,'annotationTags'>>, knownMarks: string[],catalogCodes:string[]=[],options:{unverifiedCircleLabels?:boolean}={}): Promise<VectorPlan> {
+  if(bytes.byteLength>MAX_VECTOR_SOURCE_BYTES)return {version:VECTOR_VERSION,supported:false,geometryCount:0,observations:[],reason:'This source page exceeds the bounded page preparation budget. Review it manually or upload a smaller page segment.'};
+  const sourceBytes=bytes.byteLength,geometry=await geometryPage(bytes);
+  const decodeEvidence:NonNullable<VectorPlan['decodeEvidence']>={sourceBytes,geometryBytes:geometry.bytes.byteLength,annotationsSeparated:geometry.annotationsRemoved};
+  const resourceLimit = vectorResourceLimit(geometry.bytes.byteLength);
+  if (resourceLimit) return { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], decodeEvidence,reason: resourceLimit };
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
-  const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const task = getDocument({ ...pdfAssetOptions(), data: bytes.slice(), useSystemFonts: true, disableFontFace: true });
+  const { getDocument, OPS,AnnotationMode } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = getDocument({ ...pdfAssetOptions(), data: geometry.bytes, useSystemFonts: true, disableFontFace: true,stopAtErrors:true });
   try {
     const pdf = await task.promise, page = await pdf.getPage(1), base = page.getViewport({ scale: 1 });
-    const operatorList = await page.getOperatorList();
-    const unsupported = (reason: string): VectorPlan => ({ version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], reason });
+    // Annotation appearance streams can be malformed or contain unrelated
+    // markup. Architectural geometry and ink checks use only the base drawing;
+    // annotation identifiers remain available separately in the page index.
+    const operatorList = await page.getOperatorList({annotationMode:AnnotationMode.DISABLE});
+    const unsupported = (reason: string): VectorPlan => ({ version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [], decodeEvidence,reason });
     if (operatorList.fnArray.length > 400_000 || operatorList.fnArray.includes(OPS.beginGroup)) return unsupported("Complex or transparent path transforms require visual review.");
     let pointCount = 0;
     let transform = [1,0,0,1,0,0]; const stack: number[][] = [], paths: VectorPath[] = [];
@@ -43,8 +54,9 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       else if (op === OPS.constructPath) {
         const data = args[1]?.[0] as ArrayLike<number> | undefined;
         if (!data?.length) continue;
-        // Be conservative before expanding Bezier coordinates into sampled points.
-        pointCount += data.length * 2;
+        const added=expandedPathPointCount(data);
+        if(added===null)return unsupported("Malformed or unrecognized path data requires source review.");
+        pointCount += added;
         if (pointCount > MAX_VECTOR_POINTS) return unsupported("Dense path geometry exceeds the safe point budget. Door handing requires manual review; schedules continue.");
         const matrix = multiply(base.transform, transform);
         const point = (x: number, y: number): Point => ({ x: matrix[0]*x+matrix[2]*y+matrix[4], y: matrix[1]*x+matrix[3]*y+matrix[5] });
@@ -71,8 +83,12 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
         flush();
       }
     }
-    const allDoors = detectVectorDoors(paths);
-    if (!allDoors.length) return unsupported("No supported vector swing arc and straight-leaf combinations were found.");
+    const partition=vectorPathRegions(paths,base.width,base.height);
+    Object.assign(decodeEvidence,{expandedPoints:pointCount,geometryRegions:partition.regions.length,skippedRegions:partition.skipped});
+    const regionReason=partition.skipped?`${partition.skipped} drawing regions exceeded the geometry budget. Coverage is incomplete and handing is withheld.`:undefined;
+    const doorKeys=new Set<string>();
+    const allDoors=partition.regions.flatMap(region=>detectVectorDoors(region)).filter(door=>{const key=[door.hinge,door.jamb,door.leaf].map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('|');if(doorKeys.has(key))return false;doorKeys.add(key);return true;});
+    if (!allDoors.length&&!catalogCodes.length) return unsupported(regionReason||"No supported vector swing arc and straight-leaf combinations were found.");
     const content = await page.getTextContent();
     const boxes: TextBox[] = content.items.flatMap(item => {
       if (!("str" in item) || !item.str.trim()) return [];
@@ -80,7 +96,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     });
     const scale = Math.min(1, 2200/Math.max(base.width,base.height)), view = page.getViewport({ scale });
     const canvas = createCanvas(Math.ceil(view.width),Math.ceil(view.height)), context = canvas.getContext("2d");
-    await page.render({ canvas: canvas as never, canvasContext: context as never, viewport: view, background: "white" }).promise;
+    await page.render({ canvas: canvas as never, canvasContext: context as never, viewport: view,annotationMode:AnnotationMode.DISABLE, background: "white" }).promise;
     const pixels = context.getImageData(0,0,canvas.width,canvas.height).data;
     const ink = (point: Point) => {
       const x = Math.round(point.x*scale), y = Math.round(point.y*scale);
@@ -99,12 +115,41 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
         if(ink({x:door.hinge.x+(door.leaf.x-door.hinge.x)*t,y:door.hinge.y+(door.leaf.y-door.hinge.y)*t})) leafInk++;
       } return arcInk>=6 && leafInk>=6;
     });
-    if (!doors.length) return unsupported("Candidate vector paths were not confirmed as visible ink.");
+    const codes=new Set(catalogCodes.map(code=>code.trim().toUpperCase()));
+    // A clearly printed style circle without a supported swing is retained as
+    // unverified evidence only; the review resolver withholds its dimensions/type.
+    const shapeKeys=new Set<string>();
+    const shapes=catalogCodes.length?partition.regions.flatMap(region=>[...printedCapsuleTags(boxes,region,codes),...printedCircleTags(boxes,region,codes,doors,options.unverifiedCircleLabels===true)]).filter(shape=>{const key=`${shape.kind}:${shape.text}:${shape.label.x.toFixed(1)}:${shape.label.y.toFixed(1)}`;if(shapeKeys.has(key))return false;shapeKeys.add(key);return true;}):[];
+    const visibilityChecks=new Map<typeof shapes[number],ReturnType<typeof capsuleVisibility>>();
+    const tiles=new Map<string,{x:number;y:number;shapes:typeof shapes}>();
+    for(const shape of shapes){
+      const check=capsuleVisibility(shape,{data:pixels,width:canvas.width,height:canvas.height,scale,offsetX:0,offsetY:0});visibilityChecks.set(shape,check);
+      if(shape.outline.height*scale>=12)continue;
+      const x=Math.floor((shape.outline.x+shape.outline.width/2)*2/512)*512-128,y=Math.floor((shape.outline.y+shape.outline.height/2)*2/512)*512-128,key=`${x}:${y}`;
+      const tile=tiles.get(key)||{x,y,shapes:[]};tile.shapes.push(shape);tiles.set(key,tile);
+    }
+    // Fixed-size source tiles share one operator list, preserve small printed
+    // labels, and cap per-page work. Unchecked groups remain explicitly held.
+    const focusedView=page.getViewport({scale:2});let focusedCount=0;
+    for(const tile of tiles.values()){
+      if(focusedCount++>=16)break;
+      const focused=createCanvas(768,768),ctx=focused.getContext('2d');
+      await page.render({canvas:focused as never,canvasContext:ctx as never,viewport:focusedView,transform:[1,0,0,1,-tile.x,-tile.y],annotationMode:AnnotationMode.DISABLE,background:'white'}).promise;
+      const data=ctx.getImageData(0,0,768,768).data;
+      for(const shape of tile.shapes)visibilityChecks.set(shape,capsuleVisibility(shape,{data,width:768,height:768,scale:2,offsetX:tile.x,offsetY:tile.y}));
+    }
+    const printedTagReviewEvidence:PrintedReviewEvidence[]=shapes.map(shape=>{
+      const center={x:shape.label.x+shape.label.width/2,y:shape.label.y+shape.label.height/2},nearby=doors.filter(door=>distance(center,{x:(door.hinge.x+door.jamb.x)/2,y:(door.hinge.y+door.jamb.y)/2})/door.radius<.8);
+      const visibility=visibilityChecks.get(shape)!;
+      const paired=nearby.length===2&&nearby.every(door=>door.paired)&&distance(nearby[0].jamb,nearby[1].jamb)<Math.max(1,Math.min(nearby[0].radius,nearby[1].radius)*.06);
+      return {page:index.page,shape,visibility:visibility.visibility,visibilityReason:visibility.reason,doorContext:nearby.length===1?'single':paired?'paired':nearby.length?'ambiguous':'unverified'};
+    });
+    if (!doors.length) return {...unsupported(regionReason||"Candidate vector paths were not confirmed as visible ink. Printed labels remain for source review."),printedTagReviewEvidence};
     const fullContext = completePlanContext(index.lines);
     const allowExterior = fullContext;
     const maps = [false,true].map(dilate => { const map=planRegions(pixels,canvas.width,canvas.height,scale,doors,dilate);return { map, references:regionReferences(map,boxes,doors,allowExterior) }; });
     const known = new Set(knownMarks.map(mark=>mark.trim().toUpperCase()));
-    const tags = boxes.filter(box=>known.size?known.has(box.text.toUpperCase()):/^[A-Z]?\d{1,5}(?:-[A-Z0-9]+|[A-Z])?$/.test(box.text));
+    const tags = [...boxes,...(index.annotationTags||[])].filter(box=>known.size?known.has(box.text.toUpperCase()):/^[A-Z]?\d{1,5}(?:-[A-Z0-9]+|[A-Z])?$/.test(box.text));
     const observations: Observation[] = [];
     for (const tag of tags) {
       const center={x:tag.x+tag.width/2,y:tag.y+tag.height/2};
@@ -112,7 +157,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       if (!matches.length) continue;
       const door=matches[0].door;
       const hands=matches.length===1?maps.map(({map,references})=>referenceHand(map,references,door)):[];
-      const agreed=fullContext && hands.length===2 && hands[0] && hands[1] && hands[0].handing===hands[1].handing && hands[0].referenceKind===hands[1].referenceKind?hands[0]:null;
+      const agreed=!partition.skipped&&fullContext && hands.length===2 && hands[0] && hands[1] && hands[0].handing===hands[1].handing && hands[0].referenceKind===hands[1].referenceKind?hands[0]:null;
       const points=matches.flatMap(row=>[row.door.hinge,row.door.jamb,row.door.leaf]);points.push({x:tag.x,y:tag.y},{x:tag.x+tag.width,y:tag.y+tag.height});
       const x=Math.max(0,Math.min(...points.map(point=>point.x))-1),y=Math.max(0,Math.min(...points.map(point=>point.y))-1);
       const right=Math.min(base.width,Math.max(...points.map(point=>point.x))+1),bottom=Math.min(base.height,Math.max(...points.map(point=>point.y))+1);
@@ -122,7 +167,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
         symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}. Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
         handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
-    return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,
-      ...(!observations.length?{reason:"Vector swing symbols were found, but no target tag could be reliably attached to one."}:{}) };
+    return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,printedTagReviewEvidence,decodeEvidence,
+      ...(regionReason?{reason:regionReason}:!observations.length?{reason:"Vector swing symbols were found, but no target tag could be reliably attached to one."}:{}) };
   } finally { await task.destroy(); }
 }

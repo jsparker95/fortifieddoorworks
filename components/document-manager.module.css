@@ -1,0 +1,27 @@
+.reviewNote {
+  border: 1px solid #e9c99b;
+  border-radius: 10px;
+  background: #fffaf1;
+  padding: 14px;
+  margin: 12px 0;
+}
+
+.reviewNote p { margin: 6px 0 12px; }
+.association { display: grid; gap: 6px; min-width: 0; }
+.association label { margin-top: 8px; font-weight: 600; }
+.association .decisionLabel { display: block; }
+.decisionLabel small { display: block; font-weight: 400; }
+.association input { width: 100%; min-width: 0; box-sizing: border-box; }
+.association select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  max-width: 640px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: white;
+  margin: 6px 0;
+}

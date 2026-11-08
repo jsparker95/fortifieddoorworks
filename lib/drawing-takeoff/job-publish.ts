@@ -14,6 +14,8 @@ import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows } from "./phase-import";
 import { loadJob, listExtractionTasks, readIndex, updateJob, PUBLICATION_VERSION } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
+import {catalogOpeningKey} from './annotation-candidates';
+import {printedReviewCandidates} from './printed-review-candidates';
 
 export async function publishProgress(jobId: string, final = false) {
   const { db, job, document } = await loadJob(jobId);
@@ -23,8 +25,16 @@ export async function publishProgress(jobId: string, final = false) {
   const tasks = recordedTasks.filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
   const wallPages = job.index_path && tasks.some(task => task.kind === "walls" && task.result) ? await readIndex(job.index_path) : [];
   const output = combineExtractionOutputs(null, null);
+  const printedEvidence=tasks.filter(task=>task.kind==='plan'&&task.status==='complete'&&task.result?.vectorVersion===VECTOR_VERSION).flatMap(task=>Array.isArray(task.result?.printedTagReviewEvidence)?task.result.printedTagReviewEvidence.filter(item=>item&&typeof item==='object'&&task.input.pages.includes(Number((item as {page?:unknown}).page))):[]);
+  const reviewPages=printedEvidence.length&&job.index_path?(wallPages.length?wallPages:await readIndex(job.index_path)):[];
+  const printedCandidates=printedReviewCandidates(printedEvidence,job.analysis?.catalogDoorTypeCandidates||[],reviewPages,job.analysis?.annotationOpeningCandidates||[]);
+  const reviewLabels=[...(job.analysis?.annotationOpeningCandidates||[]).filter((row:{sourcePrintedTag?:boolean})=>!row.sourcePrintedTag),...printedCandidates];
+  output.uncertainties.push(...(job.analysis?.indexWarnings||[]));
+  const catalogKeys=new Set<string>((job.analysis?.openingCatalog||[]).map((row:{mark:string;sourcePage:number})=>catalogOpeningKey(row.sourcePage,row.mark)));
+  const catalogPages=new Set<number>((job.analysis?.openingCatalog||[]).map((row:{sourcePage:number})=>row.sourcePage));
+  if(catalogKeys.size)output.uncertainties.push('Reusable schedule entries are definitions, not a verified physical door count. Review drawing labels below; additional unlabeled doorways may still be missing.');
   type ScopedOpening = typeof output.openings[number] & { sourceBuilding?: string; handingEvidence?: string };
-  const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
+  const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).filter((row:ScopedOpening)=>!catalogKeys.has(catalogOpeningKey(row.sourcePage,row.mark))).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
   const incompleteHardwareGroups=new Map<string,{page:number;group:string}>();
@@ -44,6 +54,7 @@ export async function publishProgress(jobId: string, final = false) {
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
     const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
     for (const row of scoped(taskOpenings, building)) {
+      if(catalogKeys.has(catalogOpeningKey(row.sourcePage,row.mark)))continue;
       if (task.input.scheduleSection) visualScheduleRows.push(row);
       else openings.set(`${row.sourcePage}:${normalizeMark(row.mark)}`, row);
     }
@@ -114,7 +125,7 @@ export async function publishProgress(jobId: string, final = false) {
   });
   // A drawing-only upload still produces reviewable opening drafts. When a
   // schedule exists, unmatched symbols stay observations to avoid double counting.
-  if (!output.openings.length) output.openings = kept.map(door => ({
+  if (!output.openings.length&&!catalogKeys.size&&!printedCandidates.length) output.openings = kept.map(door => ({
     mark: door.mark || `Unmarked p${door.sourcePage} ${Math.round(door.boundingBox.x * 1000)}-${Math.round(door.boundingBox.y * 1000)}`,
     room: "", width: "", height: "", doorType: "", frameType: "", wallType: "", hardwareGroup: "", fireRating: "", quantity: "1",
     handing: door.handing, sourcePage: door.sourcePage, evidence: door.symbolEvidence, confidence: door.confidence,
@@ -130,6 +141,7 @@ export async function publishProgress(jobId: string, final = false) {
   const unhanded = output.openings.filter(row => !row.handing).length;
   if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
   const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, doorwayObservations: kept, matchedDoorways,
+    annotationOpeningCandidates:reviewLabels,
     relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
     serverImported: job.import_enabled, extractionProgress: { completed, failed, pending, total: tasks.length },
@@ -164,11 +176,12 @@ export async function publishProgress(jobId: string, final = false) {
         const names = new Set((incoming || []).map(row => row.name));
         const existing = (phase.data[kind as Kind] || []).filter(row => !(row.sourceDocumentId === document.id && row.reviewState === "ai-draft" && (
           (kind === "openings" && obsoletePages.has(`${row.countSource === "plan-symbol" ? "plan" : "doors"}:${row.sourcePage}`))
-          || (kind === "doorTypes" && obsoletePages.has(`types:${row.sourcePage}`))
+          || (kind === "openings" && catalogPages.has(Number(row.sourcePage)))
+          || (kind === "doorTypes" && !row.sourceCatalogDefinition && obsoletePages.has(`types:${row.sourcePage}`))
           || (kind === "walls" && obsoletePages.has(`walls:${row.sourcePage}`))
           || (kind === "hardware" && obsoletePages.has(`hardware:${row.sourcePage}`))
           || (kind === "doorTypes" && row.sourcePlaceholder === true && !names.has(row.name))
-          || (kind === "doorTypes" && row.sourcePlaceholder !== true && obsoleteTypeRows.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
+          || (kind === "doorTypes" && !row.sourceCatalogDefinition && row.sourcePlaceholder !== true && obsoleteTypeRows.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
           || (kind === "walls" && obsoleteWallCaptions.has(`${row.sourcePage}:${row.name}`.toUpperCase()))
         )));
         const incomingKeys = new Set((incoming || []).map(row => row.sourceCandidateKey));
@@ -188,9 +201,10 @@ export async function publishProgress(jobId: string, final = false) {
   const partial = failed > 0 || pending > 0 || job.progress?.uncheckedPages > 0 || job.progress?.skippedTasks > 0;
   const status = final ? partial ? "partial" : "complete" : "extracting";
   const progress = { ...job.progress, completedTasks: completed, failedTasks: failed, totalTasks: tasks.length,
+    reviewOpeningCount:reviewLabels.length,
     openingCount: output.openings.length, hardwareCount: output.hardwareGroups.length,
     handedCount: output.openings.length - unhanded,
-    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handing suggestions.${job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
+    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handing suggestions.${reviewLabels.length?` ${reviewLabels.length} door labels need review before they are added to Openings.`:job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
   await updateJob(jobId, { status, analysis: phaseAnalysis, progress });
   const { error: saveError } = await db.from("project_documents").update({ analysis: phaseAnalysis, description: job.description, status: final ? "needs_review" : "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;

@@ -8,9 +8,10 @@ export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
   fireRatingInventoried?: boolean; hardwareGroupInventoried?: boolean; frameTypeInventoried?: boolean;
   scheduleNotes?: string; leafCount?: string; leafWidth?: string;
   scheduleRowBox?: { x: number; y: number; width: number; height: number };
+  scheduleRole?:'catalog';sourceCatalogFormat?:'style-table';autoImportEligible?:false;
 };
 export type TextBox = { text: string; x: number; y: number; width: number; height: number };
-export type PageIndex = { page: number; text: string; lines: string[]; boxes: TextBox[]; width: number; height: number; rotation: number };
+export type PageIndex = { page: number; text: string; lines: string[]; boxes: TextBox[]; annotationTags?:TextBox[]; warnings?:string[]; width: number; height: number; rotation: number };
 export type PageKind = "door" | "hardware" | "types" | "walls" | "plan";
 export type PageFinding = { page: number; kinds: PageKind[]; building: string; evidence: string; method: "text" | "vision"; openingRows: Opening[] };
 
@@ -61,8 +62,8 @@ export function inventoryOpeningRows(page: Pick<PageIndex, "page" | "text"> & Pa
   for (const row of geometric) {
     const prior = combined.get(row.mark);
     combined.set(row.mark, { ...prior, ...row, ...columns.get(row.mark),
-      doorType: row.doorTypeInventoried ? row.doorType : prior?.doorType || row.doorType,
-      frameType: row.frameTypeInventoried ? row.frameType : prior?.frameType || row.frameType,
+      doorType: row.scheduleRole==='catalog'?row.doorType:row.doorTypeInventoried ? row.doorType : prior?.doorType || row.doorType,
+      frameType: row.scheduleRole==='catalog'?row.frameType:row.frameTypeInventoried ? row.frameType : prior?.frameType || row.frameType,
       hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : prior?.hardwareGroup || row.hardwareGroup,
       fireRating: row.fireRatingInventoried ? row.fireRating : prior?.fireRating || row.fireRating,
       doorTypeInventoried: row.doorTypeInventoried || prior?.doorTypeInventoried,

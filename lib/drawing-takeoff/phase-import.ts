@@ -25,6 +25,7 @@ function candidateName(kind: Kind, row: Candidate) {
 }
 
 export function phaseCandidateKey(documentId: string, kind: Kind, row: Candidate, index: number) {
+  if(kind==='openings'&&row.sourcePrintedTag===true&&typeof row.sourceLocationKey==='string')return `${documentId}:openings:${row.sourceLocationKey}`;
   const name = stablePart(candidateName(kind, row)) + (kind === "hardware" && row.sourceHardwareLine !== undefined ? `:line-${stringValue(row.sourceHardwareLine)}` : "");
   // The same opening mark or hardware component can appear on separate sheets.
   // Keep those source rows independent while making re-analysis idempotent.
@@ -48,6 +49,10 @@ export function mapPhaseCandidate(
     sourceEvidence: stringValue(row.evidence),
     extractionConfidence: Number(row.confidence) || 0,
     reviewState,
+    ...(row.sourcePrintedTag===true?{sourcePrintedTag:true,sourceLocationKey:stringValue(row.sourceLocationKey),sourcePrintedCode:stringValue(row.sourcePrintedCode),sourceVisibility:stringValue(row.sourceVisibility),sourceDoorContext:stringValue(row.sourceDoorContext),sourcePossibleDuplicates:stringValue(row.sourcePossibleDuplicates),sourceOverlapReviewRequired:row.sourceOverlapReviewRequired===true,sourceDuplicateDecision:stringValue(row.sourceDuplicateDecision)}:{}),
+    ...(row.sourceCatalogDefinition===true?{sourceCatalogDefinition:true,sourceCatalogCode:stringValue(row.sourceCatalogCode),sourceSchedulePage:Number(row.sourceSchedulePage)||undefined}:{}),
+    ...(row.sourceAnnotation===true||row.sourcePrintedTag===true?{sourceAnnotation:row.sourceAnnotation===true,sourceCatalogCode:stringValue(row.sourceCatalogCode),sourceSchedulePage:Number(row.sourceSchedulePage)||undefined,
+      sourceAssociationStatus:stringValue(row.associationStatus),sourceAssociationEvidence:stringValue(row.associationEvidence),sourceLabelBounds:stringValue(row.sourceLabelBounds),sourceLabelPages:stringValue(row.sourceLabelPages),sourceCatalogLabelBounds:stringValue(row.sourceCatalogLabelBounds)}:{}),
   };
 
   if (kind === "openings") return {
