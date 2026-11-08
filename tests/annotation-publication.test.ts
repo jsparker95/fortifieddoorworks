@@ -71,3 +71,28 @@ test('publication holds conflicting symbol labels, clears cached geometric hands
  assert.match(published.analysis.uncertainties.join(' '),/A1 and A2 overlap the same door symbol/);
  assert.equal(observations[1].handing,'RH');
 });
+
+test('current withheld references clear cached geometric hands while printed and reviewed hands survive',async()=>{
+ const opening=(mark:string,handing='',evidence=`Printed schedule row ${mark}`)=>({mark,handing,evidence,sourcePage:2,room:'Office',width:'3/0',height:'7/0',doorType:'A',frameType:'',wallType:'',hardwareGroup:'H1',fireRating:'',quantity:'1',confidence:.95});
+ const reviewed={id:'reviewed',name:'A1',sourcePage:2,sourceDocumentId:'doc',reviewState:'human-reviewed',handing:'LH'};
+ let project:any={version:1,data:{activePhaseId:'phase',phases:[{id:'phase',data:{openings:[reviewed],doorTypes:[],walls:[],hardware:[]}}]}};
+ const current=['A1','A2','A3'].map((mark,i)=>({mark,sourcePage:1,boundingBox:{x:.1+i*.3,y:.1,width:.1,height:.1},confidence:.95,handing:i===2?'RH':'',symbolEvidence:'Visible arc and leaf',handingEvidence:i===2?'Current corridor proof.':'Enlarged view: outside side is not established.'}));
+ const cached={...current[0],confidence:.99,handing:'RH',handingEvidence:'Old outside interpretation'};
+ const job={id:'job',project_id:'project',phase_id:'phase',import_enabled:true,index_path:'',progress:{},analysis:{openings:[{...opening('A1','RH'),handingEvidence:'Old cached geometry'},opening('A2','LH','Printed schedule row A2; HAND LH'),opening('A3')],relevantPages:[{page:2,section:'door'},{page:1,section:'plan'}]}};
+ let published:any;
+ const db={from:(table:string)=>table==='projects'?{
+  select:()=>({eq:()=>({single:async()=>({data:project,error:null})})}),
+  update:(values:any)=>({eq:()=>({eq:()=>({select:()=>({maybeSingle:async()=>{project={...project,...values};return {data:{id:'project'},error:null};}})})})}),
+ }:{update:()=>({eq:async()=>({error:null})})}};
+ const source=await readFile('lib/drawing-takeoff/job-publish.ts','utf8'),code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ const appRequire=createRequire(import.meta.url),exports:Record<string,any>={};
+ vm.runInNewContext(code,{exports,require:(name:string)=>name==='./job-store'?{loadJob:async()=>({db,job,document:{id:'doc'}}),listExtractionTasks:async()=>[{kind:'plan',status:'complete',input:{pages:[1]},result:{vectorVersion:VECTOR_VERSION-1,doorwayObservations:[cached]}},{kind:'plan',status:'complete',input:{pages:[1]},result:{vectorVersion:VECTOR_VERSION,doorwayObservations:current}}],readIndex:async()=>[],updateJob:async(_id:string,value:any)=>{published=value;},PUBLICATION_VERSION:'test'}:appRequire(path.resolve('lib/drawing-takeoff',name))});
+ await exports.publishProgress('job',true);
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A1').handing,'');
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A1').handingEvidence,'');
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A2').handing,'LH');
+ assert.match(published.analysis.openings.find((r:any)=>r.mark==='A2').handingEvidence,/Printed schedule hand LH/);
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A3').handing,'RH');
+ assert.equal(project.data.phases[0].data.openings.find((r:any)=>r.name==='A1').handing,'LH');
+ assert.equal(cached.handing,'RH');assert.equal(job.analysis.openings[0].handing,'RH');
+});

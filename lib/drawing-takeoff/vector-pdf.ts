@@ -17,7 +17,7 @@ import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 8;
+export const VECTOR_VERSION = 9;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -25,7 +25,7 @@ const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a
 export function completePlanContext(lines: string[]) {
   const titles=lines.filter(line=>line.length<180&&!/\b(?:SEE|REFER|REFERENCE)\b/i.test(line));
   return titles.some(line=>/\bFLOOR\s+PLAN\b|\bLEVEL\s+\d+\s+PLAN\b/i.test(line))
-    && !titles.some(line=>/\bPLAN\s+ENLARGEMENTS?\b|\bENLARGED\s+[A-Z ]{0,24}PLAN\b|\bBATHROOM\s+PLANS\b/i.test(line));
+    && !titles.some(line=>/\bPLAN\s+ENLARGEMENTS?\b|\bENLARGED\s+[A-Z0-9 /&().,'’–-]{0,64}PLANS?\b|\bBATHROOM\s+PLANS\b/i.test(line));
 }
 
 /** Read the actual drawn paths, not an LLM's interpretation of a small swing symbol. */

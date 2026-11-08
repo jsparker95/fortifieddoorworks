@@ -146,16 +146,19 @@ export async function publishProgress(jobId: string, final = false) {
       && (!door.sourceBuilding || !row.sourceBuilding || door.sourceBuilding === row.sourceBuilding));
     const row = matches.length === 1 ? matches[0] : null;
     const identityConflict = conflictedObservations.has(door);
+    const printed = printedHandOnly(row);
+    const handing = resolveOpeningHanding(printed, door.handing, output.doorTypes);
     return { ...door, evidence: door.symbolEvidence, schedulePage: row?.sourcePage ?? null, scheduleMatches: matches.length,
       scheduleEvidence: row?.evidence || "", width: row?.width || "", height: row?.height || "",
-      handing: resolveOpeningHanding(identityConflict ? printedHandOnly(row) : row, door.handing, output.doorTypes), identityConflict,
+      handing, handingEvidence: handing && printed?.handing === handing ? `Printed schedule hand ${handing}. ${row!.evidence}` : door.handingEvidence, identityConflict,
       reviewReasons: [...(!row ? ["Door tag is unreadable, unmatched, or ambiguous across schedules."] : []), ...(identityConflict ? ["Different opening labels overlap the same symbol; check the source identifier."] : []), ...(!door.handing ? ["Reference side or swing requires review."] : [])] };
   });
   output.openings = rows.map(row => {
     const matched = matchedDoorways.filter(door => door.schedulePage === row.sourcePage && normalizeMark(door.mark) === normalizeMark(row.mark));
     const hands = [...new Set(matched.map(door => door.handing).filter(Boolean))];
-    return { ...row, handing: resolveOpeningHanding(matched.some(door => door.identityConflict) ? printedHandOnly(row) : row, hands.length === 1 ? hands[0] : undefined, output.doorTypes),
-      handingEvidence: hands.length === 1 ? matched.find(door => door.handing)?.handingEvidence || "" : "", countSource: "schedule" };
+    const printed = printedHandOnly(row), handing = resolveOpeningHanding(printed, hands.length === 1 ? hands[0] : undefined, output.doorTypes);
+    return { ...row, handing,
+      handingEvidence: !handing ? "" : printed?.handing === handing ? `Printed schedule hand ${handing}. ${row.evidence}` : matched.find(door => door.handing === handing)?.handingEvidence || "", countSource: "schedule" };
   });
   // A drawing-only upload still produces reviewable opening drafts. When a
   // schedule exists, unmatched symbols stay observations to avoid double counting.
