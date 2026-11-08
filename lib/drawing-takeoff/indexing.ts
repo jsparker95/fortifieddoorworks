@@ -132,6 +132,20 @@ export function hardwareSections(text: string): string[] {
   }).filter(section => /\b(?:HINGE|CYLINDER|LOCK|CLOSER|HARDWARE|LATCH)\b/i.test(section));
 }
 
+/** Completed model responses can be reused after a parser correction. Reconcile
+ * them against the current literal row, without mutating retained task inputs. */
+export function currentTaskInventory(previous:Opening[],current:Array<Opening&{sourceBuilding?:string}>,building=''){
+ const normalized=(value:string)=>value.trim().toUpperCase().replace(/\s+/g,' ');
+ return previous.map(row=>{
+  const choices=current.filter(candidate=>candidate.sourcePage===row.sourcePage&&normalized(candidate.mark)===normalized(row.mark));
+  const scope=normalized((row as Opening&{sourceBuilding?:string}).sourceBuilding||building);
+  const scoped=choices.filter(candidate=>normalized(candidate.sourceBuilding||'')===scope);
+  if(scoped.length===1)return scoped[0];
+  if(choices.length===1&&(!scope||!choices[0].sourceBuilding))return choices[0];
+  return row;
+ });
+}
+
 /** Enrichment may fill fields, but never remove or renumber a printed row. */
 export function reconcileInventoriedRows(inventory: Opening[], generated: Opening[]) {
   return inventory.map(row => {

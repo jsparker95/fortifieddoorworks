@@ -3,6 +3,38 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Field } from "@/lib/fields";
 import { Row } from "@/lib/types";
+function PlanSourceDetails({ source }: { source: Row }) {
+  const notes = String(source.scheduleNotes || "");
+  const leaves = String(source.leafCount || "");
+  const leafWidth = String(source.leafWidth || "");
+  const profile = String(source.sourceCatalogCode || "");
+  const diagram = String(source.sourceScheduleDoorType || "");
+  if (!source.sourceDocumentId || !(notes || leaves || diagram)) return null;
+  const page = Number(source.sourcePage), schedule = Number(source.sourceSchedulePage);
+  const facts = [
+    ["Schedule profile", profile], ["Drawing door type", diagram],
+    ["Door leaves", leaves], ["Width of each leaf", leafWidth || (Number(leaves) > 1 ? "Needs review" : "")],
+  ].filter(([, value]) => value);
+  return (
+    <section className="plan-source-details" aria-label="From the plans">
+      <details open>
+        <summary><strong>From the plans</strong></summary>
+        <div className="plan-source-body">
+          {page > 0 && <p className="plan-source-pages">{schedule > 0 && schedule !== page
+            ? `Plan PDF page ${page} · Schedule PDF page ${schedule}` : `Source PDF page ${page}`}</p>}
+          {!!facts.length && <dl className="plan-source-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+          {!!notes && <div className="plan-source-notes"><strong>Plan notes</strong><p>{notes}</p></div>}
+          {Number(leaves) > 1 && !leafWidth && <p className="plan-source-review">Leaf sizes need review. The printed opening width has been retained.</p>}
+          {!!(source.sourceEvidence || source.handingEvidence) && <details className="plan-source-evidence"><summary>Source evidence</summary>
+            {!!source.sourceEvidence && <p>{String(source.sourceEvidence)}</p>}
+            {!!source.handingEvidence && <p>{String(source.handingEvidence)}</p>}
+          </details>}
+        </div>
+      </details>
+    </section>
+  );
+}
+
 export function Editor({
   title,
   fields,
@@ -54,6 +86,7 @@ export function Editor({
             <X size={20} />
           </button>
         </header>
+        <PlanSourceDetails source={initial} />
         <div className={`form-grid${singleColumn ? " form-grid-single-column" : ""}`}>
           {fields.filter((f) => !f.visibleWhen || row[f.visibleWhen.key] === f.visibleWhen.value).map((f) => (
             <label key={f.key} className={f.type === "textarea" ? "wide" : ""}>

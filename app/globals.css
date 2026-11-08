@@ -1686,6 +1686,25 @@ tbody tr:hover {
 .editor h2 {
   font-size: 22px;
 }
+.plan-source-details {
+  margin: 22px 26px 0;
+  padding: 14px 16px;
+  border: 1px solid #dfe8ee;
+  border-radius: 10px;
+  background: #f7fafb;
+}
+.plan-source-details > details > summary { cursor: pointer; font-size: 13px; }
+.plan-source-body { padding-top: 12px; }
+.plan-source-pages { margin: 0 0 12px; font-size: 12px; color: #637382; }
+.plan-source-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px 16px; margin: 0; }
+.plan-source-facts dt { font-size: 11px; color: #637382; }
+.plan-source-facts dd { margin: 3px 0 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.plan-source-notes { margin-top: 14px; font-size: 13px; }
+.plan-source-notes p { margin: 5px 0 0; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-source-review { font-size: 12px; line-height: 1.5; color: #88520d; margin: 12px 0 0; }
+.plan-source-evidence { margin-top: 12px; font-size: 12px; }
+.plan-source-evidence > summary { cursor: pointer; color: #526879; }
+.plan-source-evidence p { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

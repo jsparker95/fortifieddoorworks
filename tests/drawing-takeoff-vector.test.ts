@@ -166,3 +166,10 @@ test('a detail view needs an exact visible unit card and schedule entry before a
  const hidden=await analyzeVectorPlan(await covered.save(),index,['U101'],[],{entryRoomContexts:[entry]});
  assert.equal(hidden.observations[0].handing,'','a hidden frame in the path list is not source proof');
 });
+
+test('current native evidence wins over obsolete cached confidence without changing confidence values',async()=>{
+ const {deduplicateDoors}=await import('../lib/drawing-takeoff/geometry');
+ const base={page:1,box:{x:.1,y:.1,width:.1,height:.1},mark:'A1',tileId:'page',evidence:'Source drawing'};
+ const result=deduplicateDoors([{...base,id:'old',confidence:.99},{...base,id:'current',confidence:.8,sourcePriority:1}]);
+ assert.equal(result.doors[0].id,'current');assert.equal(result.doors[0].confidence,.8);assert.equal(result.suppressed[0].id,'old');
+});

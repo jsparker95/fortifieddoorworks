@@ -17,7 +17,7 @@ import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 7;
+export const VECTOR_VERSION = 8;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -155,7 +155,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     const tags = [...boxes,...(index.annotationTags||[])].filter(box=>known.size?known.has(box.text.toUpperCase()):/^[A-Z]?\d{1,5}(?:-[A-Z0-9]+|[A-Z])?$/.test(box.text));
     const cards=entryRoomCards(index.boxes||boxes,paths,options.entryRoomContexts||[]);
     let entryHands:Awaited<ReturnType<typeof focusedEntryHands>>|null=null;
-    if(!partition.skipped&&cards.length)try{entryHands=await focusedEntryHands(page,cards,doors,tags,focusedRaster);}catch{
+    if(!partition.skipped&&cards.length)try{entryHands=await focusedEntryHands(page,cards,doors,tags,focusedRaster,printedTagReviewEvidence);}catch{
       decodeEvidence.entryReferenceFailure=true;
     }
     Object.assign(decodeEvidence,{entryReferenceCards:cards.length,entryReferenceHands:entryHands?.size||0});

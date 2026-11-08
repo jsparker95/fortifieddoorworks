@@ -45,3 +45,15 @@ test('printed parent groups disambiguate reversed frame and door material/finish
  const rows=inventoryGeometricSchedule({page:2,width:900,height:200,boxes});assert.equal(rows.length,2);
  for(const row of rows){assert.equal(row.frameMaterial,'HM');assert.equal(row.frameFinish,'F1');assert.equal(row.doorMaterial,'WOOD');assert.equal(row.doorFinish,'F2');}
 });
+
+import {currentTaskInventory} from '../lib/drawing-takeoff/indexing';
+test('cached model sections use corrected literal attributes without borrowing another page or building',()=>{
+ const old:Opening={mark:'A1',room:'Entry',width:'3/0',height:'7/0',doorType:'A',frameType:'',wallType:'',hardwareGroup:'H1',fireRating:'',quantity:'1',handing:'',sourcePage:2,evidence:'Old native inventory',confidence:.95};
+ const fresh={...old,doorFinish:'F-2',scheduleNotes:'Current printed notes',sourceBuilding:'East'};
+ assert.equal(currentTaskInventory([old],[fresh],'East')[0].doorFinish,'F-2');
+ assert.equal(currentTaskInventory([old],[{...fresh,sourcePage:3}],'East')[0],old);
+ assert.equal(currentTaskInventory([old],[{...fresh,sourceBuilding:'West'}],'East')[0],old);
+ assert.equal(currentTaskInventory([old],[fresh,{...fresh,sourceBuilding:'West'}],'East')[0],fresh);
+ assert.equal(currentTaskInventory([old],[fresh,{...fresh,sourceBuilding:'West'}])[0],old);
+ assert.equal(old.doorFinish,undefined,'retained task source is not mutated');
+});

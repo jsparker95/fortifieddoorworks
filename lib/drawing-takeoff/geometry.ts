@@ -4,7 +4,7 @@ export type Box = { x: number; y: number; width: number; height: number };
 export type Tile = Box & { id: string; page: number; pageWidth: number; pageHeight: number };
 export type DoorDetection = {
   id: string; page: number; box: Box; confidence: number;
-  mark?: string; evidence: string; tileId: string;
+  mark?: string; evidence: string; tileId: string; sourcePriority?:number;
   hinge?: Point; closedJamb?: Point; openLeafTip?: Point;
 };
 
@@ -68,9 +68,10 @@ export function deduplicateDoors(detections: DoorDetection[], threshold = 0.5): 
 } {
   if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1) throw new Error("Overlap threshold must be between 0 and 1.");
   const doors: DoorDetection[] = [], suppressed: DoorDetection[] = [], conflicts: Array<[string, string]> = [];
-  const sorted = [...detections].sort((a, b) => b.confidence - a.confidence || a.id.localeCompare(b.id));
+  const sorted = [...detections].sort((a, b) => (b.sourcePriority||0)-(a.sourcePriority||0)||b.confidence - a.confidence || a.id.localeCompare(b.id));
   for (const candidate of sorted) {
     if (!validBox(candidate.box) || !Number.isInteger(candidate.page) || candidate.page < 1
+      || (candidate.sourcePriority!==undefined&&!Number.isFinite(candidate.sourcePriority))
       || !Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1) {
       throw new Error(`Invalid detection ${candidate.id}.`);
     }
