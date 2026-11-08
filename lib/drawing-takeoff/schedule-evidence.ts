@@ -18,11 +18,12 @@ export function isNonSwingDoor(
 }
 
 export function resolveOpeningHanding(
-  opening: { evidence?: string; doorType?: string; handing?: string } | null | undefined,
+  opening: { evidence?: string; doorType?: string; handing?: string;leafCount?:string } | null | undefined,
   visualHanding: string | undefined,
   doorTypes: Array<{ code: string; description: string }> = [],
 ) {
   if (isNonSwingDoor(opening, doorTypes)) return "";
+  if(!opening?.handing&&Number(opening?.leafCount)>1)return "";
   return opening?.handing || (visualHanding && visualHanding !== "unclear" ? visualHanding : "");
 }
 

@@ -11,7 +11,7 @@ export function reviewLabelHands(labels:Array<Record<string,unknown>>,observatio
   const matches=observations.filter(door=>normalizeMark(String(door.mark||''))===normalizeMark(String(label.mark||''))
    &&Number(door.sourcePage)===Number(label.sourcePage)&&String(door.sourceBuilding||'')===String(label.sourceBuilding||''));
   if(matches.length!==1||!matches[0].handing||!matches[0].handingEvidence)return cleared;
-  const handing=resolveOpeningHanding({doorType:String(label.doorType||''),evidence:String(label.evidence||'')},String(matches[0].handing),doorTypes);
+  const handing=resolveOpeningHanding({doorType:String(label.doorType||''),evidence:String(label.evidence||''),leafCount:String(label.leafCount||'')},String(matches[0].handing),doorTypes);
   return {...cleared,handing,handingEvidence:handing?String(matches[0].handingEvidence):''};
  });
 }

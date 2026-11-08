@@ -1,3 +1,4 @@
+import {scheduleFields} from './schedule-fields';
 import type {Opening,PageIndex,TextBox} from './indexing';
 
 type Inventory=Opening&{sourceBuilding?:string};
@@ -30,7 +31,7 @@ export function resolveAnnotationCandidates(pages:PageIndex[],inventory:Inventor
       :status==='repeated-label'?`This label appears ${locations.length} times on PDF pages ${[...new Set(locations.map(location=>location.page.page))].join(', ')}. Confirm whether these are repeated views or different openings.`
       :status==='ambiguous'?'More than one schedule association is plausible. Dimensions and type are withheld until reviewed.'
       :'No nearby printed schedule code could be associated reliably. Review the labeled doorway on the source page.';
-    const candidate:AnnotationCandidate={mark:tag.text,room:catalog?.room||'',width:catalog?.width||'',height:catalog?.height||'',handing:'',doorType:catalog?.mark||'',frameType:catalog?.frameType||'',wallType:'',hardwareGroup:catalog?.hardwareGroup||'',fireRating:catalog?.fireRating||'',quantity:'1',sourcePage:page.page,
+    const candidate:AnnotationCandidate={...scheduleFields(catalog),mark:tag.text,room:catalog?.room||'',width:catalog?.width||'',height:catalog?.height||'',handing:'',doorType:catalog?.mark||'',frameType:catalog?.frameType||'',wallType:'',hardwareGroup:catalog?.hardwareGroup||'',fireRating:catalog?.fireRating||'',quantity:'1',sourcePage:page.page,
       evidence:`Visible PDF annotation “${tag.text}” on PDF page ${page.page}. ${explanation}${catalog?` Schedule evidence: ${catalog.evidence}`:''}`,
       confidence:catalog?0.6:0.4,sourceAnnotation:true,autoImportEligible:false,associationStatus:status,associationEvidence:explanation,
       sourceCatalogCode:catalog?.mark||'',sourceSchedulePage:catalog?.sourcePage,sourceCatalogLabelBounds:catalog&&first?JSON.stringify({page:page.page,...first.box}):'',sourceLabelBounds:JSON.stringify(locations.map(location=>({page:location.page.page,...location.tag}))),sourceLabelPages:[...new Set(locations.map(location=>location.page.page))].join(', '),sourceBuilding:catalog?.sourceBuilding||''};
@@ -47,7 +48,7 @@ export function resolveAnnotationCandidates(pages:PageIndex[],inventory:Inventor
   const openingCatalog=inventory.filter(row=>catalogPages.has(row.sourcePage)).map(row=>({...row,scheduleRole:'catalog' as const,autoImportEligible:false}));
   const physicalIds=new Set(inventory.filter(row=>!catalogPages.has(row.sourcePage)).map(row=>key(row.mark)));
   const candidates=provisional.filter(item=>!physicalIds.has(key(item.candidate.mark))&&(item.catalog?catalogPages.has(item.catalog.sourcePage):openingCatalog.length>0)).map(item=>item.candidate);
-  const catalogDefinitions=openingCatalog.map(row=>({code:row.mark,description:row.room,material:row.doorMaterial||'',manufacturer:'',windowOrLouver:'',fireRating:row.fireRating,width:row.width,height:row.height,frameType:row.frameType,hardwareGroup:row.hardwareGroup,sourcePage:row.sourcePage,sourceBuilding:row.sourceBuilding,sourceCatalogFormat:row.sourceCatalogFormat,
+  const catalogDefinitions=openingCatalog.map(row=>({...scheduleFields(row),code:row.mark,description:row.room,material:row.doorMaterial||'',manufacturer:'',windowOrLouver:'',fireRating:row.fireRating,width:row.width,height:row.height,frameType:row.frameType,hardwareGroup:row.hardwareGroup,sourcePage:row.sourcePage,sourceBuilding:row.sourceBuilding,sourceCatalogFormat:row.sourceCatalogFormat,
     evidence:`Reusable schedule entry ${row.mark}. ${row.evidence}`,confidence:row.confidence,autoImportEligible:false,sourceCatalogDefinition:true,sourceCatalogCode:row.mark,sourceSchedulePage:row.sourcePage}));
   return {candidates,openingCatalog,catalogDefinitions,catalogPages};
 }

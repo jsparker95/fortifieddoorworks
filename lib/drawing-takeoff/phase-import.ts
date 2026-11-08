@@ -45,6 +45,7 @@ export function mapPhaseCandidate(
     sourceCandidateKey: phaseCandidateKey(documentId, kind, row, index),
     sourcePage: sourcePage(row),
     sourceBuilding: stringValue(row.sourceBuilding),
+    sourceScheduleDoorType:stringValue(row.sourceScheduleDoorType),
     sourcePlaceholder: row.sourcePlaceholder === true,
     sourceEvidence: stringValue(row.evidence),
     extractionConfidence: Number(row.confidence) || 0,

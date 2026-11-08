@@ -21,6 +21,18 @@ export function printedScheduleDimension(text: string, paired = false) {
   return { value: leaves === 1 ? leaf : `${Math.floor(total / 12)}'-${Number((total % 12).toFixed(4))}"`, leaves, leaf };
 }
 
+/** A PAIR column identifies two leaves, but does not say the width is per leaf.
+ * Retain the printed width and use a leaf width only when explicit
+ * source notes corroborate it. Never double a bare width because PAIR says YES. */
+export function printedLeafDetails(width:NonNullable<ReturnType<typeof printedScheduleDimension>>,pair:string,notes:string){
+ if(width.leaves===2)return {leafCount:'2',leafWidth:width.leaf};
+ const leafText=notes.match(/\bPAIR\s+OF\s+(\d+\s*['’]\s*-?\s*(?:\d+(?:\s+\d+\/\d+)?|\d+\/\d+)\s*["”])\s*(?:PANELS?|LEAVES|DOORS?)\b/i)?.[1];
+ if(!/^(?:YES|Y|X|PAIR|2|TRUE)$/i.test(pair.trim())&&!leafText)return {leafCount:'1',leafWidth:width.leaf};
+ const leaf=leafText?printedScheduleDimension(leafText):null;
+ const inches=(value:string)=>{const m=value.match(sizePattern);if(!m)return NaN;return Number(m[2])*12+m[3].split(/\s+/).reduce((sum,part)=>sum+(part.includes('/')?Number(part.split('/')[0])/Number(part.split('/')[1]):Number(part)),0);};
+ return {leafCount:'2',leafWidth:leaf&&Math.abs(inches(leaf.value)*2-inches(width.value))<.01?leaf.value:''};
+}
+
 /** Infer columns from their printed positions; PDF text drawing order is unrelated to table order. */
 export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "height">): ScheduleTable[] {
   const boxes = page.boxes;
@@ -44,7 +56,19 @@ export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "
     if (!width || !height) continue;
     const columns: Column[] = [{ key: "mark", box: mark }, { key: "width", box: width }, { key: "height", box: height }];
     const catalog=bareDoor(mark)&&band.some(b=>label(b.text)==='OPERATION')&&band.some(b=>label(b.text)==='DOORSTYLE');
-    const direct: Record<string, string> = { HEAD: "_head", JAMB: "_jamb", THRES: "_threshold", THRESHOLD:'_threshold', OPERATION:'_operation',DOORSTYLE:'_doorStyle',PANIC:'_panic',FIREEXIT:'_fireExit',CONTROL:'_accessControl',T: "doorThickness", DOORTYPE: catalog?'doorMaterial':"doorType", FRAMETYPE: catalog?'frameMaterial':"frameType", HARDWARE:'hardwareGroup',HARDWARESET: "hardwareGroup", HARDWAREGROUP: "hardwareGroup", HDWR: "hardwareGroup", FIRERATING: "fireRating", LOCATION: "room", ROOMNAME: "room", COMMENTS: "scheduleNotes", REMARKS: "scheduleNotes", NOTES: "scheduleNotes", PAIR: "pair", DOORFINISH: "doorFinish", FRAMEFINISH: "frameFinish", FRAMEMAT: "frameMaterial", THICKNESS: "doorThickness" };
+    const direct: Record<string, string> = { HEAD: "_head", JAMB: "_jamb", THRES: "_threshold", THRESHOLD:'_threshold', OPERATION:'_operation',DOORSTYLE:'_doorStyle',PANIC:'_panic',FIREEXIT:'_fireExit',CONTROL:'_accessControl',T: "doorThickness", DOORTYPE: catalog?'doorMaterial':"doorType", FRAMETYPE: catalog?'frameMaterial':"frameType", HARDWARE:'hardwareGroup',HARDWARESET: "hardwareGroup", HARDWAREGROUP: "hardwareGroup", HDWR: "hardwareGroup", FIRERATING: "fireRating", LOCATION: "room", ROOMNAME: "room", COMMENTS: "scheduleNotes", REMARKS: "scheduleNotes", NOTES: "scheduleNotes", PAIR: "pair", DOORFINISH: "doorFinish", FRAMEFINISH: "frameFinish", FRAMEMAT: "frameMaterial", FRAMEMATERIAL:"frameMaterial",DOORMAT:"doorMaterial",DOORMATERIAL:"doorMaterial", THICKNESS: "doorThickness" };
+    const materials=band.filter(b=>label(b.text)==='MATERIAL').sort((a,b)=>cx(a)-cx(b));
+    const finishes=band.filter(b=>label(b.text)==='FINISH').sort((a,b)=>cx(a)-cx(b));
+    const explicitFrame=band.find(b=>/^(FRAMEMAT|FRAMEMATERIAL)$/.test(label(b.text)));
+    const explicitDoorMaterial=band.find(b=>/^(DOORMAT|DOORMATERIAL)$/.test(label(b.text)));
+    const parentRole=(box:TextBox)=>{
+      const parents=boxes.filter(b=>/^(DOOR|FRAME)$/.test(label(b.text))&&b.y<box.y-box.height*.5&&box.y-b.y<60&&Math.abs(cx(b)-cx(box))<120)
+        .sort((a,b)=>Math.abs(cx(a)-cx(box))-Math.abs(cx(b)-cx(box)));
+      return parents[0]?label(parents[0].text)==='DOOR'?'door':'frame':undefined;
+    };
+    const materialKey=(box:TextBox)=>parentRole(box)?`${parentRole(box)}Material`:materials.length===2?(materials.indexOf(box)===0?'doorMaterial':'frameMaterial')
+      :explicitFrame&&cx(box)<cx(explicitFrame)?'doorMaterial':explicitDoorMaterial&&cx(box)>cx(explicitDoorMaterial)?'frameMaterial'
+      :cx(box)<cx(width)?'doorMaterial':'frameMaterial';
     for (const box of band) {
       let key = direct[label(box.text)];
       if(label(box.text)==='HARDWARE')for(const [parent,field] of [['PANIC','_panic'],['FIREEXIT','_fireExit']] as const)if(band.some(b=>label(b.text)===parent&&Math.abs(cx(b)-cx(box))<25&&b.y<box.y))key=field;
@@ -53,7 +77,13 @@ export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "
         if (parent) key = label(parent.text) === "DOOR" ? "doorType" : "frameType";
         else if (!columns.some(c => c.key === "doorType")) key = "doorType";
       }
-      if (label(box.text) === "MATERIAL") key = cx(box) < cx(width) ? "doorMaterial" : "frameMaterial";
+      if (label(box.text) === "MATERIAL") key=materialKey(box);
+      if(label(box.text)==='FINISH'){
+        if(parentRole(box))key=`${parentRole(box)}Finish`;
+        else if(finishes.length===2)key=finishes.indexOf(box)===0?'doorFinish':'frameFinish';
+        else if(explicitFrame)key=cx(box)<cx(explicitFrame)?'doorFinish':'frameFinish';
+        else if(materials.length===1)key=materialKey(materials[0])==='doorMaterial'?'doorFinish':'frameFinish';
+      }
       if (label(box.text) === "GROUP" && boxes.some(b => /^(HARDWARE|HDWR)$/.test(label(b.text)) && Math.abs(cx(b) - cx(box)) < 40 && Math.abs(cy(b) - cy(box)) < 30)) key = "hardwareGroup";
       if (label(box.text) === "RATING" && boxes.some(b => label(b.text) === "FIRE" && Math.abs(cx(b) - cx(box)) < 30 && Math.abs(cy(b) - cy(box)) < 30)) key = "fireRating";
       if (key && !columns.some(c => c.key === key)) columns.push({ key, box });
@@ -101,13 +131,14 @@ export function inventoryGeometricSchedule(page: Pick<PageIndex, "page" | "boxes
       // Long adjacent annotation prose is not a literal type/set identifier.
       if ([doorType, frameType, hardwareGroup].some(value => value.length > 40)) continue;
       const materials = Object.fromEntries(["doorMaterial", "doorFinish", "doorThickness", "frameMaterial", "frameFinish"].filter(key => table.columns.some(c => c.key === key)).map(key => [key, read(key)]));
+      const pair=read("pair"),leafDetails=printedLeafDetails(width,pair,notes);
       const values = { ...materials, width: width.value, height: height.value, doorType, frameType, hardwareGroup, fireRating: read("fireRating"), room: read("room") };
       candidates.push({ mark: anchor.text.trim(), ...values, handing: "", wallType: "", quantity: "1", sourcePage: page.page, confidence: 0.95,...(table.catalog?{scheduleRole:'catalog' as const,sourceCatalogFormat:'style-table' as const,autoImportEligible:false as const}:{}),
         doorTypeInventoried: table.columns.some(c => c.key === "doorType"), frameTypeInventoried: table.columns.some(c => c.key === "frameType"),
         hardwareGroupInventoried: table.columns.some(c => c.key === "hardwareGroup"), fireRatingInventoried: table.columns.some(c => c.key === "fireRating"),
-        scheduleNotes: notes, leafCount: String(width.leaves), leafWidth: width.leaf,
+        scheduleNotes: notes, ...leafDetails,
         scheduleRowBox: { x: Math.max(0, table.mark.x - 10), y: middle - gap / 2, width: Math.min(page.width, table.right) - table.mark.x, height: gap },
-        evidence: `Printed table row ${anchor.text.trim()}: ${Object.entries(values).map(([k, v]) => `${k}=${v || "[blank]"}`).join("; ")}${notes ? `; notes=${notes}` : ""}${width.leaves > 1 ? `; ${width.leaves} leaves of ${width.leaf}, assembly width ${width.value}` : ""}` });
+        evidence: `Printed table row ${anchor.text.trim()}: ${Object.entries(values).map(([k, v]) => `${k}=${v || "[blank]"}`).join("; ")}${pair?`; pair=${pair}`:""}${notes ? `; notes=${notes}` : ""}${width.leaves > 1 ? `; ${width.leaves} leaves of ${width.leaf}, assembly width ${width.value}` : ""}` });
     }
     if (candidates.length >= 2) rows.push(...candidates);
   }
