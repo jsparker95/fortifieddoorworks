@@ -149,8 +149,10 @@ export async function publishProgress(jobId: string, final = false) {
   for (const task of tasks.filter(task => task.status === "failed")) uncertainties.push(`PDF page ${task.input.pages.join(", ")}, ${task.kind}: ${task.error?.message || "section failed"}. Other results have been retained.`);
   const unhanded = output.openings.filter(row => !row.handing).length;
   if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
+  const handedReviewLabels=reviewLabelHands(reviewLabels,kept,output.doorTypes);
+  const reviewHandCount=handedReviewLabels.filter(row=>row.handing).length;
   const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, doorwayObservations: kept, matchedDoorways,
-    annotationOpeningCandidates:reviewLabelHands(reviewLabels,kept,output.doorTypes),
+    annotationOpeningCandidates:handedReviewLabels,
     relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
     serverImported: job.import_enabled, extractionProgress: { completed, failed, pending, total: tasks.length },
@@ -213,7 +215,7 @@ export async function publishProgress(jobId: string, final = false) {
     reviewOpeningCount:reviewLabels.length,
     openingCount: output.openings.length, hardwareCount: output.hardwareGroups.length,
     handedCount: output.openings.length - unhanded,
-    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handing suggestions.${reviewLabels.length?` ${reviewLabels.length} door labels need review before they are added to Openings.`:job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
+    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handed opening drafts.${reviewHandCount?` ${reviewHandCount} supported ${reviewHandCount===1?"hand is":"hands are"} attached to door labels awaiting review.`:""}${reviewLabels.length?` ${reviewLabels.length} door labels need review before they are added to Openings.`:job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
   await updateJob(jobId, { status, analysis: phaseAnalysis, progress });
   const { error: saveError } = await db.from("project_documents").update({ analysis: phaseAnalysis, description: job.description, status: final ? "needs_review" : "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;
