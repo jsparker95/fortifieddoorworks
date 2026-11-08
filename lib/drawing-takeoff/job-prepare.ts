@@ -1,3 +1,4 @@
+import {entryContextsForPage} from './room-reference';
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { projectFileSizeError } from "../project-file-upload";
@@ -133,7 +134,8 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
   if (job.status === "partial") throw new Error("Processing stopped. Saved results are retained.");
   const { finding, page, knownMarks:storedMarks, marksHash:storedMarksHash, sourceArtifact, sourcePages, root } = JSON.parse(new TextDecoder().decode(await getArtifact(inputPath))) as PreparationInput;
   const knownMarks=mode==="plans"?currentPlanMarks(storedMarks,job.analysis):storedMarks;
-  const marksHash=mode==="plans"?createHash("sha256").update(knownMarks.join("|")).digest("hex").slice(0,12):storedMarksHash;
+  const entryRoomContexts=mode==="plans"?entryContextsForPage(job.analysis,page.page):[];
+  const marksHash=mode==="plans"?createHash("sha256").update(JSON.stringify({knownMarks,entryRoomContexts})).digest("hex").slice(0,12):storedMarksHash;
   console.info("[document-prepare] page started", { jobId, page: page.page, ordinal, mode });
   finding.kinds = finding.kinds.filter(kind => mode === "plans" ? kind === "plan" : kind !== "plan");
   const pageBytes = await pageFromSegment(await getArtifact(sourceArtifact), sourcePages, page.page);
@@ -180,7 +182,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       if(vector.version!==VECTOR_VERSION||!Array.isArray(vector.observations))throw new Error("Stale vector artifact");
     } catch {
       try {
-        vector = await analyzeVectorPlan(pageBytes,page,knownMarks,(job.analysis?.catalogDoorTypeCandidates||[]).map((row:{code:string})=>row.code),{unverifiedCircleLabels:(job.analysis?.catalogDoorTypeCandidates||[]).some((row:{sourceCatalogFormat?:string})=>row.sourceCatalogFormat==='style-table')});
+        vector = await analyzeVectorPlan(pageBytes,page,knownMarks,(job.analysis?.catalogDoorTypeCandidates||[]).map((row:{code:string})=>row.code),{entryRoomContexts,unverifiedCircleLabels:(job.analysis?.catalogDoorTypeCandidates||[]).some((row:{sourceCatalogFormat?:string})=>row.sourceCatalogFormat==='style-table')});
       } catch {
         // One unsupported drawing must not prevent the schedules from saving.
         vector = { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [],

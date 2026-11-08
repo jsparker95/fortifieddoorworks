@@ -1,3 +1,4 @@
+import {reviewLabelHands} from './review-label-hands';
 import { taskMatchesFindings } from "./plan-task-policy";
 import { mergeHardwareImageReads } from "./hardware-sections";
 import { reconcileHardwareContinuation } from "./hardware-continuation";
@@ -149,7 +150,7 @@ export async function publishProgress(jobId: string, final = false) {
   const unhanded = output.openings.filter(row => !row.handing).length;
   if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
   const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, doorwayObservations: kept, matchedDoorways,
-    annotationOpeningCandidates:reviewLabels,
+    annotationOpeningCandidates:reviewLabelHands(reviewLabels,kept,output.doorTypes),
     relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
     serverImported: job.import_enabled, extractionProgress: { completed, failed, pending, total: tasks.length },
