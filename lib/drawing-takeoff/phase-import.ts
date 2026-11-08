@@ -74,7 +74,8 @@ export function mapPhaseCandidate(
   };
   if (kind === "walls") return {
     ...stamp, name: stringValue(row.code) || `Unmarked · p. ${sourcePage(row)}`,
-    description: stringValue(row.description), size: stringValue(row.finishedThickness),
+    description: stringValue(row.description), size: '', finishedThickness: stringValue(row.finishedThickness),
+    frameDepthReviewRequired: true,
     layers: Array.isArray(row.layers) ? row.layers.map(String).join(" / ") : "",
   };
   if (kind === "doorTypes") return {
