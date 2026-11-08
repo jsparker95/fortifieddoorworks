@@ -88,7 +88,7 @@ export function ProjectFileDialog({ document, phases, activePhaseId, onClose, on
         </select>
       </label>
       {phase ? <DocumentManager key={`${document.id}:${phase.id}`} projectId={document.project_id} phaseId={phase.id} phaseName={phase.name}
-        document={document} onProgressSaved={onProgressSaved} onApply={(rows, onlyIfEmpty) => onApply(phase.id, rows, onlyIfEmpty)}
+        document={document} phaseRows={phase.data} onProgressSaved={onProgressSaved} onApply={(rows, onlyIfEmpty) => onApply(phase.id, rows, onlyIfEmpty)}
         onAnalyzed={(analysis, nextDescription, status) => onUpdated({ ...latestDocument.current, phase_id: phase.id, analysis, description: nextDescription, status, page_count: Number(analysis.indexedPageCount) || document.page_count })} /> :
         <p>Create a project phase before extracting openings.</p>}
     </>}

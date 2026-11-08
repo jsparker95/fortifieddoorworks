@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import type { PageIndex, TextBox } from "./indexing";
 import { displayedTextBox } from "./text-geometry";
+import { visibleAnnotationTags } from "./annotation-tags";
 
 async function openPdf(bytes: Uint8Array) {
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
@@ -21,6 +22,9 @@ export async function indexPdf(bytes: Uint8Array): Promise<PageIndex[]> {
       const page = await pdf.getPage(number);
       const view = page.getViewport({ scale: 1 });
       const content = await page.getTextContent();
+      let annotationTags:TextBox[]=[],warnings:string[]=[];
+      try{annotationTags=visibleAnnotationTags(await page.getAnnotations({intent:'display'}),view.transform,view.width,view.height);}
+      catch{warnings=[`PDF page ${number}: added annotation labels could not be read. Review marked door identifiers on the source page.`];}
       const boxes: TextBox[] = content.items.flatMap(item => {
         if (!("str" in item) || !item.str.trim()) return [];
         return [displayedTextBox(item, view.transform)];
@@ -31,8 +35,8 @@ export async function indexPdf(bytes: Uint8Array): Promise<PageIndex[]> {
         if (previous && Math.abs(previous[0].y - box.y) < 2) previous.push(box);
         else lineGroups.push([box]);
       }
-      pages.push({ page: number, width: view.width, height: view.height, rotation: view.rotation, boxes,
-        text: content.items.map(item => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " "),
+      pages.push({ page: number, width: view.width, height: view.height, rotation: view.rotation, boxes,annotationTags,warnings,
+        text: [...content.items.map(item => "str" in item ? item.str : ""),...annotationTags.map(tag=>tag.text)].join(" ").replace(/\s+/g, " "),
         lines: lineGroups.map(line => line.sort((a, b) => a.x - b.x).map(box => box.text).join(" ")) });
       page.cleanup();
     }

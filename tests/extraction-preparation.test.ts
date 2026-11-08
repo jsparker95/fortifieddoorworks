@@ -39,7 +39,7 @@ test('large-file preparation never opens the original PDF and checkpoints each p
 
 import { partitionPreparationInputs } from '../lib/drawing-takeoff/preparation-policy';
 import { readInPages } from '../lib/drawing-takeoff/paged-rows';
-import { vectorResourceLimit, MAX_VECTOR_PDF_BYTES } from '../lib/drawing-takeoff/vector-limits';
+import { vectorResourceLimit, MAX_VECTOR_PDF_BYTES, MAX_VECTOR_SOURCE_BYTES } from '../lib/drawing-takeoff/vector-limits';
 import { analyzeVectorPlan } from '../lib/drawing-takeoff/vector-pdf';
 
 test('mixed sheets retain schedule and plan tasks in separate preparation passes', () => {
@@ -51,10 +51,10 @@ test('mixed sheets retain schedule and plan tasks in separate preparation passes
 
 test('a dense PDF returns manual review before entering the native parser', async () => {
  assert.equal(vectorResourceLimit(MAX_VECTOR_PDF_BYTES),null);
- const result=await analyzeVectorPlan(new Uint8Array(MAX_VECTOR_PDF_BYTES+1),{page:70,lines:[]},['101']);
+ const result=await analyzeVectorPlan(new Uint8Array(MAX_VECTOR_SOURCE_BYTES+1),{page:70,lines:[]},['101']);
  assert.equal(result.supported,false);
  assert.deepEqual(result.observations,[]);
- assert.match(result.reason!,/memory budget.*manual review/);
+ assert.match(result.reason!,/bounded page preparation budget/);
 });
 
 test('publication keeps rows beyond the API response cap, including later wall/type records', async () => {

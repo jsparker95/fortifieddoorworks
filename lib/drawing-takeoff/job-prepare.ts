@@ -19,6 +19,7 @@ import { visualScheduleSections } from "./visual-schedule";
 import { indexPdf, subsetPdf } from "./pdf-server";
 import { screeningCoverage } from "./screening-coverage";
 import { hardwareContinuationTasks } from "./hardware-continuation";
+import {resolveAnnotationCandidates,catalogOpeningKey} from './annotation-candidates';
 
 export async function prepareIndex(jobId: string) {
   const { db, job, document } = await loadJob(jobId);
@@ -92,7 +93,11 @@ export async function planExtraction(jobId: string) {
   })).filter(row => row.pages.length);
   const description = scheduleSearchDescription(schedules);
   const root = job.index_path.replace(/\/index.json$/, "");
-  const knownMarks = [...new Set(selected.flatMap(f => f.openingRows.map(row => row.mark)))];
+  const literalOpenings=selected.flatMap(f=>f.openingRows.map(row=>({...row,sourceBuilding:f.building})));
+  const annotated=resolveAnnotationCandidates(pages,literalOpenings);
+  const catalogKeys=new Set(annotated.openingCatalog.map(row=>catalogOpeningKey(row.sourcePage,row.mark)));
+  const physicalOpenings=literalOpenings.filter(row=>!catalogKeys.has(catalogOpeningKey(row.sourcePage,row.mark)));
+  const knownMarks=currentPlanMarks(physicalOpenings.map(row=>row.mark),{openings:physicalOpenings,openingCatalog:annotated.openingCatalog,annotationOpeningCandidates:annotated.candidates});
   const marksHash = createHash("sha256").update([...knownMarks].sort().join("\n")).digest("hex").slice(0,12);
   const inputs: string[] = [];
   for (const finding of selected) {
@@ -104,7 +109,8 @@ export async function planExtraction(jobId: string) {
     inputs.push(inputPath);
   }
   const analysis = { pipelineVersion: PIPELINE_VERSION, scheduleSearch: { completed: true, schedules, pages: [...new Set(schedules.flatMap(s => s.pages))], summary: description },
-    openings: selected.flatMap(f => f.openingRows.map(row => ({ ...row, sourceBuilding: f.building }))), walls: [], doorTypes: [], hardwareGroups: [], doorwayObservations: [],
+    openings:physicalOpenings,openingCatalog:annotated.openingCatalog,annotationOpeningCandidates:annotated.candidates,catalogDoorTypeCandidates:annotated.catalogDefinitions,
+    indexWarnings:pages.flatMap(page=>page.warnings||[]),walls: [], doorTypes: [], hardwareGroups: [], doorwayObservations: [],
     relevantPages: selected.map(f => ({ page: f.page, section: f.kinds.join(", "), reason: f.evidence, confidence: 0.9 })),
     indexedPageCount: pages.length, candidatePageCount: selected.length, scannedPageCount: pages.filter(page => !page.text.trim()).length, uncertainties: [] as string[],
   };
@@ -168,7 +174,7 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       if(vector.version!==VECTOR_VERSION||!Array.isArray(vector.observations))throw new Error("Stale vector artifact");
     } catch {
       try {
-        vector = await analyzeVectorPlan(pageBytes,page,knownMarks);
+        vector = await analyzeVectorPlan(pageBytes,page,knownMarks,(job.analysis?.catalogDoorTypeCandidates||[]).map((row:{code:string})=>row.code),{unverifiedCircleLabels:(job.analysis?.catalogDoorTypeCandidates||[]).some((row:{sourceCatalogFormat?:string})=>row.sourceCatalogFormat==='style-table')});
       } catch {
         // One unsupported drawing must not prevent the schedules from saving.
         vector = { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [],

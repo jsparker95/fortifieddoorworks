@@ -7,7 +7,7 @@ const markPattern = /^(?=.*\d)[A-Z0-9]+(?:[-.][A-Z0-9]+)*$/i;
 const sizePattern = /^(?:(?:\((\d+)\)|PAIR)\s*)?(\d+)\s*['’]\s*-?\s*(\d+(?:\s+\d+\/\d+)?|\d+\/\d+)\s*["”]$/i;
 
 type Column = { key: string; box: TextBox };
-export type ScheduleTable = { mark: TextBox; columns: Column[]; top: number; right: number; anchors: TextBox[] };
+export type ScheduleTable = { mark: TextBox; columns: Column[]; top: number; right: number; anchors: TextBox[];catalog?:boolean };
 
 export function printedScheduleDimension(text: string, paired = false) {
   const m = text.trim().match(sizePattern);
@@ -25,7 +25,8 @@ export function printedScheduleDimension(text: string, paired = false) {
 export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "height">): ScheduleTable[] {
   const boxes = page.boxes;
   const titles = boxes.filter(b => /^(?:DOOR|OPENING|WINDOW)(?:\s|&|AND|FRAME|HARDWARE|WINDOW)*.*SCHEDUL/i.test(b.text.trim()) && !/SEE|REFER|AS SCHEDULED/i.test(b.text));
-  const headers = boxes.filter(b => /^(?:MARK|DOOR#|DOORNO|DOORNUMBER|DOORMARK|OPENING|OPENINGNO|OPENINGNUMBER|NUMBER|NO|#)$/.test(label(b.text)));
+  const bareDoor=(b:TextBox)=>label(b.text)==='DOOR'&&boxes.some(w=>/^(WIDTH|W)$/.test(label(w.text))&&cx(w)>cx(b)+10&&cx(w)<cx(b)+250&&Math.abs(cy(w)-cy(b))<10)&&boxes.some(h=>/^(HEIGHT|H)$/.test(label(h.text))&&cx(h)>cx(b)+10&&cx(h)<cx(b)+300&&Math.abs(cy(h)-cy(b))<10);
+  const headers = boxes.filter(b => /^(?:MARK|DOOR#|DOORNO|DOORNUMBER|DOORMARK|OPENING|OPENINGNO|OPENINGNUMBER|NUMBER|NO|#)$/.test(label(b.text))||bareDoor(b));
   const result: ScheduleTable[] = [];
   for (const mark of headers) {
     if (result.some(t => Math.abs(cx(t.mark) - cx(mark)) < 2 && Math.abs(cy(t.mark) - cy(mark)) < 20)) continue;
@@ -33,16 +34,20 @@ export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "
       .sort((a, b) => Math.abs(cy(a) - cy(mark)) + Math.abs(cx(a) - cx(mark)) * 0.15 - Math.abs(cy(b) - cy(mark)) - Math.abs(cx(b) - cx(mark)) * 0.15)[0];
     const explicitDoor = /DOOR|OPENING/.test(label(mark.text)) || boxes.some(b => label(b.text) === "DOOR" && Math.abs(cx(b) - cx(mark)) < mark.width && Math.abs(cy(b) - cy(mark)) < 35);
     if (!explicitDoor && (!nearestTitle || /^WINDOW/i.test(nearestTitle.text))) continue;
-    const nextMark = headers.filter(b => cx(b) > cx(mark) + 80 && Math.abs(cy(b) - cy(mark)) < 35).sort((a, b) => cx(a) - cx(b))[0];
+    const nextMark = headers.filter(b => cx(b) > cx(mark) + 80 && Math.abs(cy(b) - cy(mark)) < 35
+      &&boxes.some(w=>/^(WIDTH|W)$/.test(label(w.text))&&cx(w)>cx(b)&&Math.abs(cy(w)-cy(b))<42)
+      &&boxes.some(h=>/^(HEIGHT|H)$/.test(label(h.text))&&cx(h)>cx(b)&&Math.abs(cy(h)-cy(b))<42)).sort((a, b) => cx(a) - cx(b))[0];
     const limit = nextMark ? cx(nextMark) - 30 : page.width;
     const band = boxes.filter(b => cx(b) > cx(mark) + 5 && cx(b) < limit && Math.abs(cy(b) - cy(mark)) < 42 && b.height < 45);
     const width = band.filter(b => /^(WIDTH|W)$/.test(label(b.text))).sort((a, b) => cx(a) - cx(b))[0];
     const height = band.filter(b => /^(HEIGHT|H)$/.test(label(b.text)) && (!width || cx(b) > cx(width))).sort((a, b) => cx(a) - cx(b))[0];
     if (!width || !height) continue;
     const columns: Column[] = [{ key: "mark", box: mark }, { key: "width", box: width }, { key: "height", box: height }];
-    const direct: Record<string, string> = { HEAD: "_head", JAMB: "_jamb", THRES: "_threshold", T: "doorThickness", DOORTYPE: "doorType", FRAMETYPE: "frameType", HARDWARESET: "hardwareGroup", HARDWAREGROUP: "hardwareGroup", HDWR: "hardwareGroup", FIRERATING: "fireRating", LOCATION: "room", ROOMNAME: "room", COMMENTS: "scheduleNotes", REMARKS: "scheduleNotes", NOTES: "scheduleNotes", PAIR: "pair", DOORFINISH: "doorFinish", FRAMEFINISH: "frameFinish", FRAMEMAT: "frameMaterial", THICKNESS: "doorThickness" };
+    const catalog=bareDoor(mark)&&band.some(b=>label(b.text)==='OPERATION')&&band.some(b=>label(b.text)==='DOORSTYLE');
+    const direct: Record<string, string> = { HEAD: "_head", JAMB: "_jamb", THRES: "_threshold", THRESHOLD:'_threshold', OPERATION:'_operation',DOORSTYLE:'_doorStyle',PANIC:'_panic',FIREEXIT:'_fireExit',CONTROL:'_accessControl',T: "doorThickness", DOORTYPE: catalog?'doorMaterial':"doorType", FRAMETYPE: catalog?'frameMaterial':"frameType", HARDWARE:'hardwareGroup',HARDWARESET: "hardwareGroup", HARDWAREGROUP: "hardwareGroup", HDWR: "hardwareGroup", FIRERATING: "fireRating", LOCATION: "room", ROOMNAME: "room", COMMENTS: "scheduleNotes", REMARKS: "scheduleNotes", NOTES: "scheduleNotes", PAIR: "pair", DOORFINISH: "doorFinish", FRAMEFINISH: "frameFinish", FRAMEMAT: "frameMaterial", THICKNESS: "doorThickness" };
     for (const box of band) {
       let key = direct[label(box.text)];
+      if(label(box.text)==='HARDWARE')for(const [parent,field] of [['PANIC','_panic'],['FIREEXIT','_fireExit']] as const)if(band.some(b=>label(b.text)===parent&&Math.abs(cx(b)-cx(box))<25&&b.y<box.y))key=field;
       if (label(box.text) === "TYPE") {
         const parent = boxes.filter(b => /^(DOOR|FRAME)$/.test(label(b.text)) && Math.abs(cx(b) - cx(box)) < Math.max(box.width, 20) && box.y >= b.y && box.y - b.y < 35).sort((a, b) => box.y - a.y - (box.y - b.y))[0];
         if (parent) key = label(parent.text) === "DOOR" ? "doorType" : "frameType";
@@ -67,7 +72,7 @@ export function locateScheduleTables(page: Pick<PageIndex, "boxes" | "width" | "
         && !columns.some(c => Math.abs(cx(c.box) - cx(box)) < 2)) columns.push({ key: `_matrix:${columns.length}`, box });
     }
     columns.sort((a, b) => cx(a.box) - cx(b.box));
-    result.push({ mark, columns, top, right: limit, anchors });
+    result.push({ mark, columns, top, right: limit, anchors,catalog });
   }
   return result;
 }
@@ -97,7 +102,7 @@ export function inventoryGeometricSchedule(page: Pick<PageIndex, "page" | "boxes
       if ([doorType, frameType, hardwareGroup].some(value => value.length > 40)) continue;
       const materials = Object.fromEntries(["doorMaterial", "doorFinish", "doorThickness", "frameMaterial", "frameFinish"].filter(key => table.columns.some(c => c.key === key)).map(key => [key, read(key)]));
       const values = { ...materials, width: width.value, height: height.value, doorType, frameType, hardwareGroup, fireRating: read("fireRating"), room: read("room") };
-      candidates.push({ mark: anchor.text.trim(), ...values, handing: "", wallType: "", quantity: "1", sourcePage: page.page, confidence: 0.95,
+      candidates.push({ mark: anchor.text.trim(), ...values, handing: "", wallType: "", quantity: "1", sourcePage: page.page, confidence: 0.95,...(table.catalog?{scheduleRole:'catalog' as const,sourceCatalogFormat:'style-table' as const,autoImportEligible:false as const}:{}),
         doorTypeInventoried: table.columns.some(c => c.key === "doorType"), frameTypeInventoried: table.columns.some(c => c.key === "frameType"),
         hardwareGroupInventoried: table.columns.some(c => c.key === "hardwareGroup"), fireRatingInventoried: table.columns.some(c => c.key === "fireRating"),
         scheduleNotes: notes, leafCount: String(width.leaves), leafWidth: width.leaf,
