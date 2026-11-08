@@ -74,6 +74,11 @@ test("detail titles never establish the whole-plan reference side", () => {
   assert.equal(completePlanContext(["FLOOR PLAN", "PLAN ENLARGEMENTS"]), false);
   assert.equal(completePlanContext(["BATHROOM PLANS"]), false);
   assert.equal(completePlanContext(["LEVEL 2 PLAN"]), true);
+  for (const title of ["ENLARGED OFFICE/ELECTRICAL FLOOR PLAN", "ENLARGED OFFICE/MAINTENANCE FLOOR PLAN", "ENLARGED LEVEL 2 OFFICE & STORAGE FLOOR PLAN", "ENLARGED MEN'S / WOMEN'S FLOOR PLANS"]) {
+    assert.equal(completePlanContext([title]), false);
+    assert.equal(completePlanContext(["OVERALL FLOOR PLAN", title]), false);
+  }
+  assert.equal(completePlanContext(["OVERALL FLOOR PLAN", "SEE ENLARGED OFFICE/ELECTRICAL FLOOR PLAN"]), true);
 });
 
 test("free vector sections are retained beyond the paid task cap", () => {
