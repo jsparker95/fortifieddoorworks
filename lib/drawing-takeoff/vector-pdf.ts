@@ -19,7 +19,7 @@ import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 11;
+export const VECTOR_VERSION = 12;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean;corridorVisibilityBudgetExceeded?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
