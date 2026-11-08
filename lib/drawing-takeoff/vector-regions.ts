@@ -4,15 +4,30 @@ import { distance, handFromVector, type VectorDoor } from "./vector-geometry";
 
 export type RegionMap = { ids: Uint32Array; areas: number[]; border: boolean[]; width: number; height: number; scale: number };
 
+/** Scratch maps are overwritten on the next call. Use only when the caller
+ * consumes a map immediately, rather than retaining both boundary checks. */
+export type RegionScratch={mask:Uint8Array;original:Uint8Array;ids:Uint32Array;queue:Uint32Array};
+export function regionScratch(count:number):RegionScratch{return {mask:new Uint8Array(count),original:new Uint8Array(count),ids:new Uint32Array(count),queue:new Uint32Array(count)};}
+
 /** Seal drawn swing openings, then identify enclosed circulation regions. */
-export function planRegions(pixels: Uint8ClampedArray, width: number, height: number, scale: number, doors: VectorDoor[], dilate: boolean): RegionMap {
-  const count = width * height, mask = new Uint8Array(count);
-  for (let i = 0; i < count; i++) mask[i] = 0.2126 * pixels[i * 4] + 0.7152 * pixels[i * 4 + 1] + 0.0722 * pixels[i * 4 + 2] < 100 ? 1 : 0;
+export function planRegions(pixels: Uint8ClampedArray, width: number, height: number, scale: number, doors: VectorDoor[], dilate: boolean, options: { inkThreshold?: number; omitBlueDimensions?: boolean; dilationRadius?: 1 | 2; scratch?:RegionScratch } = {}): RegionMap {
+  const count = width * height,scratch=options.scratch;
+  if(scratch&&[scratch.mask,scratch.original,scratch.ids,scratch.queue].some(buffer=>buffer.length<count))throw new Error('Region scratch buffer is too small.');
+  const mask=scratch?scratch.mask.subarray(0,count):new Uint8Array(count);
+  const threshold=options.inkThreshold??100;
+  for (let i = 0; i < count; i++) {
+    const r=pixels[i*4],g=pixels[i*4+1],b=pixels[i*4+2];
+    const dimension=options.omitBlueDimensions&&b>r+40&&b>g+40;
+    mask[i]=!dimension&&0.2126*r+0.7152*g+0.0722*b<threshold?1:0;
+  }
   if (dilate) {
-    const original = mask.slice();
+    const original = scratch?scratch.original.subarray(0,count):new Uint8Array(count), radius=options.dilationRadius??1;
+    original.set(mask);
     for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      if (original[i]) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) mask[i + dy * width + dx] = 1;
+      if (original[i]) for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+        const xx=x+dx,yy=y+dy;if(xx>=0&&xx<width&&yy>=0&&yy<height)mask[yy*width+xx]=1;
+      }
     }
   }
   for (const door of doors) {
@@ -26,7 +41,8 @@ export function planRegions(pixels: Uint8ClampedArray, width: number, height: nu
       }
     }
   }
-  const ids = new Uint32Array(count), queue = new Uint32Array(count), areas = [0], border = [false];
+  const ids = scratch?scratch.ids.subarray(0,count):new Uint32Array(count), queue = scratch?scratch.queue:new Uint32Array(count), areas = [0], border = [false];
+  ids.fill(0);
   let id = 0;
   for (let start = 0; start < count; start++) {
     if (mask[start] || ids[start]) continue;

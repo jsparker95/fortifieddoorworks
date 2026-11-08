@@ -138,3 +138,31 @@ test("spatial leaf lookup preserves detections in a dense drawing and across gri
   assert.ok(Math.hypot(found[0].hinge.x-shifted.hinge.x,found[0].hinge.y-shifted.hinge.y)<0.001);
  }
 });
+
+test('a detail view needs an exact visible unit card and schedule entry before assigning its entry hand',async()=>{
+ const {rgb}=await import('pdf-lib');
+ const pdf=await PDFDocument.create(),page=pdf.addPage([1000,1000]),font=await pdf.embedFont(StandardFonts.Helvetica);
+ const line=(x1:number,y1:number,x2:number,y2:number)=>page.pushOperators(moveTo(x1,1000-y1),lineTo(x2,1000-y2),stroke());
+ page.pushOperators(setLineWidth(1));
+ line(180,200,480,200);line(480,200,480,500);line(480,500,340,500);line(300,500,180,500);line(180,500,180,200);
+ line(300,500,300,460);
+ const points=Array.from({length:13},(_,i)=>({x:300+40*Math.cos(i*Math.PI/24),y:500-40*Math.sin(i*Math.PI/24)}));
+ page.pushOperators(moveTo(points[0].x,1000-points[0].y),...points.slice(1).map(p=>lineTo(p.x,1000-p.y)),stroke());
+ line(285,260,355,260);line(355,260,355,345);line(355,345,285,345);line(285,345,285,260);
+ const boxes=[['STUDIO',270],['KING',290],['U101',330]].map(([value,y])=>{
+  const text=String(value),width=font.widthOfTextAtSize(text,10),x=320-width/2;
+  page.drawText(text,{x,y:1000-Number(y)-10,size:10,font});return {text,x,y:Number(y),width,height:10};
+ });
+ page.drawText('U101',{x:310,y:1000-485-6,size:6,font});
+ const index={page:2,lines:['PLAN ENLARGEMENTS'],boxes},entry={mark:'U101',description:'Guestroom entry - typical',profileCode:'A',sourceSchedulePage:9};
+ const bytes=await pdf.save();
+ const noContext=await analyzeVectorPlan(bytes,index,['U101']);assert.equal(noContext.observations[0].handing,'');
+ const supported=await analyzeVectorPlan(bytes,index,['U101'],[],{entryRoomContexts:[entry]});
+ assert.equal(supported.observations.length,1);assert.equal(supported.observations[0].handing,'LH',JSON.stringify(supported.decodeEvidence));
+ assert.match(supported.observations[0].handingEvidence,/outside guestroom U101/);assert.match(supported.observations[0].handingEvidence,/PDF page 9/);
+ const wrongUnit=await analyzeVectorPlan(bytes,index,['U101'],[],{entryRoomContexts:[{...entry,mark:'U102'}]});
+ assert.equal(wrongUnit.observations[0].handing,'');
+ const covered=await PDFDocument.load(bytes);covered.getPage(0).drawRectangle({x:240,y:1000-360,width:160,height:120,color:rgb(1,1,1)});
+ const hidden=await analyzeVectorPlan(await covered.save(),index,['U101'],[],{entryRoomContexts:[entry]});
+ assert.equal(hidden.observations[0].handing,'','a hidden frame in the path list is not source proof');
+});
