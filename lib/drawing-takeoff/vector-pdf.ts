@@ -11,13 +11,14 @@ import { planRegions, referenceHand, regionReferences } from "./vector-regions";
 import type { z } from "zod";
 import type { extractionSchema } from "./extraction-schema";
 import { displayedTextBox } from "./text-geometry";
+import {hexagonalDoorTags,visibleHexagonalDoorTag,hexagonalTagNearDoor} from './hexagonal-door-tags';
 import {printedCapsuleTags,printedCircleTags} from './printed-tag-shapes';
 import {capsuleVisibility} from './tag-visibility';
 import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 9;
+export const VECTOR_VERSION = 10;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -153,6 +154,19 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     const maps = [false,true].map(dilate => { const map=planRegions(pixels,canvas.width,canvas.height,scale,doors,dilate);return { map, references:regionReferences(map,boxes,doors,allowExterior) }; });
     const known = new Set(knownMarks.map(mark=>mark.trim().toUpperCase()));
     const tags = [...boxes,...(index.annotationTags||[])].filter(box=>known.size?known.has(box.text.toUpperCase()):/^[A-Z]?\d{1,5}(?:-[A-Z0-9]+|[A-Z])?$/.test(box.text));
+    const hexKeys=new Set<string>();
+    const hexTags=partition.regions.flatMap(region=>hexagonalDoorTags(boxes,region,known)).filter(tag=>{
+      const key=`${tag.label.text}:${tag.outline.x.toFixed(1)}:${tag.outline.y.toFixed(1)}`;
+      if(hexKeys.has(key))return false;hexKeys.add(key);
+      return doors.some(door=>hexagonalTagNearDoor(tag,door))&&visibleHexagonalDoorTag(tag,{data:pixels,width:canvas.width,height:canvas.height,scale,offsetX:0,offsetY:0});
+    });
+    const tagMatches=new Map(tags.map(tag=>{
+      const center={x:tag.x+tag.width/2,y:tag.y+tag.height/2};
+      const direct=doors.map(door=>({door,d:distance(center,{x:(door.hinge.x+door.jamb.x)/2,y:(door.hinge.y+door.jamb.y)/2})/door.radius})).filter(row=>row.d<.8).sort((a,b)=>a.d-b.d);
+      if(direct.length)return [tag,direct] as const;
+      const hex=hexTags.find(shape=>shape.label===tag);
+      return [tag,hex?doors.filter(door=>hexagonalTagNearDoor(hex,door)).map(door=>({door,d:Infinity})):[]] as const;
+    }));
     const cards=entryRoomCards(index.boxes||boxes,paths,options.entryRoomContexts||[]);
     let entryHands:Awaited<ReturnType<typeof focusedEntryHands>>|null=null;
     if(!partition.skipped&&cards.length)try{entryHands=await focusedEntryHands(page,cards,doors,tags,focusedRaster,printedTagReviewEvidence);}catch{
@@ -161,22 +175,24 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     Object.assign(decodeEvidence,{entryReferenceCards:cards.length,entryReferenceHands:entryHands?.size||0});
     const observations: Observation[] = [];
     for (const tag of tags) {
-      const center={x:tag.x+tag.width/2,y:tag.y+tag.height/2};
-      const matches=doors.map(door=>({door,d:distance(center,{x:(door.hinge.x+door.jamb.x)/2,y:(door.hinge.y+door.jamb.y)/2})/door.radius})).filter(row=>row.d<0.8).sort((a,b)=>a.d-b.d);
+      const matches=tagMatches.get(tag)!;
       if (!matches.length) continue;
       const door=matches[0].door;
-      const hands=matches.length===1?maps.map(({map,references})=>referenceHand(map,references,door)):[];
+      const unique=matches.length===1&&!tags.some(other=>other!==tag&&(other.text!==tag.text||Math.hypot(other.x-tag.x,other.y-tag.y)>.5)&&tagMatches.get(other)?.some(row=>row.door===door));
+      const hands=unique?maps.map(({map,references})=>referenceHand(map,references,door)):[];
       const fullPlanHand=!partition.skipped&&fullContext && hands.length===2 && hands[0] && hands[1] && hands[0].handing===hands[1].handing && hands[0].referenceKind===hands[1].referenceKind?hands[0]:null;
-      const entryHand=matches.length===1?entryHands?.get(door):null;
+      const entryHand=unique?entryHands?.get(door):null;
       const agreed=fullPlanHand&&entryHand&&fullPlanHand.handing!==entryHand.handing?null:fullPlanHand||entryHand;
-      const points=matches.flatMap(row=>[row.door.hinge,row.door.jamb,row.door.leaf]);points.push({x:tag.x,y:tag.y},{x:tag.x+tag.width,y:tag.y+tag.height});
+      const points=matches.flatMap(row=>[row.door.hinge,row.door.jamb,row.door.leaf]);
+      if(matches[0].d===Infinity)points.push(...(hexTags.find(shape=>shape.label===tag)?.points||[]));
+      points.push({x:tag.x,y:tag.y},{x:tag.x+tag.width,y:tag.y+tag.height});
       const x=Math.max(0,Math.min(...points.map(point=>point.x))-1),y=Math.max(0,Math.min(...points.map(point=>point.y))-1);
       const right=Math.min(base.width,Math.max(...points.map(point=>point.x))+1),bottom=Math.min(base.height,Math.max(...points.map(point=>point.y))+1);
       if(right<=x||bottom<=y)continue;
       observations.push({mark:tag.text,sourcePage:index.page,boundingBox:{x:x/base.width,y:y/base.height,width:(right-x)/base.width,height:(bottom-y)/base.height},
         hingeSide:agreed?.hingeSide||"unknown",swingDirection:agreed?.swingDirection||"unclear",handing:agreed?.handing||"",
-        symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}. Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
-        handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
+        symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}.${matches[0].d===Infinity?' A visible six-sided schedule-mark tag adjoins the candidate opening.':''} Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
+        handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.`:!unique?"More than one tag or swing can describe this opening; hand requires source review.":decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
     return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,printedTagReviewEvidence,decodeEvidence,
       ...(regionReason?{reason:regionReason}:!observations.length?{reason:"Vector swing symbols were found, but no target tag could be reliably attached to one."}:{}) };
