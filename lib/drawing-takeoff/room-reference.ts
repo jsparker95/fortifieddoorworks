@@ -1,10 +1,11 @@
 import type {TextBox} from './indexing';
 import type {VectorPath} from './vector-geometry';
+import type {PrintedReviewEvidence} from './printed-review-candidates';
 import type {SourcePixels} from './tag-visibility';
 import type {RegionMap} from './vector-regions';
-import {handFromVector,type VectorDoor} from './vector-geometry';
-export type EntryRoomContext={mark:string;description:string;profileCode:string;sourceSchedulePage:number};
-export type EntryRoomCard={mark:string;profileCode:string;sourceSchedulePage:number;description:string;roomLabel:string;bounds:{x:number;y:number;width:number;height:number}};
+import {handFromVector,distance,type VectorDoor} from './vector-geometry';
+export type EntryRoomContext={mark:string;description:string;profileCode:string;sourceSchedulePage:number;sourceAnnotation?:true;catalogLabel?:TextBox};
+export type EntryRoomCard=EntryRoomContext&{roomLabel:string;bounds:{x:number;y:number;width:number;height:number}};
 type Span={from:number;to:number};
 const middleX=(box:TextBox)=>box.x+box.width/2;
 
@@ -89,17 +90,35 @@ export function entryRoomHand(map:RegionMap,card:EntryRoomCard,door:VectorDoor,o
  const edges=cardSeeds(map,card),ids=edges.flat().filter(Boolean);
  const regions=[...new Set(ids)].filter(id=>ids.filter(value=>value===id).length>=6&&edges.filter(edge=>edge.includes(id)).length>=2
   &&!map.border[id]&&map.areas[id]>1000&&map.areas[id]<map.width*map.height*.6);
- if(regions.length!==1)return null;
- const region=regions[0];
- if(otherCards.some(other=>other.mark.trim().toUpperCase()!==card.mark.trim().toUpperCase()&&cardSeeds(map,other).flat().filter(id=>id===region).length>=2))return null;
+ if(!regions.length||regions.some(region=>otherCards.some(other=>other.mark.trim().toUpperCase()!==card.mark.trim().toUpperCase()&&cardSeeds(map,other).flat().filter(id=>id===region).length>=2)))return null;
+ const usable=regions;
  const middle={x:(door.hinge.x+door.jamb.x)/2,y:(door.hinge.y+door.jamb.y)/2};
  const axis={x:door.jamb.x-door.hinge.x,y:door.jamb.y-door.hinge.y},normal={x:-axis.y/door.radius,y:axis.x/door.radius};
- const sides=[1,-1].map(sign=>({sign,votes:[.15,.35,.6,1.1,1.4].flatMap(offset=>[-.2,0,.2].map(tangent=>regionAt(map,
-  middle.x+sign*normal.x*door.radius*offset+axis.x*tangent,middle.y+sign*normal.y*door.radius*offset+axis.y*tangent))).filter(id=>id===region).length}));
- const chosen=sides.filter(side=>side.votes>=4);
- if(chosen.length!==1||sides.some(side=>side.sign!==chosen[0].sign&&side.votes>0))return null;
+ const sides=[1,-1].map(sign=>({sign,ids:[.15,.35,.6,1.1,1.4].flatMap(offset=>[-.2,0,.2].map(tangent=>regionAt(map,
+  middle.x+sign*normal.x*door.radius*offset+axis.x*tangent,middle.y+sign*normal.y*door.radius*offset+axis.y*tangent)))}));
+ // Furniture can divide the card's surroundings into several zones. One
+ // enclosed zone must reach this entry, and none may reach its opposite side.
+ const chosen=sides.filter(side=>usable.some(region=>side.ids.filter(id=>id===region).length>=4));
+ if(chosen.length!==1||sides.some(side=>side.sign!==chosen[0].sign&&side.ids.some(id=>usable.includes(id))))return null;
  const hand=handFromVector(door,{x:-normal.x*chosen[0].sign,y:-normal.y*chosen[0].sign});
  return hand?{...hand,referenceKind:'unit-entry' as const,reference:`outside guestroom ${card.mark}; printed ${card.roomLabel} room card and guestroom-entry schedule on PDF page ${card.sourceSchedulePage}`} : null;
+}
+
+/** An annotated identifier is only a suggestion until its exact visible style
+ * label and swing bind to the same doorway. A nearby catalog code is insufficient. */
+export function entryCodeMatchesDoor(card:EntryRoomCard,door:VectorDoor,doors:VectorDoor[],evidence:PrintedReviewEvidence[]){
+ if(door.paired)return false;
+ if(!card.sourceAnnotation)return true;
+ const label=card.catalogLabel;if(!label)return false;
+ const matches=evidence.filter(item=>item.visibility==='visible-outline'&&item.doorContext==='single'
+  &&item.shape.text.trim().toUpperCase()===card.profileCode.trim().toUpperCase()
+  &&Math.abs(item.shape.label.x-label.x)<.5&&Math.abs(item.shape.label.y-label.y)<.5);
+ if(!matches.length)return false;
+ const locations=new Set(matches.map(item=>`${item.shape.label.x.toFixed(1)}:${item.shape.label.y.toFixed(1)}`));
+ if(locations.size!==1)return false;
+ const center={x:label.x+label.width/2,y:label.y+label.height/2};
+ const nearby=doors.filter(d=>distance(center,{x:(d.hinge.x+d.jamb.x)/2,y:(d.hinge.y+d.jamb.y)/2})/d.radius<.8);
+ return nearby.length===1&&nearby[0]===door;
 }
 
 type ContextAnalysis={openings?:Array<Record<string,unknown>>;annotationOpeningCandidates?:Array<Record<string,unknown>>};
@@ -113,8 +132,16 @@ export function entryContextsForPage(analysis:ContextAnalysis|undefined,page:num
  for(const row of rows){
   const mark=String(row.mark||'').trim(),description=String(row.room||'').trim(),profileCode=String(row.sourceCatalogCode||row.doorType||'').trim(),sourceSchedulePage=Number(row.sourceSchedulePage||row.sourcePage);
   if(!mark||!profileCode||Number(row.leafCount)>1||!Number.isInteger(sourceSchedulePage)||sourceSchedulePage<1||!/\bGUEST\s*ROOM\b.*\bENTRY\b/i.test(description))continue;
-  const key=mark.toUpperCase(),context={mark,description,profileCode,sourceSchedulePage},values=byMark.get(key)||[];
-  if(!values.some(c=>c.description===description&&c.profileCode===profileCode&&c.sourceSchedulePage===sourceSchedulePage))values.push(context);
+  let catalogLabel:TextBox|undefined;
+  if(row.sourceAnnotation===true){
+   try{const box=JSON.parse(String(row.sourceCatalogLabelBounds||'null'));
+    if(!box||box.page!==page||String(box.text).trim().toUpperCase()!==profileCode.toUpperCase()
+      ||![box.x,box.y,box.width,box.height].every(Number.isFinite)||box.width<=0||box.height<=0)continue;
+    catalogLabel={text:String(box.text),x:box.x,y:box.y,width:box.width,height:box.height};
+   }catch{continue;}
+  }
+  const key=mark.toUpperCase(),context:EntryRoomContext={mark,description,profileCode,sourceSchedulePage,...(row.sourceAnnotation===true?{sourceAnnotation:true,catalogLabel}:{})},values=byMark.get(key)||[];
+  if(!values.some(c=>JSON.stringify(c)===JSON.stringify(context)))values.push(context);
   byMark.set(key,values);
  }
  return [...byMark.values()].flatMap(values=>values.length===1?values:[]).sort((a,b)=>a.mark.localeCompare(b.mark));

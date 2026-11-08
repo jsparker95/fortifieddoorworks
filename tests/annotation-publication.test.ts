@@ -17,7 +17,7 @@ test('publication keeps held labels out of automatic saves, retires catalog ghos
  const source=await readFile('lib/drawing-takeoff/job-publish.ts','utf8');const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  const appRequire=createRequire(import.meta.url),exports:Record<string,any>={};
  vm.runInNewContext(code,{exports,require:(name:string)=>name==='./job-store'?{
-  loadJob:async()=>({db,job,document:{id:'doc'}}),listExtractionTasks:async()=>[{kind:'types',input:{pages:[10]},status:'complete',result:{}},{kind:'plan',input:{pages:[1]},status:'complete',result:{vectorVersion:VECTOR_VERSION,doorwayObservations:[{mark:'A101',sourcePage:1,boundingBox:{x:.1,y:.1,width:.1,height:.1},confidence:.95,handing:'RH',symbolEvidence:'Visible arc and leaf',handingEvidence:'Exact framed unit card; both checks agree.'}],printedTagReviewEvidence:[{page:1,shape:{kind:'printed-capsule',text:'15',label:{text:'15',x:100,y:100,width:20,height:16},outline:{x:95,y:100,width:30,height:16}},visibility:'visible-outline',doorContext:'single'}]}}],
+  loadJob:async()=>({db,job,document:{id:'doc'}}),listExtractionTasks:async()=>[{kind:'plan',input:{pages:[1]},status:'complete',result:{vectorVersion:VECTOR_VERSION-1,doorwayObservations:[{mark:'A101',sourcePage:1,boundingBox:{x:.1,y:.1,width:.1,height:.1},confidence:.99,handing:'LH',symbolEvidence:'Old cache',handingEvidence:'Old interpretation'}]}},{kind:'types',input:{pages:[10]},status:'complete',result:{}},{kind:'plan',input:{pages:[1]},status:'complete',result:{vectorVersion:VECTOR_VERSION,doorwayObservations:[{mark:'A101',sourcePage:1,boundingBox:{x:.1,y:.1,width:.1,height:.1},confidence:.95,handing:'RH',symbolEvidence:'Visible arc and leaf',handingEvidence:'Exact framed unit card; both checks agree.'}],printedTagReviewEvidence:[{page:1,shape:{kind:'printed-capsule',text:'15',label:{text:'15',x:100,y:100,width:20,height:16},outline:{x:95,y:100,width:30,height:16}},visibility:'visible-outline',doorContext:'single'}]}}],
   readIndex:async()=>[],updateJob:async(_id:string,value:Record<string,unknown>)=>{published=value;},PUBLICATION_VERSION:'test',
  }:appRequire(path.resolve('lib/drawing-takeoff',name))});
  await exports.publishProgress('job',true);
@@ -26,4 +26,22 @@ test('publication keeps held labels out of automatic saves, retires catalog ghos
  assert.equal(saved.doorTypes[0].id,'profile');assert.equal(published.progress.reviewOpeningCount,3);assert.equal(published.progress.openingCount,0);
  assert.match(published.progress.message,/3 door labels need review/);assert.match(published.progress.message,/1 supported hand is attached to door labels awaiting review/);assert.equal(published.analysis.annotationOpeningCandidates[0].handing,'RH');assert.equal(published.analysis.annotationOpeningCandidates.length,3);assert.equal(published.analysis.annotationOpeningCandidates[2].sourcePrintedCode,'15');assert.equal(published.analysis.annotationOpeningCandidates[2].handing,'');
  await exports.publishProgress('job',true);saved=project.data.phases[0].data;assert.equal(saved.openings.length,2);
+});
+
+test('publication reuses a completed model response against the latest literal schedule fields',async()=>{
+ const old={mark:'A1',sourcePage:2,room:'Entry',width:'6/0',height:'7/0',doorType:'A',frameType:'',wallType:'',hardwareGroup:'H1',fireRating:'',quantity:'1',handing:'',evidence:'Old printed row',confidence:.95,doorFinish:'F-OLD',leafCount:'1',leafWidth:'6/0',scheduleNotes:'Old note'};
+ const fresh={...old,sourceBuilding:'East',doorFinish:'F-NEW',leafCount:'2',leafWidth:'3/0',scheduleNotes:'Current printed pair note',evidence:'Current printed source'};
+ const task={kind:'doors',status:'complete',input:{pages:[2],building:'East',inventory:[old]},result:{openings:[old]},metrics:{responseId:'retained-model-response'}};
+ let project:any={version:1,data:{activePhaseId:'phase',phases:[{id:'phase',data:{openings:[],doorTypes:[],walls:[],hardware:[]}}]}};
+ const job={id:'job',project_id:'project',phase_id:'phase',import_enabled:true,index_path:'',progress:{},analysis:{openings:[fresh],openingCatalog:[],annotationOpeningCandidates:[],relevantPages:[{page:2,section:'door'}]}};
+ const db={from:(table:string)=>table==='projects'?{
+  select:()=>({eq:()=>({single:async()=>({data:project,error:null})})}),
+  update:(values:any)=>({eq:()=>({eq:()=>({select:()=>({maybeSingle:async()=>{project={...project,...values};return {data:{id:'project'},error:null};}})})})}),
+ }:{update:()=>({eq:async()=>({error:null})})}};
+ const source=await readFile('lib/drawing-takeoff/job-publish.ts','utf8'),code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ const appRequire=createRequire(import.meta.url),exports:Record<string,any>={};
+ vm.runInNewContext(code,{exports,require:(name:string)=>name==='./job-store'?{loadJob:async()=>({db,job,document:{id:'doc'}}),listExtractionTasks:async()=>[task],readIndex:async()=>[],updateJob:async()=>{},PUBLICATION_VERSION:'test'}:appRequire(path.resolve('lib/drawing-takeoff',name))});
+ await exports.publishProgress('job',true);
+ const saved=project.data.phases[0].data.openings[0];assert.equal(saved.doorFinish,'F-NEW');assert.equal(saved.scheduleNotes,'Current printed pair note');assert.equal(saved.leafCount,'2');assert.equal(saved.leafWidth,'3/0');assert.equal(saved.qty,'1');assert.equal(saved.width,'6/0');
+ assert.equal(task.input.inventory[0].doorFinish,'F-OLD');assert.equal(task.metrics.responseId,'retained-model-response');
 });

@@ -10,7 +10,7 @@ import { hardwareSetIdentifier, hardwareSetKey } from "./references";
 import { inventoryHardwareRows, reconcileHardwareRows, preserveHardwareIdentity } from "./hardware-evidence";
 import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wall-evidence";
 import { VECTOR_VERSION } from "./vector-pdf";
-import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows, isOpeningRowTypeEvidence, type Opening } from "./indexing";
+import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows,currentTaskInventory, isOpeningRowTypeEvidence, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
 import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows, phaseCandidateKey } from "./phase-import";
@@ -38,6 +38,8 @@ export async function publishProgress(jobId: string, final = false) {
   type ScopedOpening = typeof output.openings[number] & { sourceBuilding?: string; handingEvidence?: string };
   const openings = new Map<string, ScopedOpening>((job.analysis?.openings || []).filter((row:ScopedOpening)=>!catalogKeys.has(catalogOpeningKey(row.sourcePage,row.mark))).map((row: ScopedOpening) => [`${row.sourcePage}:${normalizeMark(row.mark)}`, row]));
   const scoped = <T extends object>(rows: T[], building: string) => rows.map(row => ({ ...row, sourceBuilding: building }));
+  const currentNativeObservations=new Set<object>();
+  const freshInventory=[...(job.analysis?.openings||[]),...(job.analysis?.openingCatalog||[])] as Array<Opening&{sourceBuilding?:string}>;
   const observations: Array<typeof output.doorwayObservations[number] & { sourceBuilding?: string }> = [];
   const incompleteHardwareGroups=new Map<string,{page:number;group:string}>();
   const hardwareImageReads: typeof output.hardwareGroups[] = [];
@@ -57,7 +59,7 @@ export async function publishProgress(jobId: string, final = false) {
     if(task.input.hardwareSection?.continuationGroup&&Array.isArray(task.result.incompleteHardwareGroups)&&task.result.incompleteHardwareGroups.length)output.uncertainties.push(`PDF page ${task.input.pages[0]}: the column continuation for hardware group ${task.input.hardwareSection.continuationGroup} could not be confirmed. Its saved component list may be incomplete; review the source.`);
     if (task.input.matrixArtifact && Array.isArray(task.result.matrixOpeningGroups)) matrixOpeningGroups.push(...task.result.matrixOpeningGroups);
     const building = canonicalBuilding(task.input.building || "", [...openings.values()].map(row => row.sourceBuilding || ""));
-    const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(task.input.inventory as Opening[], result.openings || []) : result.openings || [];
+    const taskOpenings = task.input.inventory?.length ? reconcileInventoriedRows(currentTaskInventory(task.input.inventory as Opening[],freshInventory,task.input.building||""), result.openings || []) : result.openings || [];
     for (const row of scoped(taskOpenings, building)) {
       if(catalogKeys.has(catalogOpeningKey(row.sourcePage,row.mark)))continue;
       if (task.input.scheduleSection) visualScheduleRows.push(row);
@@ -98,7 +100,9 @@ export async function publishProgress(jobId: string, final = false) {
       ? (result.doorwayObservations||[]).map(row=>({...row,handing:"" as const,hingeSide:"unknown" as const,swingDirection:"unclear" as const,
         handingEvidence:"Vision-only hand was withheld pending independent geometry or manual verification."}))
       :result.doorwayObservations||[];
-    observations.push(...scoped(taskObservations, building));
+    const scopedObservations=scoped(taskObservations,building);
+    if(task.kind==='plan'&&task.result.vectorVersion===VECTOR_VERSION)scopedObservations.forEach(row=>currentNativeObservations.add(row));
+    observations.push(...scopedObservations);
   }
   const baseImageRows=mergeHardwareImageReads(hardwareImageReads);
   for(const continuation of hardwareContinuations){
@@ -114,7 +118,7 @@ export async function publishProgress(jobId: string, final = false) {
     if(row&&(!(row as Opening).hardwareGroupInventoried||!row.hardwareGroup))openings.set(key,{...row,hardwareGroup:link.group});
   }
   const detected = deduplicateDoors(observations.map((row, i) => ({ id: String(i), page: row.sourcePage, box: row.boundingBox,
-    mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
+    mark: row.mark,sourcePriority:currentNativeObservations.has(row)?1:0, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
   const kept = detected.doors.map(row => observations[Number(row.id)]);
   const rows = [...openings.values()];
   output.uncertainties.push(...pairSizeReviewNotes([...rows,...(job.analysis?.openingCatalog||[])]));

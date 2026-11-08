@@ -17,7 +17,9 @@ export function planRegions(pixels: Uint8ClampedArray, width: number, height: nu
   const threshold=options.inkThreshold??100;
   for (let i = 0; i < count; i++) {
     const r=pixels[i*4],g=pixels[i*4+1],b=pixels[i*4+2];
-    const dimension=options.omitBlueDimensions&&b>r+40&&b>g+40;
+    // Bright antialiased blue edges can be much less saturated than the
+    // center stroke. Preserve near-neutral dark architectural ink.
+    const dimension=options.omitBlueDimensions&&b>r+8&&b>g+8&&(b>180||b-Math.min(r,g)>40);
     mask[i]=!dimension&&0.2126*r+0.7152*g+0.0722*b<threshold?1:0;
   }
   if (dilate) {

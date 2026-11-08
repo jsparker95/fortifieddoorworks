@@ -1,16 +1,17 @@
+import type {PrintedReviewEvidence} from './printed-review-candidates';
 import type {FocusedPageRaster} from './focused-page-raster';
 import type {PDFPageProxy} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type {TextBox} from './indexing';
 import {distance,type VectorDoor} from './vector-geometry';
 import {planRegions,regionScratch,type RegionScratch} from './vector-regions';
-import {entryRoomHand,roomCardVisible,type EntryRoomCard} from './room-reference';
+import {entryRoomHand,roomCardVisible,entryCodeMatchesDoor,type EntryRoomCard} from './room-reference';
 
 type RoomHand=NonNullable<ReturnType<typeof entryRoomHand>>;
 
 /** A full-sheet thumbnail cannot preserve every light gray wall. Check bounded
  * source tiles at 2x only for uniquely tagged guestroom-entry doors. Missing
  * boundaries, merged units, hidden cards and disagreeing masks stay unknown. */
-export async function focusedEntryHands(page:PDFPageProxy,cards:EntryRoomCard[],doors:VectorDoor[],tags:TextBox[],raster:FocusedPageRaster){
+export async function focusedEntryHands(page:PDFPageProxy,cards:EntryRoomCard[],doors:VectorDoor[],tags:TextBox[],raster:FocusedPageRaster,printed:PrintedReviewEvidence[]=[]){
  const hands=new Map<VectorDoor,RoomHand>(),base=page.getViewport({scale:1});
  let rendered=0,scratch:RegionScratch|undefined;
  for(const card of cards){
@@ -20,7 +21,9 @@ export async function focusedEntryHands(page:PDFPageProxy,cards:EntryRoomCard[],
   }).filter(matches=>matches.length);
   const unique=[...new Set(candidates.flat())];
   if(unique.length!==1||candidates.some(matches=>matches.length!==1)||unique[0].paired)continue;
-  const door=unique[0],points=[door.hinge,door.jamb,door.leaf],pad=door.radius*4,b=card.bounds;
+  const door=unique[0];
+  if(!entryCodeMatchesDoor(card,door,doors,printed))continue;
+  const points=[door.hinge,door.jamb,door.leaf],pad=door.radius*4,b=card.bounds;
   const x=Math.max(0,Math.floor(Math.min(b.x,...points.map(p=>p.x))-pad)),y=Math.max(0,Math.floor(Math.min(b.y,...points.map(p=>p.y))-pad));
   const width=Math.ceil((Math.min(base.width,Math.max(b.x+b.width,...points.map(p=>p.x))+pad)-x)*2);
   const height=Math.ceil((Math.min(base.height,Math.max(b.y+b.height,...points.map(p=>p.y))+pad)-y)*2);
@@ -37,7 +40,7 @@ export async function focusedEntryHands(page:PDFPageProxy,cards:EntryRoomCard[],
    const map=planRegions(pixels,width,height,2,localDoors,true,{inkThreshold:235,omitBlueDimensions:true,dilationRadius,scratch});
    return entryRoomHand(map,localCard,localDoor,localCards);
   });
-  if(checks[0]&&checks[1]&&checks[0].handing===checks[1].handing)hands.set(door,checks[0]);
+  if(checks[0]&&checks[1]&&checks[0].handing===checks[1].handing)hands.set(door,{...checks[0],reference:`${checks[0].reference}${card.sourceAnnotation?`; visible schedule code ${card.profileCode} binds to the same doorway`:""}`});
  }
  return hands;
 }

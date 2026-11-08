@@ -65,7 +65,7 @@ test('leaked, merged, clipped, or disconnected room regions cannot set a hand',(
 test('focused region masks retain light gray walls and omit blue dimension lines only when requested',()=>{
  const width=200,height=200,pixels=new Uint8ClampedArray(width*height*4).fill(255);
  const pixel=(x:number,y:number,r:number,g=r,b=r)=>{const i=(y*width+x)*4;pixels[i]=r;pixels[i+1]=g;pixels[i+2]=b;};
- for(let x=20;x<=180;x++){pixel(x,20,200);pixel(x,180,200);pixel(x,100,0,0,160);}
+ for(let x=20;x<=180;x++){pixel(x,20,200);pixel(x,180,200);pixel(x,100,52,52,179);pixel(x,101,203,203,236);}
  for(let y=20;y<=180;y++){pixel(20,y,200);pixel(180,y,200);}
  const ordinary=planRegions(pixels,width,height,1,[],true);
  assert.equal(ordinary.border[ordinary.ids[40*width+40]],true,'old mask remains unchanged');
@@ -75,6 +75,8 @@ test('focused region masks retain light gray walls and omit blue dimension lines
  }
  const partitioned=planRegions(pixels,width,height,1,[],true,{inkThreshold:235});
  assert.notEqual(partitioned.ids[40*width+40],partitioned.ids[140*width+40]);
+ for(let x=20;x<=180;x++){pixel(x,20,50,50,60);pixel(x,180,50,50,60);}for(let y=20;y<=180;y++){pixel(20,y,50,50,60);pixel(180,y,50,50,60);}
+ const neutral=planRegions(pixels,width,height,1,[],true,{inkThreshold:235,omitBlueDimensions:true});assert.equal(neutral.border[neutral.ids[40*width+40]],false);
 });
 test('short glyph strokes cannot hide a complete frame when choosing border candidates',()=>{
  const {boxes,paths}=fixture();
@@ -83,13 +85,37 @@ test('short glyph strokes cannot hide a complete frame when choosing border cand
 });
 
 test('entry contexts require schedule provenance and reject ambiguous labels and conflicting definitions',()=>{
- const row={mark:'U101',room:'Guestroom entry - typical',doorType:'A',sourceCatalogCode:'A',sourceSchedulePage:9,sourcePage:2,sourceLabelPages:'2, 3',sourceAnnotation:true,associationStatus:'suggested',autoImportEligible:false};
+ const row={mark:'U101',room:'Guestroom entry - typical',doorType:'A',sourceCatalogCode:'A',sourceSchedulePage:9,sourcePage:2,sourceLabelPages:'2, 3',sourceCatalogLabelBounds:JSON.stringify({page:2,text:'A',x:10,y:20,width:10,height:8}),sourceAnnotation:true,associationStatus:'suggested',autoImportEligible:false};
  assert.equal(entryContextsForPage({annotationOpeningCandidates:[row]},2).length,1);
- assert.equal(entryContextsForPage({annotationOpeningCandidates:[row]},3).length,1);
+ assert.equal(entryContextsForPage({annotationOpeningCandidates:[row]},3).length,0,'a code on another page cannot bind this entry');
+ assert.equal(entryContextsForPage({annotationOpeningCandidates:[{...row,sourceCatalogLabelBounds:'invalid'}]},2).length,0);
  assert.equal(entryContextsForPage({annotationOpeningCandidates:[row]},4).length,0);
  assert.equal(entryContextsForPage({annotationOpeningCandidates:[{...row,associationStatus:'ambiguous'}]},2).length,0);
  assert.equal(entryContextsForPage({annotationOpeningCandidates:[{...row,sourceSchedulePage:0,sourcePage:0}]},2).length,0);
  assert.equal(entryContextsForPage({openings:[{...row,sourceAnnotation:undefined}]},2).length,0,'catalog definition is not a physical opening');
- assert.equal(entryContextsForPage({annotationOpeningCandidates:[row,{...row,sourceCatalogCode:'B'}]},2).length,0);
+ assert.equal(entryContextsForPage({annotationOpeningCandidates:[row,{...row,sourceCatalogCode:'B',sourceCatalogLabelBounds:JSON.stringify({page:2,text:'B',x:40,y:20,width:10,height:8})}]},2).length,0);
  assert.equal(entryContextsForPage({annotationOpeningCandidates:[row,row]},2).length,1);
+});
+
+test('a card spanning furniture zones requires an enclosed connection on only one door side',()=>{
+ const {map,card,door}=roomFixture();map.areas=[0,0,0];map.border=[false,false,false];
+ for(let y=20;y<120;y++)for(let x=50;x<250;x++){const id=x-y<70?2:1;map.ids[y*300+x]=id;map.areas[id]++;}
+ assert.equal(entryRoomHand(map,card,door,[card])?.handing,'LH');
+ const leaking={...map,ids:map.ids.slice()};for(let y=121;y<170;y++)for(let x=100;x<180;x++)leaking.ids[y*300+x]=1;
+ assert.equal(entryRoomHand(leaking,card,door,[card]),null,'two referenced zones on opposite sides stay ambiguous');
+});
+
+import {entryCodeMatchesDoor} from '../lib/drawing-takeoff/room-reference';
+import type {PrintedReviewEvidence} from '../lib/drawing-takeoff/printed-review-candidates';
+test('an annotated entry needs the exact visible style label on the same unique doorway',()=>{
+ const {card,door}=roomFixture(),label={text:'A',x:135,y:117,width:10,height:6},annotated={...card,sourceAnnotation:true as const,catalogLabel:label};
+ const proof:PrintedReviewEvidence={page:2,visibility:'visible-outline',doorContext:'single',shape:{kind:'printed-capsule',text:'A',label,outline:{x:130,y:115,width:20,height:10},visibility:'requires-source-review',autoImportEligible:false}};
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door],[proof]),true);
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door],[{...proof,visibility:'not-confirmed'}]),false);
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door],[{...proof,shape:{...proof.shape,text:'B'}}]),false);
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door],[{...proof,shape:{...proof.shape,label:{...label,x:200}}}]),false);
+ assert.equal(entryCodeMatchesDoor({...annotated,catalogLabel:undefined},door,[door],[proof]),false);
+ const adjacent={...door,hinge:{x:120,y:126},jamb:{x:160,y:126},leaf:{x:120,y:86}};
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door,adjacent],[proof]),false);
+ assert.equal(entryCodeMatchesDoor(annotated,door,[door],[{...proof,doorContext:'ambiguous'}]),false);
 });
