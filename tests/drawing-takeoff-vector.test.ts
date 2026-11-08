@@ -178,3 +178,34 @@ test('current native evidence wins over obsolete cached confidence without chang
  const result=deduplicateDoors([{...base,id:'old',confidence:.99},{...base,id:'current',confidence:.8,sourcePriority:1}]);
  assert.equal(result.doors[0].id,'current');assert.equal(result.doors[0].confidence,.8);assert.equal(result.suppressed[0].id,'old');
 });
+
+test('displaced six-sided tags require visible outlines, unique identity and the full-plan reference',async()=>{
+ const {rgb}=await import('pdf-lib');
+ const pdf=await PDFDocument.create(),page=pdf.addPage([1000,1000]),font=await pdf.embedFont(StandardFonts.Helvetica);
+ const line=(x1:number,y1:number,x2:number,y2:number)=>page.pushOperators(moveTo(x1,1000-y1),lineTo(x2,1000-y2),stroke());
+ page.pushOperators(setLineWidth(2));
+ line(100,180,500,180);line(500,180,500,400);line(500,400,100,400);line(100,400,100,180);
+ line(100,250,300,250);line(330,250,500,250);line(300,250,300,280);
+ const swing=arc({...door,hinge:{x:300,y:250}}).points;
+ page.pushOperators(moveTo(swing[0].x,1000-swing[0].y),...swing.slice(1).map(p=>lineTo(p.x,1000-p.y)),stroke());
+ page.drawText('CORRIDOR',{x:150,y:780,size:10,font});page.drawText('BUNK',{x:150,y:650,size:10,font});
+ // Text is more than .8 radii from the opening; its visible border adjoins it.
+ const hex=[{x:346,y:270},{x:354,y:256},{x:370,y:256},{x:378,y:270},{x:370,y:284},{x:354,y:284},{x:346,y:270}];
+ for(let i=1;i<hex.length;i++)line(hex[i-1].x,hex[i-1].y,hex[i].x,hex[i].y);
+ page.drawText('D12',{x:353,y:1000-273,size:9,font});
+ const bytes=await pdf.save(),index={page:5,lines:['OVERALL FLOOR PLAN']};
+ const found=await analyzeVectorPlan(bytes,index,['D12']);
+ assert.equal(found.observations.length,1);assert.equal(found.observations[0].handing,'RH',JSON.stringify(found));
+ assert.match(found.observations[0].symbolEvidence,/visible six-sided/i);
+ assert.ok(found.observations[0].boundingBox.y+found.observations[0].boundingBox.height>=.284,'source crop includes the full tag outline');
+ const detail=await analyzeVectorPlan(bytes,{...index,lines:['ENLARGED OFFICE/ELECTRICAL FLOOR PLAN']},['D12']);assert.equal(detail.observations[0].handing,'');
+ const hidden=await PDFDocument.load(bytes);hidden.getPage(0).drawRectangle({x:340,y:1000-290,width:45,height:40,color:rgb(1,1,1)});
+ assert.equal((await analyzeVectorPlan(await hidden.save(),index,['D12'])).observations.length,0);
+ const twoSwings=await PDFDocument.load(bytes),secondPage=twoSwings.getPage(0);
+ secondPage.drawRectangle({x:368,y:1000-253,width:34,height:6,color:rgb(1,1,1)});
+ const second=Array.from({length:13},(_,i)=>({x:400-30*Math.cos(i*Math.PI/24),y:250+30*Math.sin(i*Math.PI/24)}));
+ secondPage.pushOperators(setLineWidth(2),moveTo(400,750),lineTo(400,720),stroke(),moveTo(second[0].x,1000-second[0].y),...second.slice(1).map(p=>lineTo(p.x,1000-p.y)),stroke());
+ const multiple=await analyzeVectorPlan(await twoSwings.save(),index,['D12']);assert.equal(multiple.geometryCount,2);assert.equal(multiple.observations.length,1);assert.equal(multiple.observations[0].handing,'');
+ const competing=await PDFDocument.load(bytes);competing.getPage(0).drawText('D13',{x:310,y:1000-241,size:6,font});
+ const ambiguous=await analyzeVectorPlan(await competing.save(),index,['D12','D13']);assert.equal(ambiguous.observations.length,2);assert.ok(ambiguous.observations.every(o=>!o.handing));
+});
