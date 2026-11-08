@@ -45,6 +45,6 @@ test('off-page, invalid and oversized raster evidence is withheld',()=>{
 test('an enclosed gray corridor can prove a side around an obstructed straight ray',()=>{
  const target={...door,hinge:{x:150,y:200},jamb:{x:190,y:200},leaf:{x:150,y:240}};
  const {image,cards}=source('blocked-ray-enclosed'),hand=corridorVisibilityReference(image,cards,[target])?.hand(target);
- assert.equal(hand?.handing,'LHR');assert.equal(hand?.method,'enclosed-region');assert.match(hand.proof,/exterior inference disabled/);
+ assert.equal(hand?.handing,'LHR');assert.equal(hand?.method,'enclosed-region');assert.match(hand.proof,/no exterior reference used/);
  const open=source('blocked-ray-open');assert.equal(corridorVisibilityReference(open.image,open.cards,[target])?.hand(target)||null,null,'an open gray boundary cannot justify the region fallback');
 });

@@ -226,6 +226,12 @@ test('faint existing walls can use a visible corridor room card without inferrin
  for(const [x1,y1,x2,y2] of [[178,202,202,202],[202,202,202,218],[202,218,178,218],[178,218,178,202]])framedPage.drawLine({start:{x:x1,y:1000-y1},end:{x:x2,y:1000-y2},thickness:2});
  const bytes=await framed.save(),found=await analyzeVectorPlan(bytes,index,['127']);
  assert.equal(found.observations[0].handing,'RH',JSON.stringify(found));assert.match(found.observations[0].handingEvidence,/printed CORRIDOR room 103/);assert.match(found.observations[0].handingEvidence,/Clear source rays/);
+ const safe=sanitizeExtraction({...combineExtractionOutputs(null,null),doorwayObservations:found.observations},new Set([6]));
+ assert.equal(safe.doorwayObservations[0].handing,'RH','native sight-line proof survives the production worker validator');assert.equal(safe.uncertainties.length,0);
+ const around=await PDFDocument.load(bytes);around.getPage(0).drawLine({start:{x:240,y:795},end:{x:240,y:752},thickness:2});
+ const enclosed=await analyzeVectorPlan(await around.save(),index,['127']);assert.equal(enclosed.observations[0].handing,'RH');assert.match(enclosed.observations[0].handingEvidence,/Corridor region proof/);
+ const checked=sanitizeExtraction({...combineExtractionOutputs(null,null),doorwayObservations:enclosed.observations},new Set([6]));assert.equal(checked.doorwayObservations[0].handing,'RH','native enclosed-region proof survives the production worker validator');assert.equal(checked.uncertainties.length,0);
+ const guessed=sanitizeExtraction({...combineExtractionOutputs(null,null),doorwayObservations:enclosed.observations.map(o=>({...o,handingEvidence:'Assumed corridor side; guess the outside reference'}))},new Set([6]));assert.equal(guessed.doorwayObservations[0].handing,'','unsupported reference wording remains rejected');
  const detail=await analyzeVectorPlan(bytes,{...index,lines:['ENLARGED OFFICE/ELECTRICAL FLOOR PLAN']},['127']);assert.equal(detail.observations[0].handing,'');
  const hidden=await PDFDocument.load(bytes);hidden.getPage(0).drawRectangle({x:155,y:1000-235,width:70,height:50,color:rgb(1,1,1)});
  assert.equal((await analyzeVectorPlan(await hidden.save(),index,['127'])).observations[0].handing,'');

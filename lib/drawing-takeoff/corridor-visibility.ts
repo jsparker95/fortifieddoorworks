@@ -82,7 +82,7 @@ export function corridorVisibilityReference(image:SourcePixels,cards:Card[],door
    if(exhausted||choices.some(c=>new Set(c.map(v=>v.sign)).size>1))return null;
    const shared=choices[1].find(b=>choices[0].some(a=>a.cardIndex===b.cardIndex&&a.sign===b.sign));
    if(shared){const hand=handFromVector(door,{x:normal.x*shared.sign,y:normal.y*shared.sign});
-    return hand?{...hand,referenceKind:'corridor' as const,reference:`printed ${shared.card.label.text} room ${shared.card.number.text}; unobstructed source sight lines`,method:'sight-lines' as const,proof:shared.rays.slice(0,3).map(r=>`(${r.from.x.toFixed(2)},${r.from.y.toFixed(2)}) to (${r.to.x.toFixed(2)},${r.to.y.toFixed(2)})`).join('; ')}:null;
+    return hand?{...hand,referenceKind:'corridor' as const,reference:`corridor side of printed ${shared.card.label.text} room ${shared.card.number.text}; unobstructed source sight lines`,method:'sight-lines' as const,proof:shared.rays.slice(0,3).map(r=>`(${r.from.x.toFixed(2)},${r.from.y.toFixed(2)}) to (${r.to.x.toFixed(2)},${r.to.y.toFixed(2)})`).join('; ')}:null;
    }
    // Printed tags/furniture can obscure a straight ray. An actually enclosed
    // gray-ink corridor is an independent proof, with exterior inference off.
@@ -94,7 +94,7 @@ export function corridorVisibilityReference(image:SourcePixels,cards:Card[],door
     return referenceHand(map,{labels:[{...card.label,region:ids[0]}],exterior:new Set<number>()},door);
    });return hands[0]&&hands[1]&&hands[0].handing===hands[1].handing?[{card,hand:hands[0]}]:[];});
    if(new Set(candidates.map(c=>c.hand.handing)).size!==1)return null;
-   const selected=candidates[0];return {...selected.hand,reference:`printed ${selected.card.label.text} room ${selected.card.number.text}; enclosed gray-ink corridor`,method:'enclosed-region' as const,proof:`Visible framed corridor card at (${center(selected.card.label).toFixed(2)},${selected.card.label.y.toFixed(2)}) belongs to an enclosed region reaching only one doorway side in both source masks; exterior inference disabled`};
+   const selected=candidates[0];return {...selected.hand,reference:`corridor side of printed ${selected.card.label.text} room ${selected.card.number.text}; enclosed gray-ink corridor`,method:'enclosed-region' as const,proof:`Visible framed corridor card at (${center(selected.card.label).toFixed(2)},${selected.card.label.y.toFixed(2)}) belongs to an enclosed region reaching only one doorway side in both source masks; no exterior reference used`};
   }
  };
 }

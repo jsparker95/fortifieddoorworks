@@ -27,6 +27,7 @@ export async function publishProgress(jobId: string, final = false) {
   const tasks = recordedTasks.filter(task=>!task.result?.supersededBy&&taskMatchesFindings(task,job.analysis?.relevantPages));
   const wallPages = job.index_path && tasks.some(task => task.kind === "walls" && task.result) ? await readIndex(job.index_path) : [];
   const output = combineExtractionOutputs(null, null);
+  const currentNativePages=new Set(tasks.filter(task=>task.kind==='plan'&&task.status==='complete'&&task.result?.vectorVersion===VECTOR_VERSION).flatMap(task=>task.input.pages));
   const printedEvidence=tasks.filter(task=>task.kind==='plan'&&task.status==='complete'&&task.result?.vectorVersion===VECTOR_VERSION).flatMap(task=>Array.isArray(task.result?.printedTagReviewEvidence)?task.result.printedTagReviewEvidence.filter(item=>item&&typeof item==='object'&&task.input.pages.includes(Number((item as {page?:unknown}).page))):[]);
   const reviewPages=printedEvidence.length&&job.index_path?(wallPages.length?wallPages:await readIndex(job.index_path)):[];
   const printedCandidates=printedReviewCandidates(printedEvidence,job.analysis?.catalogDoorTypeCandidates||[],reviewPages,job.analysis?.annotationOpeningCandidates||[]);
@@ -95,7 +96,8 @@ export async function publishProgress(jobId: string, final = false) {
       return false;
     });
     output.walls.push(...scoped(definitionsOfWalls,building));
-    output.uncertainties.push(...(result.uncertainties || []));
+    const replacedNative=task.kind==='plan'&&typeof task.result.vectorVersion==='number'&&task.result.vectorVersion!==VECTOR_VERSION&&task.input.pages.length>0&&task.input.pages.every(page=>currentNativePages.has(page));
+    if(!replacedNative)output.uncertainties.push(...(result.uncertainties || []));
     const taskObservations=task.kind==="plan"&&task.result.vectorVersion!==VECTOR_VERSION
       ? (result.doorwayObservations||[]).map(row=>({...row,handing:"" as const,hingeSide:"unknown" as const,swingDirection:"unclear" as const,
         handingEvidence:"Vision-only hand was withheld pending independent geometry or manual verification."}))
