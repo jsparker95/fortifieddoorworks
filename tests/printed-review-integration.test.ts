@@ -80,3 +80,11 @@ test('exceeding the overlap page budget requires explicit manual review rather t
  assert.equal(rows.length,65);assert.ok(rows.every(row=>row.sourceOverlapReviewRequired));
  assert.throws(()=>reviewedCandidateRows('doc',[{kind:'openings',row:{...rows[0],mark:'X'},index:0}],[def]),/repeated view/);
 });
+
+test('a reviewed printed catalog label retains its source material, finish, notes and paired-leaf attributes',()=>{
+ const detailed={...def,material:'SC WOOD',doorFinish:'FIN-2',frameMaterial:'HM',frameFinish:'FIN-3',scheduleNotes:'Use acoustic seals.',leafCount:'2',leafWidth:'1/6',sourceScheduleDoorType:'M'};
+ const [candidate]=printedReviewCandidates([{...evidence(),doorContext:'paired'}],[detailed]);
+ assert.equal(mapAnalysisToPhaseRows('doc',{openings:[candidate]}).openings!.length,0);
+ const saved=reviewedCandidateRows('doc',[{kind:'openings',row:{...candidate,mark:'Reviewed pair'},index:0}],[detailed]).openings![0];
+ assert.equal(saved.doorMaterial,'SC WOOD');assert.equal(saved.doorFinish,'FIN-2');assert.equal(saved.frameMaterial,'HM');assert.equal(saved.frameFinish,'FIN-3');assert.equal(saved.scheduleNotes,'Use acoustic seals.');assert.equal(saved.leafCount,'2');assert.equal(saved.leafWidth,'1/6');assert.equal(saved.qty,'1');assert.equal(saved.handing,'');assert.equal(saved.sourceScheduleDoorType,'M');
+});

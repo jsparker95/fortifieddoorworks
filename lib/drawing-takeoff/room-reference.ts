@@ -112,7 +112,7 @@ export function entryContextsForPage(analysis:ContextAnalysis|undefined,page:num
  const byMark=new Map<string,EntryRoomContext[]>();
  for(const row of rows){
   const mark=String(row.mark||'').trim(),description=String(row.room||'').trim(),profileCode=String(row.sourceCatalogCode||row.doorType||'').trim(),sourceSchedulePage=Number(row.sourceSchedulePage||row.sourcePage);
-  if(!mark||!profileCode||!Number.isInteger(sourceSchedulePage)||sourceSchedulePage<1||!/\bGUEST\s*ROOM\b.*\bENTRY\b/i.test(description))continue;
+  if(!mark||!profileCode||Number(row.leafCount)>1||!Number.isInteger(sourceSchedulePage)||sourceSchedulePage<1||!/\bGUEST\s*ROOM\b.*\bENTRY\b/i.test(description))continue;
   const key=mark.toUpperCase(),context={mark,description,profileCode,sourceSchedulePage},values=byMark.get(key)||[];
   if(!values.some(c=>c.description===description&&c.profileCode===profileCode&&c.sourceSchedulePage===sourceSchedulePage))values.push(context);
   byMark.set(key,values);

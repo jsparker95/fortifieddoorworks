@@ -1,3 +1,4 @@
+import {pairSizeReviewNotes} from './schedule-fields';
 import {reviewLabelHands} from './review-label-hands';
 import { taskMatchesFindings } from "./plan-task-policy";
 import { mergeHardwareImageReads } from "./hardware-sections";
@@ -116,6 +117,7 @@ export async function publishProgress(jobId: string, final = false) {
     mark: row.mark, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
   const kept = detected.doors.map(row => observations[Number(row.id)]);
   const rows = [...openings.values()];
+  output.uncertainties.push(...pairSizeReviewNotes([...rows,...(job.analysis?.openingCatalog||[])]));
   output.doorTypes.push(...referencedDoorTypes(rows, output.doorTypes));
   const matchedDoorways = kept.map(door => {
     const matches = rows.filter(row => normalizeMark(row.mark) === normalizeMark(door.mark)

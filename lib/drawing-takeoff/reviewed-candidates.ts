@@ -1,3 +1,4 @@
+import {scheduleFields} from './schedule-fields';
 import type {Kind,Row} from '../types';
 import {mapPhaseCandidate,phaseCandidateKey} from './phase-import';
 
@@ -14,7 +15,9 @@ export const validCatalogChoice=(row:Record<string,unknown>)=>row.sourceCatalogD
 export function chooseAnnotationCatalog(row:Record<string,unknown>,definition:Record<string,unknown>):Record<string,unknown>{
   if(!isDrawingReviewLabel(row)||!validCatalogChoice(definition))throw new Error('Choose a printed schedule entry for this drawing label.');
   const evidence=`Reviewer selected printed schedule entry ${definition.code} on PDF page ${definition.sourcePage}.`;
-  return {...row,room:String(definition.description||''),width:String(definition.width||''),height:String(definition.height||''),doorType:String(definition.code),frameType:String(definition.frameType||''),hardwareGroup:String(definition.hardwareGroup||''),fireRating:String(definition.fireRating||''),
+  const sameSource=String(row.sourceCatalogCode||'')===String(definition.code)&&Number(row.sourceSchedulePage)===Number(definition.sourcePage)
+    &&String(row.sourceBuilding||'')===String(definition.sourceBuilding||'')&&String(row.room||'')===String(definition.description||'');
+  return {...row,...scheduleFields(definition),...(!sameSource||Number(definition.leafCount)>1?{handing:'',handingEvidence:''}:{}),room:String(definition.description||''),width:String(definition.width||''),height:String(definition.height||''),doorType:String(definition.code),frameType:String(definition.frameType||''),hardwareGroup:String(definition.hardwareGroup||''),fireRating:String(definition.fireRating||''),
     sourceCatalogCode:String(definition.code),sourceSchedulePage:Number(definition.sourcePage),sourceBuilding:String(definition.sourceBuilding||''),associationStatus:'reviewer-selected',associationEvidence:evidence,
     evidence:`${row.evidence||''}\n${evidence} ${definition.evidence||''}`,autoImportEligible:false};
 }

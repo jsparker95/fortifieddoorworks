@@ -67,3 +67,25 @@ test('ambiguous and repeated labels withhold dimensions, type and hand',()=>{
  const unresolved=resolveAnnotationCandidates([{...page,boxes:[...page.boxes,box('02',310),box('01',330)],annotationTags:[...page.annotationTags!,box('A104',320)]}],[row,{...row,mark:'02'}]).candidates.find(candidate=>candidate.mark==='A104')!;
  assert.equal(unresolved.associationStatus,'ambiguous');assert.equal(unresolved.width,'');assert.equal(unresolved.handing,'');
 });
+
+test('literal schedule attributes survive annotation suggestions, catalog selection and explicit saves',()=>{
+ const detailed={...row,doorMaterial:'SC WOOD',doorFinish:'LAM-2',doorThickness:'1-3/4"',frameMaterial:'HM, PTW-6',frameFinish:'',scheduleNotes:'Paint corridor face only.',leafCount:'2',leafWidth:'1\'-6"'};
+ const result=resolveAnnotationCandidates([page],[detailed]),candidate=result.candidates[0],definition=result.catalogDefinitions[0];
+ for(const original of [candidate,chooseAnnotationCatalog(candidate,definition)]){
+  const saved=reviewedCandidateRows('doc',[{kind:'openings',row:original,index:0}],result.catalogDefinitions).openings![0];
+  for(const key of ['doorMaterial','doorFinish','doorThickness','frameMaterial','frameFinish','scheduleNotes','leafCount','leafWidth'] as const)assert.equal(saved[key],detailed[key]);
+  assert.equal(saved.sourceScheduleDoorType,'M','diagram type remains distinct from reusable profile01');
+  assert.equal(saved.doorType,'01');
+ }
+ assert.equal(definition.frameMaterial,'HM, PTW-6');assert.equal(definition.material,'SC WOOD');
+});
+
+test('a changed schedule choice clears stale source attributes and reference-dependent handing',()=>{
+ const result=resolveAnnotationCandidates([page],[row]),candidate={...result.candidates[0],handing:'RH',handingEvidence:'Outside guestroom reference',doorMaterial:'Old material',frameFinish:'Old finish',leafCount:'2',leafWidth:'3/0',scheduleNotes:'Old notes'};
+ const same=chooseAnnotationCatalog(candidate,result.catalogDefinitions[0]);assert.equal(same.handing,'RH');
+ assert.equal(chooseAnnotationCatalog(candidate,{...result.catalogDefinitions[0],leafCount:'2'}).handing,'');
+ const changed=chooseAnnotationCatalog(candidate,{...result.catalogDefinitions[0],code:'02',description:'Sliding closet',material:'WOOD'});
+ assert.equal(changed.handing,'');assert.equal(changed.handingEvidence,'');assert.equal(changed.doorMaterial,'WOOD');assert.equal(changed.frameFinish,'');assert.equal(changed.leafCount,'');assert.equal(changed.leafWidth,'');assert.equal(changed.scheduleNotes,'');
+ const ambiguous=resolveAnnotationCandidates([{...page,boxes:[...page.boxes,box('02',310),box('01',330)],annotationTags:[...page.annotationTags!,box('A104',320)]}],[{...row,frameMaterial:'HM',scheduleNotes:'Source notes'},{...row,mark:'02',frameMaterial:'WD'}]).candidates.find(c=>c.mark==='A104')!;
+ assert.equal(ambiguous.frameMaterial,'');assert.equal(ambiguous.scheduleNotes,'');
+});

@@ -139,6 +139,8 @@ export function reconcileInventoriedRows(inventory: Opening[], generated: Openin
     return { ...row, ...(model || {}), mark: row.mark, width: row.width, height: row.height,
       sourcePage: row.sourcePage, quantity: "1", evidence: row.evidence, room: row.room || model?.room || "", doorType: row.doorTypeInventoried ? row.doorType : row.doorType || model?.doorType || "",
       doorMaterial: row.doorMaterial, doorFinish: row.doorFinish, doorThickness: row.doorThickness, frameMaterial: row.frameMaterial, frameFinish: row.frameFinish,
+      scheduleNotes:row.scheduleNotes!==undefined?row.scheduleNotes:model?.scheduleNotes,
+      leafCount:row.leafCount!==undefined?row.leafCount:model?.leafCount,leafWidth:row.leafWidth!==undefined?row.leafWidth:model?.leafWidth,
       frameType: row.frameTypeInventoried ? row.frameType : row.frameType || (row.frameMaterial ? "" : model?.frameType || ""),
       hardwareGroup: row.hardwareGroupInventoried ? row.hardwareGroup : row.hardwareGroup || model?.hardwareGroup || "",
       fireRating: row.fireRatingInventoried ? row.fireRating : row.fireRating || model?.fireRating || "",
