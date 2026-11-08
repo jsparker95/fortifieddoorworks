@@ -119,23 +119,42 @@ export async function publishProgress(jobId: string, final = false) {
   }
   const detected = deduplicateDoors(observations.map((row, i) => ({ id: String(i), page: row.sourcePage, box: row.boundingBox,
     mark: row.mark,sourcePriority:currentNativeObservations.has(row)?1:0, confidence: row.confidence, evidence: row.symbolEvidence, tileId: `crop:${i}` })), 0.4);
-  const kept = detected.doors.map(row => observations[Number(row.id)]);
+  const conflictingIds = new Set(detected.conflicts.flat());
+  const conflictedObservations = new Set<object>();
+  const kept = detected.doors.map(row => {
+    const observation = observations[Number(row.id)];
+    if (!conflictingIds.has(row.id)) return observation;
+    const held = { ...observation, handing: "" as const,
+      hingeSide: "unknown" as const, swingDirection: "unclear" as const,
+      handingEvidence: "Different opening labels overlap the same door symbol. Confirm the physical opening identifier before assigning a hand." };
+    conflictedObservations.add(held);
+    return held;
+  });
+  for (const [left, right] of detected.conflicts) {
+    const a = observations[Number(left)], b = observations[Number(right)];
+    output.uncertainties.push(`PDF page ${a.sourcePage}: opening labels ${a.mark || '(unmarked)'} and ${b.mark || '(unmarked)'} overlap the same door symbol. Their geometric hands were withheld until the identifier is checked against the source.`);
+  }
   const rows = [...openings.values()];
+  // A cached geometric hand is not a printed schedule fact. Keep an explicit
+  // source hand, but do not let an earlier publication restore a held hand.
+  const printedHandOnly = (row: ScopedOpening | null) => row ? { ...row,
+    handing: /^(?:LH|RH|LHR|RHR)$/.test(row.handing || "") && new RegExp(`\\b${row.handing}\\b`, "i").test(row.evidence) ? row.handing : "" } : null;
   output.uncertainties.push(...pairSizeReviewNotes([...rows,...(job.analysis?.openingCatalog||[])]));
   output.doorTypes.push(...referencedDoorTypes(rows, output.doorTypes));
   const matchedDoorways = kept.map(door => {
     const matches = rows.filter(row => normalizeMark(row.mark) === normalizeMark(door.mark)
       && (!door.sourceBuilding || !row.sourceBuilding || door.sourceBuilding === row.sourceBuilding));
     const row = matches.length === 1 ? matches[0] : null;
+    const identityConflict = conflictedObservations.has(door);
     return { ...door, evidence: door.symbolEvidence, schedulePage: row?.sourcePage ?? null, scheduleMatches: matches.length,
       scheduleEvidence: row?.evidence || "", width: row?.width || "", height: row?.height || "",
-      handing: resolveOpeningHanding(row, door.handing, output.doorTypes),
-      reviewReasons: [...(!row ? ["Door tag is unreadable, unmatched, or ambiguous across schedules."] : []), ...(!door.handing ? ["Reference side or swing requires review."] : [])] };
+      handing: resolveOpeningHanding(identityConflict ? printedHandOnly(row) : row, door.handing, output.doorTypes), identityConflict,
+      reviewReasons: [...(!row ? ["Door tag is unreadable, unmatched, or ambiguous across schedules."] : []), ...(identityConflict ? ["Different opening labels overlap the same symbol; check the source identifier."] : []), ...(!door.handing ? ["Reference side or swing requires review."] : [])] };
   });
   output.openings = rows.map(row => {
     const matched = matchedDoorways.filter(door => door.schedulePage === row.sourcePage && normalizeMark(door.mark) === normalizeMark(row.mark));
     const hands = [...new Set(matched.map(door => door.handing).filter(Boolean))];
-    return { ...row, handing: resolveOpeningHanding(row, hands.length === 1 ? hands[0] : undefined, output.doorTypes),
+    return { ...row, handing: resolveOpeningHanding(matched.some(door => door.identityConflict) ? printedHandOnly(row) : row, hands.length === 1 ? hands[0] : undefined, output.doorTypes),
       handingEvidence: hands.length === 1 ? matched.find(door => door.handing)?.handingEvidence || "" : "", countSource: "schedule" };
   });
   // A drawing-only upload still produces reviewable opening drafts. When a
