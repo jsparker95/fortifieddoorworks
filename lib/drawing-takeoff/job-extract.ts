@@ -45,10 +45,10 @@ export async function extractTask(taskId: string) {
   try {
     const kind = task.kind as keyof typeof schemas;
     const input = task.input;
-    if (kind === "hardware" && input.matrixArtifact) {
-      const matrix = JSON.parse(new TextDecoder().decode(await getArtifact(input.matrixArtifact)));
+    if (kind === "hardware" && (input.matrixArtifact||input.hardwareTableArtifact)) {
+      const matrix = JSON.parse(new TextDecoder().decode(await getArtifact((input.matrixArtifact||input.hardwareTableArtifact)!)));
       const result = {...combineExtractionOutputs(null,null),hardwareGroups:matrix.hardwareGroups,matrixOpeningGroups:matrix.openingGroups,uncertainties:matrix.uncertainties};
-      const metrics = {elapsedMs:Date.now()-started,model:"source/hardware-matrix",aiCallsThisAttempt:0,gatewayCostUsd:"0"};
+      const metrics = {elapsedMs:Date.now()-started,model:matrix.sourceMethod||"source/hardware-matrix",aiCallsThisAttempt:0,gatewayCostUsd:"0"};
       const {error:saveError}=await db.from("document_extraction_tasks").update({result,metrics,status:"complete",error:null,updated_at:new Date().toISOString()}).eq("id",taskId);
       if(saveError)throw saveError;
       return {};

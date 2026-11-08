@@ -1,6 +1,6 @@
 /** Preserve the printed identifier while removing the surrounding table heading. */
 export function hardwareSetIdentifier(value: string) {
-  const identifier = value.trim().replace(/^(?:HARDWARE\s+)?SET\s*(?:NO\.?\s*)?[:#]?\s*/i, '').replace(/^#\s*/, '').trim();
+  const identifier = value.trim().replace(/^(?:HARDWARE\s+)?(?:SET|GROUP)\s*(?:NO\.?\s*)?[:#]?\s*/i, '').replace(/^#\s*/, '').trim();
   return /^(?:N\s*\/\s*A|NONE|NOT APPLICABLE|[-—])$/i.test(identifier) ? '' : identifier;
 }
 export function hardwareSetKey(value: string) {

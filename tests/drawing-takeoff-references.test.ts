@@ -6,6 +6,8 @@ test('hardware table headings and zero padding cannot break schedule-to-set link
  assert.equal(hardwareSetIdentifier('SET #01'),'01');
  assert.equal(hardwareSetKey('SET #01'),hardwareSetKey('1'));
  assert.equal(hardwareSetIdentifier('Hardware Set No. 15-D'),'15-D');
+ assert.equal(hardwareSetIdentifier('Hardware Group No. AL01'),'AL01');
+ assert.equal(hardwareSetKey('Hardware Group No. 01'),hardwareSetKey('1'));
  assert.notEqual(hardwareSetKey('15-D'),hardwareSetKey('15-F'));
  assert.equal(hardwareSetIdentifier('#03'),'03');
  assert.equal(hardwareSetKey('#03'),hardwareSetKey('03'));

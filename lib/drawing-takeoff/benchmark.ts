@@ -15,7 +15,8 @@ function normalized(field: BenchmarkField, value: string | undefined) {
   if (!text || /^(TBD|UNKNOWN|N\/A|UNCLEAR|NOT DETERMINED)$/.test(text)) return null;
   if (field === "width" || field === "height") return benchmarkDimension(text);
   if (field === "handing") return ({ L: "LH", R: "RH", LH: "LH", RH: "RH", LHR: "LHR", RHR: "RHR" } as Record<string, string>)[text] || null;
-  return text.replace(/^(\d+)\.0+$/, "$1").replace(/\s+/g, " ");
+  const identifier=text.replace(/^(\d+)\.0+$/, "$1").replace(/\s+/g, " ");
+  return field==='hardwareGroup'?identifier.replace(/^0+(?=\d)/,''):identifier;
 }
 export function compareOpeningBenchmark(expected: BenchmarkOpening[], actual: BenchmarkOpening[]) {
   const expectedByMark = new Map(expected.map(row => [canonicalMark(row.mark), row]));
