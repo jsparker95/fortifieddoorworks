@@ -8,5 +8,5 @@ export function scheduleSearchDescription(schedules: Schedule[]) {
     ["door","No door/opening schedule table was confirmed."],
     ["frame","No door/frame type drawings were confirmed."],
   ] as const).filter(([kind])=>!schedules.some(s=>s.kind===kind)).map(([,message])=>message);
-  return [...found,...missing,...(!schedules.length?["Floor plans, when present, will be inspected for supported door observations."]:[])].join(" ");
+  return [...found,...missing,...(!schedules.length?["Relevant drawings are listed for manual review; handing is not assigned automatically."]:[])].join(" ");
 }

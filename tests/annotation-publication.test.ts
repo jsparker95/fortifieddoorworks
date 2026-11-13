@@ -24,7 +24,7 @@ test('publication keeps held labels out of automatic saves, retires catalog ghos
  let saved=project.data.phases[0].data;
  assert.deepEqual(saved.openings.map((row:Row)=>row.id),['reviewed','other']);
  assert.equal(saved.doorTypes[0].id,'profile');assert.equal(published.progress.reviewOpeningCount,3);assert.equal(published.progress.openingCount,0);
- assert.match(published.progress.message,/3 door labels need review/);assert.match(published.progress.message,/1 supported hand is attached to door labels awaiting review/);assert.equal(published.analysis.annotationOpeningCandidates[0].handing,'RH');assert.equal(published.analysis.annotationOpeningCandidates.length,3);assert.equal(published.analysis.annotationOpeningCandidates[2].sourcePrintedCode,'15');assert.equal(published.analysis.annotationOpeningCandidates[2].handing,'');
+ assert.match(published.progress.message,/3 door labels need review/);assert.match(published.progress.message,/Handing pages are listed for manual review/);assert.equal(published.analysis.annotationOpeningCandidates[0].handing,'');assert.equal(published.analysis.annotationOpeningCandidates.length,3);assert.equal(published.analysis.annotationOpeningCandidates[2].sourcePrintedCode,'15');assert.equal(published.analysis.annotationOpeningCandidates[2].handing,'');
  await exports.publishProgress('job',true);saved=project.data.phases[0].data;assert.equal(saved.openings.length,2);
 });
 
@@ -63,9 +63,9 @@ test('publication holds conflicting symbol labels, clears cached geometric hands
  await exports.publishProgress('job',true);
  const saved=project.data.phases[0].data.openings;
  assert.equal(saved.find((r:any)=>r.name==='A1').handing,'LH');
- assert.equal(saved.find((r:any)=>r.name==='A2').handing,'');
- assert.equal(saved.find((r:any)=>r.name==='A3').handing,'LH');
- assert.equal(saved.find((r:any)=>r.name==='B1').handing,'RH');
+ assert.equal(saved.find((r:any)=>r.name==='A2').handing,undefined);
+ assert.equal(saved.find((r:any)=>r.name==='A3').handing,undefined);
+ assert.equal(saved.find((r:any)=>r.name==='B1').handing,undefined);
  assert.equal(published.analysis.doorwayObservations.filter((r:any)=>r.mark!=='B1').every((r:any)=>!r.handing),true);
  assert.equal(published.analysis.matchedDoorways.find((r:any)=>r.mark==='A2').identityConflict,true);
  assert.match(published.analysis.uncertainties.join(' '),/A1 and A2 overlap the same door symbol/);
@@ -90,9 +90,9 @@ test('current withheld references clear cached geometric hands while printed and
  await exports.publishProgress('job',true);
  assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A1').handing,'');
  assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A1').handingEvidence,'');
- assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A2').handing,'LH');
- assert.match(published.analysis.openings.find((r:any)=>r.mark==='A2').handingEvidence,/Printed schedule hand LH/);
- assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A3').handing,'RH');
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A2').handing,'');
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A2').handingEvidence,'');
+ assert.equal(published.analysis.openings.find((r:any)=>r.mark==='A3').handing,'');
  assert.equal(project.data.phases[0].data.openings.find((r:any)=>r.name==='A1').handing,'LH');
  assert.ok(!published.analysis.uncertainties.includes('Obsolete native reference failure.'));assert.ok(published.analysis.uncertainties.includes('Current source still needs review.'));assert.ok(published.analysis.uncertainties.includes('Unreplaced native page requires review.'));
  assert.equal(cached.handing,'RH');assert.equal(job.analysis.openings[0].handing,'RH');
