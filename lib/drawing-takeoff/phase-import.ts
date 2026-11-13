@@ -60,14 +60,13 @@ export function mapPhaseCandidate(
     ...stamp,
     name: stringValue(row.mark) || `Unmarked · p. ${sourcePage(row)}`,
     room: stringValue(row.room), width: stringValue(row.width), height: stringValue(row.height),
-    handing: stringValue(row.handing), doorType: stringValue(row.doorType),
+    doorType: stringValue(row.doorType),
     frameType: stringValue(row.frameType), wall: stringValue(row.wallType),
     group: stringValue(row.hardwareGroup), fire: stringValue(row.fireRating), fireRating: stringValue(row.fireRating),
     doorMaterial: stringValue(row.doorMaterial), doorFinish: stringValue(row.doorFinish),
     doorThickness: stringValue(row.doorThickness), frameMaterial: stringValue(row.frameMaterial), frameFinish: stringValue(row.frameFinish),
-    qty: stringValue(row.quantity), hingeSide: stringValue(row.hingeSide),
-    swingDirection: stringValue(row.swingDirection), planReviewReasons: Array.isArray(row.planReviewReasons) ? row.planReviewReasons.map(String).join("; ") : stringValue(row.planReviewReasons),
-    handingEvidence: stringValue(row.handingEvidence),
+    qty: stringValue(row.quantity),
+    planReviewReasons: Array.isArray(row.planReviewReasons) ? row.planReviewReasons.map(String).join("; ") : stringValue(row.planReviewReasons),
     countSource: stringValue(row.countSource),
     sourceMarkedOut: row.markedOut === true, scopeEvidence: stringValue(row.scopeEvidence),
     scheduleNotes: stringValue(row.scheduleNotes), leafCount: stringValue(row.leafCount), leafWidth: stringValue(row.leafWidth),
@@ -126,7 +125,8 @@ export function mergePhaseCandidateRows(existing: Row[], incoming: Row[]): Row[]
     if (index < 0) {
       next.push(candidate);
     } else if (next[index].reviewState === "ai-draft" && !(candidate.sourcePlaceholder === true && next[index].sourcePlaceholder !== true)) {
-      next[index] = { ...candidate, id: next[index].id };
+      const manualHandFields=Object.fromEntries(['handing','hingeSide','swingDirection','handingEvidence'].filter(key=>!(key in candidate)&&key in next[index]).map(key=>[key,next[index][key]]));
+      next[index] = { ...candidate, ...manualHandFields, id: next[index].id };
     }
   }
   return next;

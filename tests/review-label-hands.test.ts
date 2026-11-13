@@ -3,10 +3,10 @@ import {reviewLabelHands} from '../lib/drawing-takeoff/review-label-hands';
 import {reviewedCandidateRows} from '../lib/drawing-takeoff/reviewed-candidates';
 const label={mark:'U101',sourceAnnotation:true,associationStatus:'suggested',sourcePage:2,sourceSchedulePage:9,sourceBuilding:'East',doorType:'A',width:'3/0',height:'6/8',room:'Guestroom entry',autoImportEligible:false,handing:''};
 const observation={mark:'U101',sourcePage:2,sourceBuilding:'East',handing:'RH',handingEvidence:'Visible arc and leaf; exact source unit card; both boundary checks agree.'};
-test('a grounded hand follows its held label through explicit review and retains the evidence',()=>{
+test('legacy computed hands are not imported when a source label is reviewed',()=>{
  const [candidate]=reviewLabelHands([label],[observation]);assert.equal(candidate.handing,'RH');assert.equal(candidate.autoImportEligible,false);
  const saved=reviewedCandidateRows('doc',[{kind:'openings',row:candidate,index:0}]);
- assert.equal(saved.openings?.[0].handing,'RH');assert.equal(saved.openings?.[0].handingEvidence,observation.handingEvidence);
+ assert.equal(saved.openings?.[0].handing,undefined);assert.equal(saved.openings?.[0].handingEvidence,undefined);
  assert.equal(saved.openings?.[0].reviewState,'human-reviewed');
  assert.equal(label.handing,'','source candidate is not mutated');
 });

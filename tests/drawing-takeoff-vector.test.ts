@@ -125,6 +125,8 @@ test("native PDF paths, rendered boundaries and corridor text produce a grounded
   assert.equal(result.supported, true);
   assert.equal(result.observations.length, 1);
   assert.equal(result.observations[0].handing, "RH");
+  const manual=await analyzeVectorPlan(bytes,{page:16,lines:['OVERALL FLOOR PLAN']},['127'],[],{extractHanding:false});
+  assert.equal(manual.observations.length,result.observations.length);assert.equal(manual.observations[0].handing,'');assert.equal(manual.observations[0].handingEvidence,'');assert.equal(manual.decodeEvidence?.entryReferenceHands,0);
   const safe = sanitizeExtraction({ ...combineExtractionOutputs(null, null), doorwayObservations: result.observations }, new Set([16]));
   assert.equal(safe.doorwayObservations[0].sourcePage, 16);
   assert.equal(safe.doorwayObservations[0].handing, "RH");

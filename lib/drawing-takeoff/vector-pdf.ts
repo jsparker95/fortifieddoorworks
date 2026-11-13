@@ -19,7 +19,7 @@ import type {PrintedReviewEvidence} from './printed-review-candidates';
 import {geometryPage} from './geometry-page';
 import {vectorPathRegions} from './vector-path-regions';
 
-export const VECTOR_VERSION = 12;
+export const VECTOR_VERSION = 13;
 type Observation = z.infer<typeof extractionSchema>["doorwayObservations"][number];
 export type VectorPlan = { version: number; supported: boolean; geometryCount: number; observations: Observation[]; printedTagReviewEvidence?:PrintedReviewEvidence[]; decodeEvidence?:{sourceBytes:number;geometryBytes:number;annotationsSeparated:boolean;expandedPoints?:number;geometryRegions?:number;skippedRegions?:number;entryReferenceCards?:number;entryReferenceHands?:number;entryReferenceFailure?:boolean;corridorVisibilityBudgetExceeded?:boolean};reason?: string };
 const multiply = (a: number[], b: number[]) => [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
@@ -31,7 +31,7 @@ export function completePlanContext(lines: string[]) {
 }
 
 /** Read the actual drawn paths, not an LLM's interpretation of a small swing symbol. */
-export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex, "page" | "lines"> & Partial<Pick<PageIndex,'annotationTags'|'boxes'>>, knownMarks: string[],catalogCodes:string[]=[],options:{unverifiedCircleLabels?:boolean;entryRoomContexts?:EntryRoomContext[]}={}): Promise<VectorPlan> {
+export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex, "page" | "lines"> & Partial<Pick<PageIndex,'annotationTags'|'boxes'>>, knownMarks: string[],catalogCodes:string[]=[],options:{extractHanding?:boolean;unverifiedCircleLabels?:boolean;entryRoomContexts?:EntryRoomContext[]}={}): Promise<VectorPlan> {
   if(bytes.byteLength>MAX_VECTOR_SOURCE_BYTES)return {version:VECTOR_VERSION,supported:false,geometryCount:0,observations:[],reason:'This source page exceeds the bounded page preparation budget. Review it manually or upload a smaller page segment.'};
   const sourceBytes=bytes.byteLength,geometry=await geometryPage(bytes);
   const decodeEvidence:NonNullable<VectorPlan['decodeEvidence']>={sourceBytes,geometryBytes:geometry.bytes.byteLength,annotationsSeparated:geometry.annotationsRemoved};
@@ -152,7 +152,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
     if (!doors.length) return {...unsupported(regionReason||"Candidate vector paths were not confirmed as visible ink. Printed labels remain for source review."),printedTagReviewEvidence};
     const fullContext = completePlanContext(index.lines);
     const allowExterior = fullContext;
-    const maps = [false,true].map(dilate => { const map=planRegions(pixels,canvas.width,canvas.height,scale,doors,dilate);return { map, references:regionReferences(map,boxes,doors,allowExterior) }; });
+    const maps = options.extractHanding===false?[]:[false,true].map(dilate => { const map=planRegions(pixels,canvas.width,canvas.height,scale,doors,dilate);return { map, references:regionReferences(map,boxes,doors,allowExterior) }; });
     const known = new Set(knownMarks.map(mark=>mark.trim().toUpperCase()));
     const tags = [...boxes,...(index.annotationTags||[])].filter(box=>known.size?known.has(box.text.toUpperCase()):/^[A-Z]?\d{1,5}(?:-[A-Z0-9]+|[A-Z])?$/.test(box.text));
     const hexKeys=new Set<string>();
@@ -168,7 +168,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       const hex=hexTags.find(shape=>shape.label===tag);
       return [tag,hex?doors.filter(door=>hexagonalTagNearDoor(hex,door)).map(door=>({door,d:Infinity})):[]] as const;
     }));
-    const cards=entryRoomCards(index.boxes||boxes,paths,options.entryRoomContexts||[]);
+    const cards=options.extractHanding===false?[]:entryRoomCards(index.boxes||boxes,paths,options.entryRoomContexts||[]);
     let entryHands:Awaited<ReturnType<typeof focusedEntryHands>>|null=null;
     if(!partition.skipped&&cards.length)try{entryHands=await focusedEntryHands(page,cards,doors,tags,focusedRaster,printedTagReviewEvidence);}catch{
       decodeEvidence.entryReferenceFailure=true;
@@ -185,7 +185,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       const fullPlanHand=!partition.skipped&&fullContext && hands.length===2 && hands[0] && hands[1] && hands[0].handing===hands[1].handing && hands[0].referenceKind===hands[1].referenceKind?hands[0]:null;
       const entryHand=unique?entryHands?.get(door):null;
       let sightLineHand:ReturnType<NonNullable<ReturnType<typeof corridorVisibilityReference>>['hand']>=null;
-      if(fullContext&&!partition.skipped&&unique&&!fullPlanHand&&!entryHand&&!decodeEvidence.entryReferenceFailure){
+      if(options.extractHanding!==false&&fullContext&&!partition.skipped&&unique&&!fullPlanHand&&!entryHand&&!decodeEvidence.entryReferenceFailure){
         if(corridorSightLines===undefined)corridorSightLines=corridorVisibilityReference({data:pixels,width:canvas.width,height:canvas.height,scale,offsetX:0,offsetY:0},corridorCards(boxes,paths),doors);
         sightLineHand=corridorSightLines?.hand(door)||null;
       }
@@ -199,7 +199,7 @@ export async function analyzeVectorPlan(bytes: Uint8Array, index: Pick<PageIndex
       observations.push({mark:tag.text,sourcePage:index.page,boundingBox:{x:x/base.width,y:y/base.height,width:(right-x)/base.width,height:(bottom-y)/base.height},
         hingeSide:agreed?.hingeSide||"unknown",swingDirection:agreed?.swingDirection||"unclear",handing:agreed?.handing||"",
         symbolEvidence:`Visible vector swing arc and straight leaf at tag ${tag.text}.${matches[0].d===Infinity?' A visible six-sided schedule-mark tag adjoins the candidate opening.':''} Hinge (${door.hinge.x.toFixed(2)},${door.hinge.y.toFixed(2)}), closed jamb (${door.jamb.x.toFixed(2)},${door.jamb.y.toFixed(2)}), open leaf tip (${door.leaf.x.toFixed(2)},${door.leaf.y.toFixed(2)}), in displayed PDF points.${door.paired?" Paired leaves share the closed jamb; a single hand is not assigned.":""}`,
-        handingEvidence:agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.${sightLineHand?` ${sightLineHand.method==='sight-lines'?'Clear source rays':'Corridor region proof'}: ${sightLineHand.proof}.`:''}`:!unique?"More than one tag or swing can describe this opening; hand requires source review.":decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
+        handingEvidence:options.extractHanding===false?'':agreed?`Calculated from vector geometry and ${agreed.reference}; both boundary checks agree. Traditional hand ${agreed.handing}.${sightLineHand?` ${sightLineHand.method==='sight-lines'?'Clear source rays':'Corridor region proof'}: ${sightLineHand.proof}.`:''}`:!unique?"More than one tag or swing can describe this opening; hand requires source review.":decodeEvidence.entryReferenceFailure?"The focused unit-reference check could not be completed. Review the source before assigning a hand.":!fullContext?"An enlarged/detail view does not establish the overall reference side. Review the complete floor plan before assigning a hand.":"Reference side, paired leaves, or region boundary requires review; no automatic swing hand assigned.",confidence:agreed?0.95:0.8});
     }
     if(corridorSightLines?.exhausted)decodeEvidence.corridorVisibilityBudgetExceeded=true;
     return { version:VECTOR_VERSION,supported:!!observations.length||!!knownMarks.length,geometryCount:doors.length,observations,printedTagReviewEvidence,decodeEvidence,

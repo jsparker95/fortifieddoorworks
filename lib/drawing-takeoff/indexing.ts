@@ -14,7 +14,7 @@ export type Opening = z.infer<typeof extractionSchema>["openings"][number] & {
 };
 export type TextBox = { text: string; x: number; y: number; width: number; height: number };
 export type PageIndex = { page: number; text: string; lines: string[]; boxes: TextBox[]; annotationTags?:TextBox[]; warnings?:string[]; width: number; height: number; rotation: number };
-export type PageKind = "door" | "hardware" | "types" | "walls" | "plan";
+export type PageKind = "door" | "hardware" | "types" | "walls" | "plan" | "handing";
 export type PageFinding = { page: number; kinds: PageKind[]; building: string; evidence: string; method: "text" | "vision"; openingRows: Opening[] };
 
 const dimension = String.raw`\d+\s*['’]\s*-?\s*\d+(?:\s+\d+\/\d+)?\s*["”]`;
@@ -191,6 +191,7 @@ export function confirmedPageKinds(kinds: PageKind[], evidence: string): PageKin
   const servicesPlan = /\b(?:SANITARY|STORM|DOMESTIC|WATER|GAS|POWER|LIGHTING|HVAC|PLUMBING|MECHANICAL|ELECTRICAL)(?:[\s/&,-]+[A-Z]+){0,4}\s+PLAN\b/i.test(evidence);
   return kinds.filter(kind => {
     if(kind==="plan")return !servicesPlan;
+    if(kind==="handing")return /\b(?:door[ -]+(?:swing|handing)|handing|LHR|RHR|LH|RH)\b/i.test(evidence);
     if(kind==="door")return /\b(?:DOOR|OPENING)\b/i.test(evidence)&&/\b(?:SCHEDULE|TABLE)\b/i.test(evidence);
     if(kind==="hardware")return /\b(?:HARDWARE|HINGE|LOCKSET|CLOSER|PANIC)\b/i.test(evidence)&&/\b(?:SCHEDULE|SETS?|GROUPS?)\b/i.test(evidence);
     if(kind==="types"&&/\bWINDOW TYPES\b/i.test(evidence)&&!/\b(?:DOOR|FRAME)\b/i.test(evidence))return false;

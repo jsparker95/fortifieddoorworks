@@ -1,5 +1,5 @@
+import {withoutAutomaticHanding} from './handing-pages';
 import {pairSizeReviewNotes} from './schedule-fields';
-import {reviewLabelHands} from './review-label-hands';
 import { taskMatchesFindings } from "./plan-task-policy";
 import { mergeHardwareImageReads } from "./hardware-sections";
 import { reconcileHardwareContinuation } from "./hardware-continuation";
@@ -12,7 +12,6 @@ import { inventoryWallNotes, reconcileWallNotes, wallCaptionAliases } from "./wa
 import { VECTOR_VERSION } from "./vector-pdf";
 import { canonicalBuilding, referencedDoorTypes, reconcileInventoriedRows,currentTaskInventory, isOpeningRowTypeEvidence, type Opening } from "./indexing";
 import { deduplicateDoors, normalizeMark } from "./geometry";
-import { resolveOpeningHanding } from "./schedule-evidence";
 import { mapAnalysisToPhaseRows, mergePhaseCandidateRows, phaseCandidateKey } from "./phase-import";
 import { loadJob, listExtractionTasks, readIndex, updateJob, PUBLICATION_VERSION } from "./job-store";
 import type { Kind, ProjectPhase } from "../types";
@@ -97,12 +96,12 @@ export async function publishProgress(jobId: string, final = false) {
     });
     output.walls.push(...scoped(definitionsOfWalls,building));
     const replacedNative=task.kind==='plan'&&typeof task.result.vectorVersion==='number'&&task.result.vectorVersion!==VECTOR_VERSION&&task.input.pages.length>0&&task.input.pages.every(page=>currentNativePages.has(page));
-    if(!replacedNative)output.uncertainties.push(...(result.uncertainties || []));
+    if(!replacedNative)output.uncertainties.push(...(result.uncertainties || []).filter(note=>!/\b(?:handing|handed|swing hand|doorway hand)\b/i.test(note)));
     const taskObservations=task.kind==="plan"&&task.result.vectorVersion!==VECTOR_VERSION
       ? (result.doorwayObservations||[]).map(row=>({...row,handing:"" as const,hingeSide:"unknown" as const,swingDirection:"unclear" as const,
         handingEvidence:"Vision-only hand was withheld pending independent geometry or manual verification."}))
       :result.doorwayObservations||[];
-    const scopedObservations=scoped(taskObservations,building);
+    const scopedObservations=scoped(taskObservations.map(withoutAutomaticHanding),building);
     if(task.kind==='plan'&&task.result.vectorVersion===VECTOR_VERSION)scopedObservations.forEach(row=>currentNativeObservations.add(row));
     observations.push(...scopedObservations);
   }
@@ -134,13 +133,9 @@ export async function publishProgress(jobId: string, final = false) {
   });
   for (const [left, right] of detected.conflicts) {
     const a = observations[Number(left)], b = observations[Number(right)];
-    output.uncertainties.push(`PDF page ${a.sourcePage}: opening labels ${a.mark || '(unmarked)'} and ${b.mark || '(unmarked)'} overlap the same door symbol. Their geometric hands were withheld until the identifier is checked against the source.`);
+    output.uncertainties.push(`PDF page ${a.sourcePage}: opening labels ${a.mark || '(unmarked)'} and ${b.mark || '(unmarked)'} overlap the same door symbol. Confirm their identifiers against the source before adding openings.`);
   }
   const rows = [...openings.values()];
-  // A cached geometric hand is not a printed schedule fact. Keep an explicit
-  // source hand, but do not let an earlier publication restore a held hand.
-  const printedHandOnly = (row: ScopedOpening | null) => row ? { ...row,
-    handing: /^(?:LH|RH|LHR|RHR)$/.test(row.handing || "") && new RegExp(`\\b${row.handing}\\b`, "i").test(row.evidence) ? row.handing : "" } : null;
   output.uncertainties.push(...pairSizeReviewNotes([...rows,...(job.analysis?.openingCatalog||[])]));
   output.doorTypes.push(...referencedDoorTypes(rows, output.doorTypes));
   const matchedDoorways = kept.map(door => {
@@ -148,20 +143,13 @@ export async function publishProgress(jobId: string, final = false) {
       && (!door.sourceBuilding || !row.sourceBuilding || door.sourceBuilding === row.sourceBuilding));
     const row = matches.length === 1 ? matches[0] : null;
     const identityConflict = conflictedObservations.has(door);
-    const printed = printedHandOnly(row);
-    const handing = resolveOpeningHanding(printed, door.handing, output.doorTypes);
+
     return { ...door, evidence: door.symbolEvidence, schedulePage: row?.sourcePage ?? null, scheduleMatches: matches.length,
       scheduleEvidence: row?.evidence || "", width: row?.width || "", height: row?.height || "",
-      handing, handingEvidence: handing && printed?.handing === handing ? `Printed schedule hand ${handing}. ${row!.evidence}` : door.handingEvidence, identityConflict,
-      reviewReasons: [...(!row ? ["Door tag is unreadable, unmatched, or ambiguous across schedules."] : []), ...(identityConflict ? ["Different opening labels overlap the same symbol; check the source identifier."] : []), ...(!door.handing ? ["Reference side or swing requires review."] : [])] };
+      handing: "", handingEvidence: "", identityConflict,
+      reviewReasons: [...(!row ? ["Door tag is unreadable, unmatched, or ambiguous across schedules."] : []), ...(identityConflict ? ["Different opening labels overlap the same symbol; check the source identifier."] : [])] };
   });
-  output.openings = rows.map(row => {
-    const matched = matchedDoorways.filter(door => door.schedulePage === row.sourcePage && normalizeMark(door.mark) === normalizeMark(row.mark));
-    const hands = [...new Set(matched.map(door => door.handing).filter(Boolean))];
-    const printed = printedHandOnly(row), handing = resolveOpeningHanding(printed, hands.length === 1 ? hands[0] : undefined, output.doorTypes);
-    return { ...row, handing,
-      handingEvidence: !handing ? "" : printed?.handing === handing ? `Printed schedule hand ${handing}. ${row.evidence}` : matched.find(door => door.handing === handing)?.handingEvidence || "", countSource: "schedule" };
-  });
+  output.openings = rows.map(row => ({...withoutAutomaticHanding(row),countSource:"schedule"}));
   // A drawing-only upload still produces reviewable opening drafts. When a
   // schedule exists, unmatched symbols stay observations to avoid double counting.
   if (!output.openings.length&&!catalogKeys.size&&!printedCandidates.length) output.openings = kept.map(door => ({
@@ -177,11 +165,8 @@ export async function publishProgress(jobId: string, final = false) {
   if (job.progress?.uncheckedPages) uncertainties.push(`${job.progress.uncheckedPages} pages still need visual screening. Resume incomplete sections to continue.`);
   if (pending) uncertainties.push(`${pending} extraction sections are saved and waiting for processing.`);
   for (const task of tasks.filter(task => task.status === "failed")) uncertainties.push(`PDF page ${task.input.pages.join(", ")}, ${task.kind}: ${task.error?.message || "section failed"}. Other results have been retained.`);
-  const unhanded = output.openings.filter(row => !row.handing).length;
-  if (unhanded) uncertainties.push(`${unhanded} scheduled openings do not yet have a supported swing hand. Non-swing and framed openings may not require one.`);
-  const handedReviewLabels=reviewLabelHands(reviewLabels,kept,output.doorTypes);
-  const reviewHandCount=handedReviewLabels.filter(row=>row.handing).length;
-  const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, doorwayObservations: kept, matchedDoorways,
+  const handedReviewLabels=reviewLabels.map(withoutAutomaticHanding);
+  const analysis = { ...job.analysis, ...output, publicationVersion: PUBLICATION_VERSION, handingMode:"page-references", doorwayObservations: kept, matchedDoorways,
     annotationOpeningCandidates:handedReviewLabels,
     relevantPages: job.analysis?.relevantPages || [],
     uncertainties: [...new Set(uncertainties)], suppressedDuplicateDoorSymbols: detected.suppressed.length,
@@ -244,8 +229,8 @@ export async function publishProgress(jobId: string, final = false) {
   const progress = { ...job.progress, completedTasks: completed, failedTasks: failed, totalTasks: tasks.length,
     reviewOpeningCount:reviewLabels.length,
     openingCount: output.openings.length, hardwareCount: output.hardwareGroups.length,
-    handedCount: output.openings.length - unhanded,
-    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components; ${output.openings.length - unhanded} handed opening drafts.${reviewHandCount?` ${reviewHandCount} supported ${reviewHandCount===1?"hand is":"hands are"} attached to door labels awaiting review.`:""}${reviewLabels.length?` ${reviewLabels.length} door labels need review before they are added to Openings.`:job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
+    handedCount: 0,
+    message: `${completed} of ${tasks.length} sections processed. ${output.openings.length} opening drafts, ${output.hardwareGroups.length} hardware components. Handing pages are listed for manual review.${reviewLabels.length?` ${reviewLabels.length} door labels need review before they are added to Openings.`:job.import_enabled ? " Saved to the phase as AI drafts." : " The phase already contained data; review and select candidates below to add them."}` };
   await updateJob(jobId, { status, analysis: phaseAnalysis, progress });
   const { error: saveError } = await db.from("project_documents").update({ analysis: phaseAnalysis, description: job.description, status: final ? "needs_review" : "indexed", phase_id: job.phase_id }).eq("id", document.id);
   if (saveError) throw saveError;

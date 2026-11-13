@@ -1,3 +1,4 @@
+import {findHandingPages,handingSearchDescription} from './handing-pages';
 import {entryContextsForPage} from './room-reference';
 import {partitionTableWallNotes} from './partition-table';
 import { createHash } from "node:crypto";
@@ -94,7 +95,8 @@ export async function planExtraction(jobId: string) {
     description: kind === "door" ? `${selected.reduce((sum, f) => sum + f.openingRows.length, 0)} printed opening rows inventoried before AI enrichment.` : "Confirmed content on the listed sheets.",
     evidence: "Page text/table structure or direct visual inspection; index references excluded.", confidence: 0.9,
   })).filter(row => row.pages.length);
-  const description = scheduleSearchDescription(schedules);
+  const handingPages=findHandingPages(pages,findings);
+  const description = handingSearchDescription(schedules,handingPages);
   const root = job.index_path.replace(/\/index.json$/, "");
   const literalOpenings=selected.flatMap(f=>f.openingRows.map(row=>({...row,sourceBuilding:f.building})));
   const annotated=resolveAnnotationCandidates(pages,literalOpenings);
@@ -111,7 +113,7 @@ export async function planExtraction(jobId: string) {
       sourceArtifact: screen.input.artifact, sourcePages: screen.input.pages, root, total: selected.length }), "application/json");
     inputs.push(inputPath);
   }
-  const analysis = { pipelineVersion: PIPELINE_VERSION, scheduleSearch: { completed: true, schedules, pages: [...new Set(schedules.flatMap(s => s.pages))], summary: description },
+  const analysis = { pipelineVersion: PIPELINE_VERSION, handingMode: "page-references", handingPages, scheduleSearch: { completed: true, schedules, pages: [...new Set(schedules.flatMap(s => s.pages))], summary: description },
     openings:physicalOpenings,openingCatalog:annotated.openingCatalog,annotationOpeningCandidates:annotated.candidates,catalogDoorTypeCandidates:annotated.catalogDefinitions,
     indexWarnings:pages.flatMap(page=>page.warnings||[]),walls: [], doorTypes: [], hardwareGroups: [], doorwayObservations: [],
     relevantPages: selected.map(f => ({ page: f.page, section: f.kinds.join(", "), reason: f.evidence, confidence: 0.9 })),
@@ -187,13 +189,20 @@ export async function preparePage(jobId: string, inputPath: string, ordinal: num
       if(vector.version!==VECTOR_VERSION||!Array.isArray(vector.observations))throw new Error("Stale vector artifact");
     } catch {
       try {
-        vector = await analyzeVectorPlan(pageBytes,page,knownMarks,(job.analysis?.catalogDoorTypeCandidates||[]).map((row:{code:string})=>row.code),{entryRoomContexts,unverifiedCircleLabels:(job.analysis?.catalogDoorTypeCandidates||[]).some((row:{sourceCatalogFormat?:string})=>row.sourceCatalogFormat==='style-table')});
+        vector = await analyzeVectorPlan(pageBytes,page,knownMarks,(job.analysis?.catalogDoorTypeCandidates||[]).map((row:{code:string})=>row.code),{extractHanding:false,entryRoomContexts,unverifiedCircleLabels:(job.analysis?.catalogDoorTypeCandidates||[]).some((row:{sourceCatalogFormat?:string})=>row.sourceCatalogFormat==='style-table')});
       } catch {
         // One unsupported drawing must not prevent the schedules from saving.
         vector = { version: VECTOR_VERSION, supported: false, geometryCount: 0, observations: [],
-          reason: "Native drawing geometry could not be read; visual detections require manual handing verification." };
+          reason: "Drawing symbols could not be read; review door identifiers and counts manually on this page." };
       }
       await putArtifact(vectorPath,JSON.stringify(vector),"application/json");
+    }
+    if(vector.geometryCount>0){
+      const handingPages=[...(job.analysis?.handingPages||[])];
+      if(!handingPages.some((row:{page:number})=>row.page===page.page))handingPages.push({page:page.page,description:'Drawing with visible door swing information for manual review.',evidence:`${vector.geometryCount} visible swing symbols confirmed on this source sheet. Check the drawing revision and scope before entering handing.`,confidence:.95});
+      handingPages.sort((a:{page:number},b:{page:number})=>a.page-b.page);
+      const description=handingSearchDescription(job.analysis?.scheduleSearch?.schedules||[],handingPages);
+      await updateJob(jobId,{description,analysis:{...job.analysis,handingPages,scheduleSearch:{...job.analysis?.scheduleSearch,summary:description}}});
     }
     if(vector.reason)vectorWarnings.push(`PDF page ${page.page}: ${vector.reason}`);
     if(useSingleNativePlanTask(vector,knownMarks)){
